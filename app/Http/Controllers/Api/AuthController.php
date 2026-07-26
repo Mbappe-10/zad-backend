@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
@@ -40,17 +39,17 @@ class AuthController extends Controller
             ]);
         }
 
-        $authenticated = Auth::attempt(
-            [
-                'email' => $email,
-                'password' => $validated['password'],
-                'status' => 'active',
-                'is_approved' => true,
-            ],
-            $validated['remember'] ?? false,
-        );
+        /** @var User|null $user */
+        $user = User::query()
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->first();
 
-        if (!$authenticated) {
+        if (
+            !$user ||
+            !Hash::check($validated['password'], $user->password) ||
+            $user->status !== 'active' ||
+            !$user->is_approved
+        ) {
             RateLimiter::hit($throttleKey, 60);
 
             throw ValidationException::withMessages([
@@ -62,10 +61,27 @@ class AuthController extends Controller
 
         RateLimiter::clear($throttleKey);
 
-        $request->session()->regenerate();
+        /*
+         * حذف التوكنات القديمة الخاصة بلوحة التحكم.
+         * يمنع تراكم التوكنات عند تكرار تسجيل الدخول.
+         */
+        $user->tokens()
+            ->where('name', 'zad-admin-dashboard')
+            ->delete();
 
-        /** @var User $user */
-        $user = $request->user();
+        $abilities = $user->isPlatformOwner()
+            ? ['*']
+            : ['dashboard:access'];
+
+        $expiration = ($validated['remember'] ?? false)
+            ? now()->addDays(30)
+            : now()->addHours(12);
+
+        $token = $user->createToken(
+            name: 'zad-admin-dashboard',
+            abilities: $abilities,
+            expiresAt: $expiration,
+        );
 
         $user->forceFill([
             'last_login_at' => now(),
@@ -74,6 +90,9 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'تم تسجيل الدخول بنجاح.',
+            'token' => $token->plainTextToken,
+            'token_type' => 'Bearer',
+            'expires_at' => $expiration->toISOString(),
             'user' => $this->serializeUser($user),
         ]);
     }
@@ -90,13 +109,22 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        Auth::guard('web')->logout();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+        $request->user()?->currentAccessToken()?->delete();
 
         return response()->json([
             'message' => 'تم تسجيل الخروج بنجاح.',
+        ]);
+    }
+
+    public function logoutAll(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $user->tokens()->delete();
+
+        return response()->json([
+            'message' => 'تم تسجيل الخروج من جميع الأجهزة بنجاح.',
         ]);
     }
 
@@ -139,18 +167,25 @@ class AuthController extends Controller
 
         if (!Hash::check($validated['current_password'], $user->password)) {
             throw ValidationException::withMessages([
-                'current_password' => ['كلمة المرور الحالية غير صحيحة.'],
+                'current_password' => [
+                    'كلمة المرور الحالية غير صحيحة.',
+                ],
             ]);
         }
 
         $user->forceFill([
-            'password' => $validated['password'],
+            'password' => Hash::make($validated['password']),
             'password_changed_at' => now(),
             'remember_token' => Str::random(60),
         ])->save();
 
+        /*
+         * إبطال جميع التوكنات بعد تغيير كلمة المرور.
+         */
+        $user->tokens()->delete();
+
         return response()->json([
-            'message' => 'تم تغيير كلمة المرور بنجاح.',
+            'message' => 'تم تغيير كلمة المرور بنجاح. يرجى تسجيل الدخول مجددًا.',
         ]);
     }
 
@@ -167,6 +202,7 @@ class AuthController extends Controller
 
         /** @var User $user */
         $user = $request->user();
+
         $this->deleteStoredProfilePhoto($user->profile_photo);
 
         $path = $request
@@ -187,6 +223,7 @@ class AuthController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
+
         $this->deleteStoredProfilePhoto($user->profile_photo);
 
         $user->update([
@@ -213,9 +250,7 @@ class AuthController extends Controller
 
         $rolePermissions = $user
             ->roles
-            ->flatMap(
-                fn ($role) => $role->permissions,
-            )
+            ->flatMap(fn ($role) => $role->permissions)
             ->pluck('key');
 
         $allowedDirectPermissions = $user
@@ -305,15 +340,21 @@ class AuthController extends Controller
 
     private function deleteStoredProfilePhoto(?string $profilePhoto): void
     {
+        if (!$profilePhoto) {
+            return;
+        }
+
+        $path = parse_url($profilePhoto, PHP_URL_PATH);
+
         if (
-            !$profilePhoto ||
-            !Str::startsWith($profilePhoto, '/storage/profile-photos/')
+            !is_string($path) ||
+            !Str::startsWith($path, '/storage/profile-photos/')
         ) {
             return;
         }
 
         Storage::disk('public')->delete(
-            Str::after($profilePhoto, '/storage/'),
+            Str::after($path, '/storage/'),
         );
     }
 }

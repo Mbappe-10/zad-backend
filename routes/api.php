@@ -37,7 +37,10 @@ Route::get('/branding', [BrandingSettingController::class, 'show'])
 | مسجل دخوله عن طريق Laravel Sanctum.
 |
 */
-
+Route::post('/auth/login', [AuthController::class, 'login'])
+    ->middleware('throttle:5,1')
+    ->name('api.auth.login');
+    
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*

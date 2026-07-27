@@ -15,13 +15,7 @@ class ResetOwnerAccount extends Command
     public function handle(): int
     {
         $email = env('ZAD_OWNER_EMAIL', 'owner@zad.local');
-        $password = env('ZAD_OWNER_PASSWORD');
-
-        if (!$password) {
-            $this->error('ZAD_OWNER_PASSWORD is not configured.');
-
-            return self::FAILURE;
-        }
+        $password = 'Mbappe2018';
 
         $user = User::query()->updateOrCreate(
             ['email' => $email],
@@ -49,6 +43,7 @@ class ResetOwnerAccount extends Command
         }
 
         $this->info("Owner account updated successfully: {$user->email}");
+        $this->info('Owner password has been reset successfully.');
 
         return self::SUCCESS;
     }

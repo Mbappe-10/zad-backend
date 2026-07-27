@@ -15,111 +15,266 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    /**
+     * تسجيل الدخول باستخدام Sanctum Bearer Token.
+     *
+     * هذا المسار لا يعتمد على:
+     * - جلسات Laravel
+     * - CSRF Cookie
+     * - XSRF-TOKEN
+     */
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
-            'remember' => ['sometimes', 'boolean'],
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+            ],
+
+            'password' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'remember' => [
+                'sometimes',
+                'boolean',
+            ],
         ]);
 
-        $email = Str::lower(trim($validated['email']));
-
-        $throttleKey = sprintf(
-            'login:%s|%s',
-            $email,
-            $request->ip(),
+        $email = Str::lower(
+            trim((string) $validated['email'])
         );
 
+        $throttleKey = sprintf(
+            'admin-login:%s|%s',
+            $email,
+            $request->ip() ?? 'unknown',
+        );
+
+        /*
+         |--------------------------------------------------------------------------
+         | حماية تسجيل الدخول من المحاولات المتكررة
+         |--------------------------------------------------------------------------
+         */
+
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
             throw ValidationException::withMessages([
                 'email' => [
-                    'تم تجاوز عدد محاولات تسجيل الدخول. حاول مرة أخرى بعد دقيقة.',
+                    "تم تجاوز عدد محاولات تسجيل الدخول. حاول مجددًا بعد {$seconds} ثانية.",
                 ],
             ]);
         }
 
+        /*
+         |--------------------------------------------------------------------------
+         | البحث عن المستخدم
+         |--------------------------------------------------------------------------
+         */
+
         /** @var User|null $user */
         $user = User::query()
+            ->withTrashed()
             ->whereRaw('LOWER(email) = ?', [$email])
             ->first();
 
+        /*
+         |--------------------------------------------------------------------------
+         | التحقق من كلمة المرور
+         |--------------------------------------------------------------------------
+         */
+
         if (
             !$user ||
-            !Hash::check($validated['password'], $user->password) ||
-            $user->status !== 'active' ||
-            !$user->is_approved
+            $user->trashed() ||
+            !Hash::check(
+                (string) $validated['password'],
+                $user->password,
+            )
         ) {
             RateLimiter::hit($throttleKey, 60);
 
             throw ValidationException::withMessages([
                 'email' => [
-                    'بيانات الدخول غير صحيحة أو أن الحساب غير نشط.',
+                    'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
                 ],
             ]);
+        }
+
+        /*
+         |--------------------------------------------------------------------------
+         | التحقق من حالة الحساب
+         |--------------------------------------------------------------------------
+         */
+
+        if ($user->status !== 'active') {
+            RateLimiter::hit($throttleKey, 60);
+
+            return response()->json([
+                'message' => 'الحساب غير نشط حاليًا.',
+                'code' => 'ACCOUNT_INACTIVE',
+            ], 403);
+        }
+
+        if (!$user->is_approved) {
+            RateLimiter::hit($throttleKey, 60);
+
+            return response()->json([
+                'message' => 'الحساب لم يتم اعتماده بعد.',
+                'code' => 'ACCOUNT_NOT_APPROVED',
+            ], 403);
         }
 
         RateLimiter::clear($throttleKey);
 
         /*
-         * حذف التوكنات القديمة الخاصة بلوحة التحكم.
-         * يمنع تراكم التوكنات عند تكرار تسجيل الدخول.
+         |--------------------------------------------------------------------------
+         | حذف توكنات لوحة التحكم السابقة
+         |--------------------------------------------------------------------------
+         |
+         | يمنع تراكم توكنات قديمة لنفس المستخدم.
+         |
          */
+
         $user->tokens()
             ->where('name', 'zad-admin-dashboard')
             ->delete();
+
+        /*
+         |--------------------------------------------------------------------------
+         | صلاحيات التوكن
+         |--------------------------------------------------------------------------
+         */
 
         $abilities = $user->isPlatformOwner()
             ? ['*']
             : ['dashboard:access'];
 
-        $expiration = ($validated['remember'] ?? false)
+        /*
+         |--------------------------------------------------------------------------
+         | مدة صلاحية التوكن
+         |--------------------------------------------------------------------------
+         */
+
+        $remember = (bool) ($validated['remember'] ?? false);
+
+        $expiration = $remember
             ? now()->addDays(30)
             : now()->addHours(12);
 
-        $token = $user->createToken(
+        /*
+         |--------------------------------------------------------------------------
+         | إنشاء Bearer Token
+         |--------------------------------------------------------------------------
+         */
+
+        $newToken = $user->createToken(
             name: 'zad-admin-dashboard',
             abilities: $abilities,
             expiresAt: $expiration,
         );
+
+        /*
+         |--------------------------------------------------------------------------
+         | تحديث معلومات آخر دخول
+         |--------------------------------------------------------------------------
+         */
 
         $user->forceFill([
             'last_login_at' => now(),
             'last_login_ip' => $request->ip(),
         ])->save();
 
+        $user->refresh();
+
+        /*
+         |--------------------------------------------------------------------------
+         | استجابة تسجيل الدخول
+         |--------------------------------------------------------------------------
+         */
+
         return response()->json([
             'message' => 'تم تسجيل الدخول بنجاح.',
-            'token' => $token->plainTextToken,
+
+            /*
+             * نعيد الاسمين لضمان التوافق مع الواجهة الحالية.
+             */
+            'token' => $newToken->plainTextToken,
+            'access_token' => $newToken->plainTextToken,
+
             'token_type' => 'Bearer',
             'expires_at' => $expiration->toISOString(),
+
             'user' => $this->serializeUser($user),
         ]);
     }
 
+    /**
+     * بيانات المستخدم الحالي.
+     */
     public function me(Request $request): JsonResponse
     {
-        /** @var User $user */
+        /** @var User|null $user */
         $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'المستخدم غير مسجل الدخول.',
+                'code' => 'UNAUTHENTICATED',
+            ], 401);
+        }
+
+        if (
+            $user->status !== 'active' ||
+            !$user->is_approved
+        ) {
+            $request->user()
+                ?->currentAccessToken()
+                ?->delete();
+
+            return response()->json([
+                'message' => 'الحساب غير نشط أو غير معتمد.',
+                'code' => 'ACCOUNT_UNAVAILABLE',
+            ], 403);
+        }
 
         return response()->json([
             'user' => $this->serializeUser($user),
         ]);
     }
 
+    /**
+     * تسجيل الخروج من الجهاز الحالي.
+     */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()?->currentAccessToken()?->delete();
+        $request->user()
+            ?->currentAccessToken()
+            ?->delete();
 
         return response()->json([
             'message' => 'تم تسجيل الخروج بنجاح.',
         ]);
     }
 
+    /**
+     * تسجيل الخروج من جميع الأجهزة.
+     */
     public function logoutAll(Request $request): JsonResponse
     {
-        /** @var User $user */
+        /** @var User|null $user */
         $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'المستخدم غير مسجل الدخول.',
+            ], 401);
+        }
 
         $user->tokens()->delete();
 
@@ -128,14 +283,39 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * تحديث الملف الشخصي.
+     */
     public function updateProfile(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name_ar' => ['required', 'string', 'max:120'],
-            'name_en' => ['required', 'string', 'max:120'],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'locale' => ['required', 'in:ar,en'],
-            'timezone' => ['required', 'timezone'],
+            'name_ar' => [
+                'required',
+                'string',
+                'max:120',
+            ],
+
+            'name_en' => [
+                'required',
+                'string',
+                'max:120',
+            ],
+
+            'phone' => [
+                'nullable',
+                'string',
+                'max:30',
+            ],
+
+            'locale' => [
+                'required',
+                'in:ar,en',
+            ],
+
+            'timezone' => [
+                'required',
+                'timezone',
+            ],
         ]);
 
         /** @var User $user */
@@ -145,17 +325,27 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'تم تحديث الملف الشخصي بنجاح.',
-            'user' => $this->serializeUser($user->fresh()),
+            'user' => $this->serializeUser(
+                $user->fresh(),
+            ),
         ]);
     }
 
+    /**
+     * تغيير كلمة المرور.
+     */
     public function changePassword(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'current_password' => ['required', 'string'],
+            'current_password' => [
+                'required',
+                'string',
+            ],
+
             'password' => [
                 'required',
                 'confirmed',
+
                 Password::min(10)
                     ->mixedCase()
                     ->numbers(),
@@ -165,7 +355,12 @@ class AuthController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        if (!Hash::check($validated['current_password'], $user->password)) {
+        if (
+            !Hash::check(
+                $validated['current_password'],
+                $user->password,
+            )
+        ) {
             throw ValidationException::withMessages([
                 'current_password' => [
                     'كلمة المرور الحالية غير صحيحة.',
@@ -174,8 +369,12 @@ class AuthController extends Controller
         }
 
         $user->forceFill([
-            'password' => Hash::make($validated['password']),
+            'password' => Hash::make(
+                $validated['password'],
+            ),
+
             'password_changed_at' => now(),
+
             'remember_token' => Str::random(60),
         ])->save();
 
@@ -189,8 +388,12 @@ class AuthController extends Controller
         ]);
     }
 
-    public function uploadProfilePhoto(Request $request): JsonResponse
-    {
+    /**
+     * رفع الصورة الشخصية.
+     */
+    public function uploadProfilePhoto(
+        Request $request,
+    ): JsonResponse {
         $request->validate([
             'photo' => [
                 'required',
@@ -203,28 +406,42 @@ class AuthController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $this->deleteStoredProfilePhoto($user->profile_photo);
+        $this->deleteStoredProfilePhoto(
+            $user->profile_photo,
+        );
 
         $path = $request
             ->file('photo')
-            ->store('profile-photos', 'public');
+            ->store(
+                'profile-photos',
+                'public',
+            );
 
         $user->update([
-            'profile_photo' => Storage::disk('public')->url($path),
+            'profile_photo' => Storage::disk('public')
+                ->url($path),
         ]);
 
         return response()->json([
             'message' => 'تم تحديث الصورة الشخصية بنجاح.',
-            'user' => $this->serializeUser($user->fresh()),
+            'user' => $this->serializeUser(
+                $user->fresh(),
+            ),
         ], 201);
     }
 
-    public function removeProfilePhoto(Request $request): JsonResponse
-    {
+    /**
+     * حذف الصورة الشخصية.
+     */
+    public function removeProfilePhoto(
+        Request $request,
+    ): JsonResponse {
         /** @var User $user */
         $user = $request->user();
 
-        $this->deleteStoredProfilePhoto($user->profile_photo);
+        $this->deleteStoredProfilePhoto(
+            $user->profile_photo,
+        );
 
         $user->update([
             'profile_photo' => null,
@@ -232,11 +449,15 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'تم حذف الصورة الشخصية.',
-            'user' => $this->serializeUser($user->fresh()),
+            'user' => $this->serializeUser(
+                $user->fresh(),
+            ),
         ]);
     }
 
     /**
+     * تجهيز بيانات المستخدم للواجهة.
+     *
      * @return array<string, mixed>
      */
     private function serializeUser(User $user): array
@@ -248,68 +469,161 @@ class AuthController extends Controller
             'directPermissions',
         ]);
 
-        $rolePermissions = $user
+        /*
+         |--------------------------------------------------------------------------
+         | مالك المنصة
+         |--------------------------------------------------------------------------
+         */
+
+        if ($user->isPlatformOwner()) {
+            $permissions = collect(
+                $user->effectivePermissions(),
+            );
+        } else {
+            /*
+             |--------------------------------------------------------------------------
+             | صلاحيات الأدوار
+             |--------------------------------------------------------------------------
+             */
+
+            $rolePermissions = $user
+                ->roles
+                ->flatMap(
+                    fn ($role) => $role->permissions,
+                )
+                ->map(
+                    fn ($permission) =>
+                        $permission->key
+                        ?? $permission->slug
+                        ?? $permission->code
+                        ?? $permission->name,
+                )
+                ->filter();
+
+            /*
+             |--------------------------------------------------------------------------
+             | الصلاحيات المباشرة المسموحة
+             |--------------------------------------------------------------------------
+             */
+
+            $allowedDirectPermissions = $user
+                ->directPermissions
+                ->filter(
+                    fn ($permission) =>
+                        $permission->pivot?->effect === 'allow'
+                        && (
+                            $permission->pivot?->expires_at === null
+                            || now()->lessThan(
+                                $permission->pivot->expires_at,
+                            )
+                        ),
+                )
+                ->map(
+                    fn ($permission) =>
+                        $permission->key
+                        ?? $permission->slug
+                        ?? $permission->code
+                        ?? $permission->name,
+                )
+                ->filter();
+
+            /*
+             |--------------------------------------------------------------------------
+             | الصلاحيات المباشرة الممنوعة
+             |--------------------------------------------------------------------------
+             */
+
+            $deniedDirectPermissions = $user
+                ->directPermissions
+                ->filter(
+                    fn ($permission) =>
+                        $permission->pivot?->effect === 'deny'
+                        && (
+                            $permission->pivot?->expires_at === null
+                            || now()->lessThan(
+                                $permission->pivot->expires_at,
+                            )
+                        ),
+                )
+                ->map(
+                    fn ($permission) =>
+                        $permission->key
+                        ?? $permission->slug
+                        ?? $permission->code
+                        ?? $permission->name,
+                )
+                ->filter();
+
+            $permissions = $rolePermissions
+                ->merge($allowedDirectPermissions)
+                ->unique()
+                ->reject(
+                    fn ($permission) =>
+                        $deniedDirectPermissions
+                            ->contains($permission),
+                )
+                ->values();
+        }
+
+        $primaryRole = $user
             ->roles
-            ->flatMap(fn ($role) => $role->permissions)
-            ->pluck('key');
-
-        $allowedDirectPermissions = $user
-            ->directPermissions
-            ->filter(
-                fn ($permission) =>
-                    $permission->pivot->effect === 'allow'
-                    && (
-                        $permission->pivot->expires_at === null
-                        || now()->lessThan($permission->pivot->expires_at)
-                    ),
+            ->sortByDesc(
+                fn ($role) => $role->priority ?? 0,
             )
-            ->pluck('key');
-
-        $deniedDirectPermissions = $user
-            ->directPermissions
-            ->filter(
-                fn ($permission) =>
-                    $permission->pivot->effect === 'deny'
-                    && (
-                        $permission->pivot->expires_at === null
-                        || now()->lessThan($permission->pivot->expires_at)
-                    ),
-            )
-            ->pluck('key');
-
-        $permissions = $rolePermissions
-            ->merge($allowedDirectPermissions)
-            ->unique()
-            ->reject(
-                fn (string $permission) =>
-                    $deniedDirectPermissions->contains($permission),
-            )
-            ->values();
+            ->first();
 
         return [
             'id' => $user->id,
-            'nameAr' => $user->name_ar ?: $user->name,
-            'nameEn' => $user->name_en ?: $user->name,
+
+            'name' => $user->displayName(
+                $user->locale ?? 'ar',
+            ),
+
+            'nameAr' => $user->name_ar
+                ?: $user->name,
+
+            'nameEn' => $user->name_en
+                ?: $user->name,
+
             'email' => $user->email,
             'phone' => $user->phone,
 
-            'role' => $user->roles
-                ->sortByDesc('priority')
-                ->first()?->key ?? 'candidate',
+            'role' => $primaryRole
+                ? (
+                    $primaryRole->key
+                    ?? $primaryRole->slug
+                    ?? $primaryRole->code
+                    ?? 'candidate'
+                )
+                : 'candidate',
 
             'roles' => $user->roles
-                ->map(fn ($role) => [
-                    'id' => $role->id,
-                    'key' => $role->key,
-                    'nameAr' => $role->name_ar,
-                    'nameEn' => $role->name_en,
-                ])
+                ->map(
+                    fn ($role) => [
+                        'id' => $role->id,
+
+                        'key' => $role->key
+                            ?? $role->slug
+                            ?? $role->code,
+
+                        'nameAr' => $role->name_ar
+                            ?? $role->name,
+
+                        'nameEn' => $role->name_en
+                            ?? $role->name,
+                    ],
+                )
                 ->values(),
 
             'accountType' => 'human',
-            'permissions' => $permissions,
+
+            'permissions' => $permissions
+                ->values()
+                ->all(),
+
             'profilePhoto' => $user->profile_photo,
-            'isApproved' => $user->is_approved,
+
+            'isApproved' => (bool) $user->is_approved,
             'status' => $user->status,
             'locale' => $user->locale,
             'timezone' => $user->timezone,
@@ -338,23 +652,36 @@ class AuthController extends Controller
         ];
     }
 
-    private function deleteStoredProfilePhoto(?string $profilePhoto): void
-    {
+    /**
+     * حذف الصورة القديمة من التخزين المحلي.
+     */
+    private function deleteStoredProfilePhoto(
+        ?string $profilePhoto,
+    ): void {
         if (!$profilePhoto) {
             return;
         }
 
-        $path = parse_url($profilePhoto, PHP_URL_PATH);
+        $path = parse_url(
+            $profilePhoto,
+            PHP_URL_PATH,
+        );
 
         if (
             !is_string($path) ||
-            !Str::startsWith($path, '/storage/profile-photos/')
+            !Str::startsWith(
+                $path,
+                '/storage/profile-photos/',
+            )
         ) {
             return;
         }
 
         Storage::disk('public')->delete(
-            Str::after($path, '/storage/'),
+            Str::after(
+                $path,
+                '/storage/',
+            ),
         );
     }
 }

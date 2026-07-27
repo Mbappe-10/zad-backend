@@ -13,16 +13,55 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        /*
+        |--------------------------------------------------------------------------
+        | Sanctum API Middleware
+        |--------------------------------------------------------------------------
+        |
+        | نحافظ على دعم Sanctum، مع استثناء جميع مسارات API من حماية CSRF
+        | لأن تسجيل الدخول الحالي يعتمد على Bearer Token وليس Session Cookie.
+        |
+        */
+
         $middleware->statefulApi();
-        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+
+        $middleware->validateCsrfTokens(except: [
+            'api/*',
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Global Security Headers
+        |--------------------------------------------------------------------------
+        */
+
+        $middleware->append(
+            \App\Http\Middleware\SecurityHeaders::class
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Middleware Aliases
+        |--------------------------------------------------------------------------
+        */
+
         $middleware->alias([
             'permission' => \App\Http\Middleware\RequirePermission::class,
             'security.headers' => \App\Http\Middleware\SecurityHeaders::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        /*
+        |--------------------------------------------------------------------------
+        | API JSON Exceptions
+        |--------------------------------------------------------------------------
+        |
+        | جميع أخطاء مسارات API يتم إرجاعها بصيغة JSON.
+        |
+        */
+
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
+            fn (Request $request): bool => $request->is('api/*'),
         );
     })
     ->create();

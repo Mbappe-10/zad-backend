@@ -37,10 +37,20 @@ Route::get('/branding', [BrandingSettingController::class, 'show'])
 | مسجل دخوله عن طريق Laravel Sanctum.
 |
 */
+/*
+|--------------------------------------------------------------------------
+| Authentication - Bearer Token
+|--------------------------------------------------------------------------
+|
+| هذا المسار عام ولا يستخدم CSRF أو جلسات المتصفح.
+| الواجهة تستقبل Sanctum Bearer Token وتُرسله في Authorization header.
+|
+*/
+
 Route::post('/auth/login', [AuthController::class, 'login'])
     ->middleware('throttle:5,1')
     ->name('api.auth.login');
-    
+
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*
@@ -51,12 +61,22 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     Route::get('/me', [AuthController::class, 'me'])
         ->name('api.auth.me');
+
+    Route::post('/auth/logout', [AuthController::class, 'logout'])
+        ->name('api.auth.logout');
+
+    Route::post('/auth/logout-all', [AuthController::class, 'logoutAll'])
+        ->name('api.auth.logout-all');
+
     Route::put('/profile', [AuthController::class, 'updateProfile'])
         ->name('api.profile.update');
+
     Route::put('/profile/password', [AuthController::class, 'changePassword'])
         ->name('api.profile.password');
+
     Route::post('/profile/photo', [AuthController::class, 'uploadProfilePhoto'])
         ->name('api.profile.photo.store');
+
     Route::delete('/profile/photo', [AuthController::class, 'removeProfilePhoto'])
         ->name('api.profile.photo.destroy');
 

@@ -12,8 +12,10 @@ class Customer extends Model
     use SoftDeletes;
 
     protected $table = 'customers';
+
     protected $guarded = ['id'];
-    protected $fillable = ['name','phone','email','status'];
+
+    protected $fillable = ['name', 'phone', 'email', 'status'];
 
     protected function casts(): array
     {

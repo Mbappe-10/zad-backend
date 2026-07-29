@@ -147,7 +147,7 @@ class CoreSystemSeeder extends Seeder
     /**
      * إنشاء المسميات الوظيفية الأساسية.
      *
-     * @param array<string, Department> $departments
+     * @param  array<string, Department>  $departments
      */
     private function seedJobTitles(array $departments): void
     {
@@ -253,7 +253,7 @@ class CoreSystemSeeder extends Seeder
         foreach ($items as $item) {
             $department = $departments[$item['department']] ?? null;
 
-            if (!$department) {
+            if (! $department) {
                 throw new RuntimeException(
                     "Department {$item['department']} was not found.",
                 );
@@ -612,8 +612,8 @@ class CoreSystemSeeder extends Seeder
     /**
      * ربط كل دور بصلاحياته.
      *
-     * @param array<string, Role> $roles
-     * @param array<string, Permission> $permissions
+     * @param  array<string, Role>  $roles
+     * @param  array<string, Permission>  $permissions
      */
     private function syncRolePermissions(
         array $roles,
@@ -775,14 +775,13 @@ class CoreSystemSeeder extends Seeder
         foreach ($rolePermissions as $roleKey => $permissionKeys) {
             $role = $roles[$roleKey] ?? null;
 
-            if (!$role) {
+            if (! $role) {
                 continue;
             }
 
             $permissionIds = collect($permissionKeys)
                 ->map(
-                    fn (string $permissionKey): ?int =>
-                        $permissions[$permissionKey]->id ?? null,
+                    fn (string $permissionKey): ?int => $permissions[$permissionKey]->id ?? null,
                 )
                 ->filter()
                 ->values()
@@ -797,8 +796,8 @@ class CoreSystemSeeder extends Seeder
      *
      * يمكن تغيير بياناته من ملف .env.
      *
-     * @param array<string, Role> $roles
-     * @param array<string, Department> $departments
+     * @param  array<string, Role>  $roles
+     * @param  array<string, Department>  $departments
      */
     private function seedPlatformOwner(
         array $roles,
@@ -823,7 +822,7 @@ class CoreSystemSeeder extends Seeder
         $owner = User::query()->firstOrNew([
             'email' => $email,
         ]);
-        $isNewOwner = !$owner->exists;
+        $isNewOwner = ! $owner->exists;
 
         $owner->fill([
             'name' => 'Platform Owner',

@@ -1,19 +1,19 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\PlatformSettingsController;
+use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
+use App\Http\Controllers\Api\AdminResourceController;
+use App\Http\Controllers\Api\ApprovalRequestController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BrandingSettingController;
-use App\Http\Controllers\Api\PlatformRecordController;
-use App\Http\Controllers\Api\DigitalEmployeeController;
-use App\Http\Controllers\Api\ApprovalRequestController;
-use App\Http\Controllers\Api\SystemDictionaryController;
 use App\Http\Controllers\Api\CoreResourceController;
-use App\Http\Controllers\Api\FinanceController;
 use App\Http\Controllers\Api\DeliveryOperationsController;
-use App\Http\Controllers\Api\WorkforceController;
+use App\Http\Controllers\Api\DigitalEmployeeController;
+use App\Http\Controllers\Api\FinanceController;
+use App\Http\Controllers\Api\PlatformRecordController;
 use App\Http\Controllers\Api\ReportController;
-use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
-use App\Http\Controllers\Api\Admin\PlatformSettingsController;
-use App\Http\Controllers\Api\AdminResourceController;
+use App\Http\Controllers\Api\SystemDictionaryController;
+use App\Http\Controllers\Api\WorkforceController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -165,7 +165,6 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/digital-employee-tasks/{task}/approval', [DigitalEmployeeController::class, 'approveTask']);
     Route::post('/digital-employees/{digitalEmployee}/rules', [DigitalEmployeeController::class, 'addRule']);
     Route::post('/automation-rules/{rule}/toggle', [DigitalEmployeeController::class, 'toggleRule']);
-
 
     /*
     |--------------------------------------------------------------------------

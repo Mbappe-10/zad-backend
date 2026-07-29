@@ -495,8 +495,7 @@ class BrandingSettingController extends Controller
                     user: $user,
                     request: $request,
                     action: 'before_restore',
-                    summary:
-                        "نسخة احتياطية قبل استعادة الإصدار رقم {$version->version_number}.",
+                    summary: "نسخة احتياطية قبل استعادة الإصدار رقم {$version->version_number}.",
                 );
 
                 $restorable = Arr::only(
@@ -513,8 +512,7 @@ class BrandingSettingController extends Controller
                     user: $user,
                     request: $request,
                     action: 'restored',
-                    summary:
-                        "تمت استعادة الإصدار رقم {$version->version_number}.",
+                    summary: "تمت استعادة الإصدار رقم {$version->version_number}.",
                 );
             });
 
@@ -616,7 +614,7 @@ class BrandingSettingController extends Controller
      */
     private function deletePublicFile(?string $path): void
     {
-        if (!$path) {
+        if (! $path) {
             return;
         }
 
@@ -876,41 +874,30 @@ class BrandingSettingController extends Controller
             'platform_name_en' => 'ZAD',
 
             'company_name_ar' => 'منصة زاد للأسر المنتجة',
-            'company_name_en' =>
-                'ZAD Productive Families Platform',
+            'company_name_en' => 'ZAD Productive Families Platform',
 
-            'platform_description_ar' =>
-                'منصة احترافية متكاملة لإدارة أعمال زاد بكفاءة وموثوقية.',
+            'platform_description_ar' => 'منصة احترافية متكاملة لإدارة أعمال زاد بكفاءة وموثوقية.',
 
-            'platform_description_en' =>
-                'A professional integrated platform for managing ZAD operations efficiently and reliably.',
+            'platform_description_en' => 'A professional integrated platform for managing ZAD operations efficiently and reliably.',
 
-            'copyright_ar' =>
-                'جميع الحقوق محفوظة © زاد ' . now()->year,
+            'copyright_ar' => 'جميع الحقوق محفوظة © زاد '.now()->year,
 
-            'copyright_en' =>
-                'All rights reserved © ZAD ' . now()->year,
+            'copyright_en' => 'All rights reserved © ZAD '.now()->year,
 
-            'login_title_ar' =>
-                'مرحبًا بك في لوحة تحكم زاد',
+            'login_title_ar' => 'مرحبًا بك في لوحة تحكم زاد',
 
-            'login_title_en' =>
-                'Welcome to ZAD Control Center',
+            'login_title_en' => 'Welcome to ZAD Control Center',
 
-            'login_description_ar' =>
-                'منصة الأسر المنتجة',
+            'login_description_ar' => 'منصة الأسر المنتجة',
 
-            'login_description_en' =>
-                'Productive Families Platform',
+            'login_description_en' => 'Productive Families Platform',
 
             'login_form_title_ar' => 'تسجيل الدخول',
             'login_form_title_en' => 'Sign In',
 
-            'login_form_description_ar' =>
-                'يرجى إدخال بيانات الموظف للوصول إلى لوحة التحكم.',
+            'login_form_description_ar' => 'يرجى إدخال بيانات الموظف للوصول إلى لوحة التحكم.',
 
-            'login_form_description_en' =>
-                'Enter your employee credentials to access the dashboard.',
+            'login_form_description_en' => 'Enter your employee credentials to access the dashboard.',
 
             'login_button_text_ar' => 'تسجيل الدخول',
             'login_button_text_en' => 'Sign In',
@@ -924,11 +911,9 @@ class BrandingSettingController extends Controller
             'remember_me_text_ar' => 'تذكرني',
             'remember_me_text_en' => 'Remember Me',
 
-            'forgot_password_text_ar' =>
-                'نسيت كلمة المرور؟',
+            'forgot_password_text_ar' => 'نسيت كلمة المرور؟',
 
-            'forgot_password_text_en' =>
-                'Forgot Password?',
+            'forgot_password_text_en' => 'Forgot Password?',
 
             'login_background_type' => 'gradient',
             'login_background_position' => 'center',
@@ -968,8 +953,7 @@ class BrandingSettingController extends Controller
             'login_card_radius' => 28,
             'login_button_radius' => 12,
 
-            'login_card_shadow' =>
-                '0 24px 60px rgba(15, 23, 42, 0.12)',
+            'login_card_shadow' => '0 24px 60px rgba(15, 23, 42, 0.12)',
 
             'default_locale' => 'ar',
             'arabic_enabled' => true,
@@ -978,11 +962,9 @@ class BrandingSettingController extends Controller
             'seo_title_ar' => 'لوحة تحكم زاد',
             'seo_title_en' => 'ZAD Admin Dashboard',
 
-            'seo_description_ar' =>
-                'لوحة التحكم الإدارية لمنصة زاد للأسر المنتجة.',
+            'seo_description_ar' => 'لوحة التحكم الإدارية لمنصة زاد للأسر المنتجة.',
 
-            'seo_description_en' =>
-                'Administrative dashboard for the ZAD productive families platform.',
+            'seo_description_en' => 'Administrative dashboard for the ZAD productive families platform.',
 
             'custom_settings' => [],
             'is_active' => true,

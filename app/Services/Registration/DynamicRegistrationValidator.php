@@ -102,7 +102,9 @@ class DynamicRegistrationValidator
     private function rejectSuspiciousStrings(array $payload, array $settings): void
     {
         array_walk_recursive($payload, function ($value, $key) use ($settings): void {
-            if (! is_string($value)) return;
+            if (! is_string($value)) {
+                return;
+            }
 
             if (($settings['rejectHtml'] ?? true) && $value !== strip_tags($value)) {
                 throw ValidationException::withMessages([$key => ['لا يسمح بإدخال HTML.']]);

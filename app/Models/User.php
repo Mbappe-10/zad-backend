@@ -232,7 +232,7 @@ class User extends Authenticatable
     public function hasAllRoles(array $roles): bool
     {
         foreach ($roles as $role) {
-            if (!$this->hasRole((string) $role)) {
+            if (! $this->hasRole((string) $role)) {
                 return false;
             }
         }
@@ -330,11 +330,10 @@ class User extends Authenticatable
             }
 
             $hasPermission = $role->permissions->contains(
-                fn (Permission $permission): bool =>
-                    $this->permissionMatches(
-                        $permission,
-                        $permissionName,
-                    ),
+                fn (Permission $permission): bool => $this->permissionMatches(
+                    $permission,
+                    $permissionName,
+                ),
             );
 
             if ($hasPermission) {
@@ -359,7 +358,7 @@ class User extends Authenticatable
     public function hasAllPermissions(array $permissions): bool
     {
         foreach ($permissions as $permission) {
-            if (!$this->hasPermission((string) $permission)) {
+            if (! $this->hasPermission((string) $permission)) {
                 return false;
             }
         }
@@ -390,8 +389,7 @@ class User extends Authenticatable
             return Permission::query()
                 ->get()
                 ->map(
-                    fn (Permission $permission): string =>
-                        $this->permissionIdentifier($permission),
+                    fn (Permission $permission): string => $this->permissionIdentifier($permission),
                 )
                 ->filter()
                 ->unique()
@@ -440,8 +438,7 @@ class User extends Authenticatable
 
             if ($permission->pivot?->effect === 'deny') {
                 $permissions = $permissions->reject(
-                    fn (string $item): bool =>
-                        $this->normalizeIdentifier($item)
+                    fn (string $item): bool => $this->normalizeIdentifier($item)
                         === $this->normalizeIdentifier($identifier),
                 );
 
@@ -456,8 +453,7 @@ class User extends Authenticatable
         return $permissions
             ->filter()
             ->unique(
-                fn (string $permission): string =>
-                    $this->normalizeIdentifier($permission),
+                fn (string $permission): string => $this->normalizeIdentifier($permission),
             )
             ->values()
             ->all();
@@ -514,7 +510,7 @@ class User extends Authenticatable
     {
         $expiresAt = $role->pivot?->expires_at;
 
-        if (!$expiresAt) {
+        if (! $expiresAt) {
             return false;
         }
 
@@ -526,7 +522,7 @@ class User extends Authenticatable
     ): bool {
         $expiresAt = $permission->pivot?->expires_at;
 
-        if (!$expiresAt) {
+        if (! $expiresAt) {
             return false;
         }
 

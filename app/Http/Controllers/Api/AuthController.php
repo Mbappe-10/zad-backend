@@ -90,9 +90,9 @@ class AuthController extends Controller
          */
 
         if (
-            !$user ||
+            ! $user ||
             $user->trashed() ||
-            !Hash::check(
+            ! Hash::check(
                 (string) $validated['password'],
                 $user->password,
             )
@@ -121,7 +121,7 @@ class AuthController extends Controller
             ], 403);
         }
 
-        if (!$user->is_approved) {
+        if (! $user->is_approved) {
             RateLimiter::hit($throttleKey, 60);
 
             return response()->json([
@@ -222,7 +222,7 @@ class AuthController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'message' => 'المستخدم غير مسجل الدخول.',
                 'code' => 'UNAUTHENTICATED',
@@ -231,7 +231,7 @@ class AuthController extends Controller
 
         if (
             $user->status !== 'active' ||
-            !$user->is_approved
+            ! $user->is_approved
         ) {
             $request->user()
                 ?->currentAccessToken()
@@ -270,7 +270,7 @@ class AuthController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'message' => 'المستخدم غير مسجل الدخول.',
             ], 401);
@@ -356,7 +356,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         if (
-            !Hash::check(
+            ! Hash::check(
                 $validated['current_password'],
                 $user->password,
             )
@@ -492,8 +492,7 @@ class AuthController extends Controller
                     fn ($role) => $role->permissions,
                 )
                 ->map(
-                    fn ($permission) =>
-                        $permission->key
+                    fn ($permission) => $permission->key
                         ?? $permission->slug
                         ?? $permission->code
                         ?? $permission->name,
@@ -509,8 +508,7 @@ class AuthController extends Controller
             $allowedDirectPermissions = $user
                 ->directPermissions
                 ->filter(
-                    fn ($permission) =>
-                        $permission->pivot?->effect === 'allow'
+                    fn ($permission) => $permission->pivot?->effect === 'allow'
                         && (
                             $permission->pivot?->expires_at === null
                             || now()->lessThan(
@@ -519,8 +517,7 @@ class AuthController extends Controller
                         ),
                 )
                 ->map(
-                    fn ($permission) =>
-                        $permission->key
+                    fn ($permission) => $permission->key
                         ?? $permission->slug
                         ?? $permission->code
                         ?? $permission->name,
@@ -536,8 +533,7 @@ class AuthController extends Controller
             $deniedDirectPermissions = $user
                 ->directPermissions
                 ->filter(
-                    fn ($permission) =>
-                        $permission->pivot?->effect === 'deny'
+                    fn ($permission) => $permission->pivot?->effect === 'deny'
                         && (
                             $permission->pivot?->expires_at === null
                             || now()->lessThan(
@@ -546,8 +542,7 @@ class AuthController extends Controller
                         ),
                 )
                 ->map(
-                    fn ($permission) =>
-                        $permission->key
+                    fn ($permission) => $permission->key
                         ?? $permission->slug
                         ?? $permission->code
                         ?? $permission->name,
@@ -558,9 +553,8 @@ class AuthController extends Controller
                 ->merge($allowedDirectPermissions)
                 ->unique()
                 ->reject(
-                    fn ($permission) =>
-                        $deniedDirectPermissions
-                            ->contains($permission),
+                    fn ($permission) => $deniedDirectPermissions
+                        ->contains($permission),
                 )
                 ->values();
         }
@@ -658,7 +652,7 @@ class AuthController extends Controller
     private function deleteStoredProfilePhoto(
         ?string $profilePhoto,
     ): void {
-        if (!$profilePhoto) {
+        if (! $profilePhoto) {
             return;
         }
 
@@ -668,8 +662,8 @@ class AuthController extends Controller
         );
 
         if (
-            !is_string($path) ||
-            !Str::startsWith(
+            ! is_string($path) ||
+            ! Str::startsWith(
                 $path,
                 '/storage/profile-photos/',
             )

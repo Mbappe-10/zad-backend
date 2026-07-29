@@ -6,6 +6,13 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateCoreResourceRequest extends FormRequest
 {
-    public function authorize(): bool { return $this->user() !== null; }
-    public function rules(): array { return []; }
+    public function authorize(): bool
+    {
+        return $this->user() !== null;
+    }
+
+    public function rules(): array
+    {
+        return [];
+    }
 }

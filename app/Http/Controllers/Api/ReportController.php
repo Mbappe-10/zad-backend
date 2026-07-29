@@ -113,6 +113,7 @@ class ReportController extends Controller
                     if (is_array($value) || is_object($value)) {
                         return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                     }
+
                     return $value;
                 }, array_keys($columns)));
             }
@@ -124,6 +125,7 @@ class ReportController extends Controller
     private function definition(string $report): array
     {
         abort_unless(isset(self::REPORTS[$report]), 404, 'نوع التقرير غير موجود.');
+
         return self::REPORTS[$report];
     }
 
@@ -133,13 +135,13 @@ class ReportController extends Controller
         $query = $definition['model']::query();
         $dateColumn = $definition['date'];
 
-        if (!empty($filters['from'])) {
+        if (! empty($filters['from'])) {
             $query->whereDate($dateColumn, '>=', Carbon::parse($filters['from'])->toDateString());
         }
-        if (!empty($filters['to'])) {
+        if (! empty($filters['to'])) {
             $query->whereDate($dateColumn, '<=', Carbon::parse($filters['to'])->toDateString());
         }
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $needle = trim($filters['search']);
             $query->where(function (Builder $sub) use ($needle): void {
                 $table = $sub->getModel()->getTable();
@@ -154,7 +156,7 @@ class ReportController extends Controller
 
         $table = $query->getModel()->getTable();
         $sort = (string) ($filters['sort'] ?? 'created_at');
-        if (!\Schema::hasColumn($table, $sort)) {
+        if (! \Schema::hasColumn($table, $sort)) {
             $sort = \Schema::hasColumn($table, 'created_at') ? 'created_at' : 'id';
         }
 

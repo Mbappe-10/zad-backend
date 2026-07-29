@@ -19,10 +19,10 @@ return new class extends Migration
             $table->id();
 
             // القسم
-            $table->string('group',100)->index();
+            $table->string('group', 100)->index();
 
             // المفتاح
-            $table->string('key',150);
+            $table->string('key', 150);
 
             // القيمة
             $table->json('value')->nullable();
@@ -40,7 +40,7 @@ return new class extends Migration
 
             $table->unique([
                 'group',
-                'key'
+                'key',
             ]);
         });
 
@@ -59,15 +59,15 @@ return new class extends Migration
                 ->constrained('users')
                 ->nullOnDelete();
 
-            $table->string('group',100);
+            $table->string('group', 100);
 
-            $table->string('key',150);
+            $table->string('key', 150);
 
             $table->json('old_value')->nullable();
 
             $table->json('new_value')->nullable();
 
-            $table->string('ip_address',45)->nullable();
+            $table->string('ip_address', 45)->nullable();
 
             $table->text('user_agent')->nullable();
 
@@ -75,7 +75,7 @@ return new class extends Migration
 
             $table->index([
                 'group',
-                'key'
+                'key',
             ]);
         });
     }

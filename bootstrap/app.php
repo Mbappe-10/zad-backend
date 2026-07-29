@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\RequirePermission;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -36,7 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
         */
 
         $middleware->append(
-            \App\Http\Middleware\SecurityHeaders::class
+            SecurityHeaders::class
         );
 
         /*
@@ -46,8 +48,8 @@ return Application::configure(basePath: dirname(__DIR__))
         */
 
         $middleware->alias([
-            'permission' => \App\Http\Middleware\RequirePermission::class,
-            'security.headers' => \App\Http\Middleware\SecurityHeaders::class,
+            'permission' => RequirePermission::class,
+            'security.headers' => SecurityHeaders::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

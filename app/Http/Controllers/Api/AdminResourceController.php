@@ -519,8 +519,7 @@ class AdminResourceController extends Controller
                         ->whereDate('created_at', $date)
                         ->sum('total')
                         + (float) $platformOrders->sum(
-                            fn (PlatformRecord $record): float =>
-                                (float) data_get($record->payload, 'total', 0),
+                            fn (PlatformRecord $record): float => (float) data_get($record->payload, 'total', 0),
                         ),
                 ];
             });
@@ -532,9 +531,9 @@ class AdminResourceController extends Controller
                     ->whereDate('created_at', today())
                     ->count()
                     + PlatformRecord::query()
-                    ->where('resource', 'orders')
-                    ->whereDate('created_at', today())
-                    ->count(),
+                        ->where('resource', 'orders')
+                        ->whereDate('created_at', today())
+                        ->count(),
                 'orders_running' => Order::query()
                     ->whereIn('status', $runningStatuses)
                     ->count()

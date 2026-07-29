@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('payment_providers', function (Blueprint $table): void {
@@ -121,7 +122,7 @@ return new class extends Migration {
 
     public function down(): void
     {
-        foreach (['financial_ledger_entries','refunds','payouts','order_commissions','commission_rules','payments','payment_providers'] as $table) {
+        foreach (['financial_ledger_entries', 'refunds', 'payouts', 'order_commissions', 'commission_rules', 'payments', 'payment_providers'] as $table) {
             Schema::dropIfExists($table);
         }
     }

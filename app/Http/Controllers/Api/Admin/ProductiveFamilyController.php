@@ -229,7 +229,7 @@ class ProductiveFamilyController extends Controller
         $metadata = [];
 
         foreach ($fields as $field) {
-            if (!$onlyProvided || $request->exists($field)) {
+            if (! $onlyProvided || $request->exists($field)) {
                 $metadata[$field] = $request->input($field);
             }
         }
@@ -261,8 +261,7 @@ class ProductiveFamilyController extends Controller
             'ai_score' => (float) ($metadata['ai_score'] ?? 0),
             'status' => $family->status,
             'health_certificate_number' => $family->health_certificate_number,
-            'health_certificate_expires_at' =>
-                optional($family->health_certificate_expires_at)?->format('Y-m-d'),
+            'health_certificate_expires_at' => optional($family->health_certificate_expires_at)?->format('Y-m-d'),
             'created_at' => optional($family->created_at)?->toISOString(),
             'updated_at' => optional($family->updated_at)?->toISOString(),
         ];

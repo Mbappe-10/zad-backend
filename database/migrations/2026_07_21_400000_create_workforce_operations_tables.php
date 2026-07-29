@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('employee_profiles', function (Blueprint $table): void {
@@ -72,10 +73,10 @@ return new class extends Migration {
     public function down(): void
     {
         Schema::table('digital_employees', function (Blueprint $table): void {
-            $table->dropColumn(['model_provider','model_name','monthly_budget','spent_this_month','max_daily_tasks']);
+            $table->dropColumn(['model_provider', 'model_name', 'monthly_budget', 'spent_this_month', 'max_daily_tasks']);
         });
         Schema::table('digital_employee_tasks', function (Blueprint $table): void {
-            $table->dropColumn(['attempts','duration_ms','error_message','cancelled_at']);
+            $table->dropColumn(['attempts', 'duration_ms', 'error_message', 'cancelled_at']);
         });
         Schema::dropIfExists('automation_rule_runs');
         Schema::dropIfExists('digital_task_events');

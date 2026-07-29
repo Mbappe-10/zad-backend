@@ -192,7 +192,7 @@ class BrandingSetting extends Model
 
     private function publicFileUrl(?string $path): ?string
     {
-        if (!$path) {
+        if (! $path) {
             return null;
         }
 

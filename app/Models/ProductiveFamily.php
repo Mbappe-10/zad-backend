@@ -12,11 +12,13 @@ class ProductiveFamily extends Model
     use SoftDeletes;
 
     protected $table = 'productive_families';
+
     protected $guarded = ['id'];
-    protected $fillable = ['code','owner_name','phone','email','health_certificate_number','health_certificate_expires_at','status','city_id','approved_by','approved_at','metadata'];
+
+    protected $fillable = ['code', 'owner_name', 'phone', 'email', 'health_certificate_number', 'health_certificate_expires_at', 'status', 'city_id', 'approved_by', 'approved_at', 'metadata'];
 
     protected function casts(): array
     {
-        return ['health_certificate_expires_at'=>'date','approved_at'=>'datetime','metadata'=>'array'];
+        return ['health_certificate_expires_at' => 'date', 'approved_at' => 'datetime', 'metadata' => 'array'];
     }
 }

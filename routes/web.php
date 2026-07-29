@@ -9,8 +9,8 @@ Route::get('/', fn () => response()->json([
 ]));
 
 // Route::prefix('auth')->group(function (): void {
-  //  Route::post('/login', [AuthController::class, 'login'])
-      //  ->middleware('throttle:login')
-       // ->name('auth.login');
+//  Route::post('/login', [AuthController::class, 'login'])
+//  ->middleware('throttle:login')
+// ->name('auth.login');
 
-//});
+// });

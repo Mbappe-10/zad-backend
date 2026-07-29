@@ -31,8 +31,8 @@ class PlatformOwnerSeeder extends Seeder
                 ->whereRaw('LOWER(email) = ?', [$email])
                 ->first();
 
-            if (!$user) {
-                $user = new User();
+            if (! $user) {
+                $user = new User;
             }
 
             $user->forceFill([
@@ -62,7 +62,7 @@ class PlatformOwnerSeeder extends Seeder
                 ->orWhere('code', 'platform_owner')
                 ->first();
 
-            if (!$role) {
+            if (! $role) {
                 throw new RuntimeException(
                     'دور platform_owner غير موجود. شغّل Seeder الخاص بالأدوار أولًا.'
                 );

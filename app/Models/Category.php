@@ -12,11 +12,13 @@ class Category extends Model
     use SoftDeletes;
 
     protected $table = 'categories';
+
     protected $guarded = ['id'];
-    protected $fillable = ['parent_id','name_ar','name_en','slug','image_path','sort_order','is_active'];
+
+    protected $fillable = ['parent_id', 'name_ar', 'name_en', 'slug', 'image_path', 'sort_order', 'is_active'];
 
     protected function casts(): array
     {
-        return ['is_active'=>'boolean'];
+        return ['is_active' => 'boolean'];
     }
 }

@@ -85,16 +85,11 @@ class DeliveryZoneSeeder extends Seeder
                     'city_id' => $city->id,
                     'name_ar' => $zone['name_ar'],
                     'name_en' => $zone['name_en'],
-                    'base_delivery_fee' =>
-                        $zone['base_delivery_fee'],
-                    'per_km_fee' =>
-                        $zone['per_km_fee'],
-                    'minimum_delivery_fee' =>
-                        $zone['minimum_delivery_fee'],
-                    'maximum_distance_km' =>
-                        $zone['maximum_distance_km'],
-                    'estimated_delivery_minutes' =>
-                        $zone['estimated_delivery_minutes'],
+                    'base_delivery_fee' => $zone['base_delivery_fee'],
+                    'per_km_fee' => $zone['per_km_fee'],
+                    'minimum_delivery_fee' => $zone['minimum_delivery_fee'],
+                    'maximum_distance_km' => $zone['maximum_distance_km'],
+                    'estimated_delivery_minutes' => $zone['estimated_delivery_minutes'],
                     'priority' => $zone['priority'],
                     'is_active' => true,
                     'accepts_orders' => true,

@@ -17,6 +17,6 @@ class City extends Model
 
     protected function casts(): array
     {
-        return ['is_active'=>'boolean','delivery_base_fee'=>'decimal:2'];
+        return ['is_active'=>'boolean','delivery_base_fee'=> 'float'];
     }
 }

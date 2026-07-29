@@ -13,7 +13,8 @@ class AuthenticationTest extends TestCase
 
     public function test_protected_api_rejects_guests(): void
     {
-        $this->getJson('/api/me')->assertUnauthorized();
+        $this->getJson('/api/me')
+            ->assertUnauthorized();
     }
 
     public function test_active_approved_user_can_login_and_read_profile(): void
@@ -26,12 +27,19 @@ class AuthenticationTest extends TestCase
             'is_approved' => true,
         ]);
 
-        $this->postJson('/auth/login', [
+        $loginResponse = $this->postJson('/api/auth/login', [
             'email' => $user->email,
             'password' => 'StrongPassword!123',
-        ])->assertOk()->assertJsonPath('user.email', $user->email);
+        ]);
 
-        $this->getJson('/api/me')
+        $loginResponse
+            ->assertOk()
+            ->assertJsonPath('user.email', $user->email);
+
+        $token = $loginResponse->json('token');
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->getJson('/api/me')
             ->assertOk()
             ->assertJsonPath('user.email', $user->email);
     }
@@ -46,9 +54,9 @@ class AuthenticationTest extends TestCase
             'is_approved' => true,
         ]);
 
-        $this->postJson('/auth/login', [
+        $this->postJson('/api/auth/login', [
             'email' => 'inactive@example.test',
             'password' => 'StrongPassword!123',
-        ])->assertUnprocessable();
+        ])->assertForbidden();
     }
 }

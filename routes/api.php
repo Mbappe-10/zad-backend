@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\DeliveryOperationsController;
 use App\Http\Controllers\Api\WorkforceController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
+use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\AdminResourceController;
 use Illuminate\Support\Facades\Route;
 
@@ -260,6 +261,31 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/settings', [AdminResourceController::class, 'settings']);
         Route::put('/settings', [AdminResourceController::class, 'saveSettings']);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Master Platform Settings Center
+        |--------------------------------------------------------------------------
+        |
+        | مسارات مركز الإعدادات الرئيسي. وضعت قبل المسارات الديناميكية
+        | /{resource} حتى لا يتم تفسير platform-settings كمورد عام.
+        | الحماية الأساسية موجودة من خلال auth:sanctum للمجموعة الخارجية،
+        | وسيتم تطبيق صلاحية المالك داخل PlatformSettingsController.
+        |
+        */
+
+        Route::prefix('platform-settings')
+            ->name('api.admin.platform-settings.')
+            ->group(function () {
+                Route::get('/', [PlatformSettingsController::class, 'index'])
+                    ->name('index');
+
+                Route::get('/meta', [PlatformSettingsController::class, 'meta'])
+                    ->name('meta');
+
+                Route::put('/', [PlatformSettingsController::class, 'update'])
+                    ->name('update');
+            });
 
         Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
             ->where('resource', 'support');

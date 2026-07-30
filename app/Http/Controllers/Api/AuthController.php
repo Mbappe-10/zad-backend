@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\PlatformOwnerSynchronizer;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -23,8 +24,22 @@ class AuthController extends Controller
      * - CSRF Cookie
      * - XSRF-TOKEN
      */
-    public function login(Request $request): JsonResponse
-    {
+    public function login(
+        Request $request,
+        PlatformOwnerSynchronizer $ownerSynchronizer,
+    ): JsonResponse {
+        /*
+         |--------------------------------------------------------------------------
+         | مزامنة حساب مالك المنصة
+         |--------------------------------------------------------------------------
+         |
+         | يضمن مطابقة حساب المالك مع متغيرات البيئة في الخادم قبل التحقق
+         | من بيانات تسجيل الدخول، دون الحاجة إلى Shell أو أوامر يدوية.
+         |
+         */
+
+        $ownerSynchronizer->sync();
+
         $validated = $request->validate([
             'email' => [
                 'required',
@@ -582,14 +597,18 @@ class AuthController extends Controller
             'email' => $user->email,
             'phone' => $user->phone,
 
-            'role' => $primaryRole
-                ? (
-                    $primaryRole->key
-                    ?? $primaryRole->slug
-                    ?? $primaryRole->code
-                    ?? 'candidate'
-                )
-                : 'candidate',
+            'role' => $user->isPlatformOwner()
+                ? 'platform_owner'
+                : (
+                    $primaryRole
+                        ? (
+                            $primaryRole->key
+                            ?? $primaryRole->slug
+                            ?? $primaryRole->code
+                            ?? 'candidate'
+                        )
+                        : 'candidate'
+                ),
 
             'roles' => $user->roles
                 ->map(
@@ -618,6 +637,10 @@ class AuthController extends Controller
             'profilePhoto' => $user->profile_photo,
 
             'isApproved' => (bool) $user->is_approved,
+            'isPlatformOwner' => $user->isPlatformOwner(),
+            'isProtected' => (bool) $user->is_protected,
+            'roleLocked' => (bool) $user->role_locked,
+            'permissionsLocked' => (bool) $user->permissions_locked,
             'status' => $user->status,
             'locale' => $user->locale,
             'timezone' => $user->timezone,

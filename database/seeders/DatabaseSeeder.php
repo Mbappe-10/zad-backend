@@ -11,6 +11,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             CoreSystemSeeder::class,
             DeliveryZoneSeeder::class,
+            PlatformOwnerSeeder::class,
         ]);
     }
 }

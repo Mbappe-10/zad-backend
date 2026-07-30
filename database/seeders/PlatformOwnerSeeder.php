@@ -2,87 +2,122 @@
 
 namespace Database\Seeders;
 
-use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use RuntimeException;
 
 class PlatformOwnerSeeder extends Seeder
 {
     public function run(): void
     {
-        $email = Str::lower(
-            trim((string) env('ZAD_OWNER_EMAIL', 'owner@zad.local'))
+        $email = strtolower(trim(
+            (string) env('ZAD_OWNER_EMAIL', '')
+        ));
+
+        $password = (string) env(
+            'ZAD_OWNER_PASSWORD',
+            ''
         );
 
-        $password = (string) env('ZAD_OWNER_PASSWORD');
-
-        if ($password === '') {
+        if ($email === '') {
             throw new RuntimeException(
-                'يجب إضافة ZAD_OWNER_PASSWORD داخل ملف .env قبل تشغيل PlatformOwnerSeeder.'
+                'متغير البيئة ZAD_OWNER_EMAIL غير موجود.'
             );
         }
 
-        DB::transaction(function () use ($email, $password): void {
-            $user = User::withTrashed()
+        if ($password === '') {
+            throw new RuntimeException(
+                'متغير البيئة ZAD_OWNER_PASSWORD غير موجود.'
+            );
+        }
+
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException(
+                'قيمة ZAD_OWNER_EMAIL ليست بريدًا إلكترونيًا صحيحًا.'
+            );
+        }
+
+        if (strlen($password) < 8) {
+            throw new RuntimeException(
+                'يجب ألا تقل كلمة مرور مالك المنصة عن 8 أحرف.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | البحث عن مالك المنصة الحالي
+        |--------------------------------------------------------------------------
+        |
+        | نبحث أولًا عن الحساب المحمي الحالي حتى نستطيع تغيير بريده
+        | دون إنشاء حساب مالك آخر.
+        |
+        */
+
+        $owner = User::query()
+            ->withTrashed()
+            ->where('is_platform_owner', true)
+            ->first();
+
+        /*
+        |--------------------------------------------------------------------------
+        | البحث بالبريد عند عدم وجود مالك سابق
+        |--------------------------------------------------------------------------
+        */
+
+        if (! $owner) {
+            $owner = User::query()
+                ->withTrashed()
                 ->whereRaw('LOWER(email) = ?', [$email])
                 ->first();
+        }
 
-            if (! $user) {
-                $user = new User;
-            }
+        /*
+        |--------------------------------------------------------------------------
+        | إنشاء الحساب أو تحديثه
+        |--------------------------------------------------------------------------
+        */
 
-            $user->forceFill([
-                'name' => 'مالك منصة زاد',
-                'name_ar' => 'مالك منصة زاد',
-                'name_en' => 'ZAD Platform Owner',
-                'email' => $email,
-                'phone' => null,
-                'password' => Hash::make($password),
-                'status' => 'active',
-                'is_approved' => true,
-                'approved_at' => now(),
-                'suspended_at' => null,
-                'suspension_reason' => null,
-                'locale' => 'ar',
-                'timezone' => 'Asia/Riyadh',
-                'mfa_enabled' => false,
-                'password_changed_at' => now(),
-                'email_verified_at' => now(),
-                'remember_token' => Str::random(60),
-                'deleted_at' => null,
-            ])->save();
+        if (! $owner) {
+            $owner = new User();
+        }
 
-            $role = Role::query()
-                ->where('key', 'platform_owner')
-                ->orWhere('slug', 'platform_owner')
-                ->orWhere('code', 'platform_owner')
-                ->first();
+        if ($owner->trashed()) {
+            $owner->restore();
+        }
 
-            if (! $role) {
-                throw new RuntimeException(
-                    'دور platform_owner غير موجود. شغّل Seeder الخاص بالأدوار أولًا.'
-                );
-            }
+        $owner->forceFill([
+            'name' => 'مؤيد منصور الهوساوي',
+            'name_ar' => 'مؤيد منصور الهوساوي',
+            'name_en' => 'Mouayad Mansour Al-Hosawi',
 
-            $user->roles()->syncWithoutDetaching([
-                $role->id => [
-                    'assigned_by' => $user->id,
-                    'expires_at' => null,
-                ],
-            ]);
+            'email' => $email,
+            'email_verified_at' => now(),
 
-            /*
-             * حذف جميع توكنات المستخدم القديمة عند إعادة ضبط الحساب.
-             */
-            $user->tokens()->delete();
+            'password' => Hash::make($password),
+            'password_changed_at' => now(),
 
-            $this->command?->info(
-                "تم تجهيز مالك المنصة بنجاح: {$user->email}"
-            );
-        });
+            'status' => 'active',
+            'is_approved' => true,
+            'approved_at' => $owner->approved_at ?? now(),
+
+            'locale' => 'ar',
+            'timezone' => 'Asia/Riyadh',
+
+            'is_platform_owner' => true,
+            'is_protected' => true,
+            'role_locked' => true,
+            'permissions_locked' => true,
+
+            'suspended_at' => null,
+            'suspension_reason' => null,
+            'deleted_at' => null,
+        ]);
+
+        $owner->save();
+
+        $this->command?->info(
+            "تم تجهيز حساب مالك المنصة: {$owner->email}"
+        );
     }
 }

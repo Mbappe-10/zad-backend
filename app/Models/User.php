@@ -41,6 +41,10 @@ class User extends Authenticatable
         'last_login_ip',
         'mfa_enabled',
         'password_changed_at',
+        'is_platform_owner',
+        'is_protected',
+        'role_locked',
+        'permissions_locked',
     ];
 
     protected $hidden = [
@@ -59,6 +63,10 @@ class User extends Authenticatable
             'suspended_at' => 'datetime',
             'last_login_at' => 'datetime',
             'password_changed_at' => 'datetime',
+            'is_platform_owner' => 'boolean',
+            'is_protected' => 'boolean',
+            'role_locked' => 'boolean',
+            'permissions_locked' => 'boolean',
         ];
     }
 
@@ -242,7 +250,7 @@ class User extends Authenticatable
 
     public function isPlatformOwner(): bool
     {
-        return $this->hasRole('platform_owner');
+        return (bool) $this->is_platform_owner;
     }
 
     /*

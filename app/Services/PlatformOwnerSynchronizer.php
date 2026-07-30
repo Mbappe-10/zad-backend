@@ -1,35 +1,30 @@
 <?php
 
-namespace Database\Seeders;
+namespace App\Services;
 
 use App\Models\User;
-use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
-class PlatformOwnerSeeder extends Seeder
+class PlatformOwnerSynchronizer
 {
-    public function run(): void
+    public function sync(): ?User
     {
         $email = strtolower(trim(
-            (string) env('ZAD_OWNER_EMAIL', '')
+            (string) config('zad.owner.email')
         ));
 
-        $password = (string) env(
-            'ZAD_OWNER_PASSWORD',
-            ''
-        );
+        $password = (string) config('zad.owner.password');
 
-        if ($email === '') {
-            throw new RuntimeException(
-                'متغير البيئة ZAD_OWNER_EMAIL غير موجود.'
-            );
-        }
+        /*
+        |--------------------------------------------------------------------------
+        | عدم تنفيذ المزامنة عند غياب متغيرات البيئة
+        |--------------------------------------------------------------------------
+        */
 
-        if ($password === '') {
-            throw new RuntimeException(
-                'متغير البيئة ZAD_OWNER_PASSWORD غير موجود.'
-            );
+        if ($email === '' || $password === '') {
+            return null;
         }
 
         if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -48,10 +43,6 @@ class PlatformOwnerSeeder extends Seeder
         |--------------------------------------------------------------------------
         | البحث عن مالك المنصة الحالي
         |--------------------------------------------------------------------------
-        |
-        | نبحث أولًا عن الحساب المحمي الحالي حتى نستطيع تحديث بياناته
-        | دون إنشاء حساب مالك إضافي.
-        |
         */
 
         $owner = User::query()
@@ -61,7 +52,7 @@ class PlatformOwnerSeeder extends Seeder
 
         /*
         |--------------------------------------------------------------------------
-        | البحث بالبريد عند عدم وجود مالك سابق
+        | البحث بالبريد عند عدم وجود مالك مسجل
         |--------------------------------------------------------------------------
         */
 
@@ -74,7 +65,7 @@ class PlatformOwnerSeeder extends Seeder
 
         /*
         |--------------------------------------------------------------------------
-        | إنشاء الحساب عند عدم وجوده
+        | إنشاء حساب جديد عند عدم وجود حساب
         |--------------------------------------------------------------------------
         */
 
@@ -115,11 +106,11 @@ class PlatformOwnerSeeder extends Seeder
 
         /*
         |--------------------------------------------------------------------------
-        | ضبط كلمة المرور عند إنشاء الحساب لأول مرة فقط
+        | عدم إعادة تعيين كلمة المرور عند كل تسجيل دخول
         |--------------------------------------------------------------------------
         |
-        | إعادة تشغيل Seeders يجب ألا تعيد كلمة مرور المالك إلى القيمة
-        | الموجودة في متغيرات البيئة بعد أن يغيرها من داخل المنصة.
+        | كلمة المرور من متغيرات البيئة تستخدم فقط عند إنشاء الحساب لأول مرة
+        | أو عندما يكون السجل الحالي بلا كلمة مرور.
         |
         */
 
@@ -135,8 +126,11 @@ class PlatformOwnerSeeder extends Seeder
         $owner->forceFill($ownerData);
         $owner->save();
 
-        $this->command?->info(
-            "تم تجهيز حساب مالك المنصة: {$owner->email}"
-        );
+        Log::info('Platform owner account synchronized.', [
+            'user_id' => $owner->id,
+            'email' => $owner->email,
+        ]);
+
+        return $owner->fresh();
     }
 }

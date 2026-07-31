@@ -1,0 +1,157 @@
+{
+  "info": {
+    "name": "ZAD Unified App API - Guest First",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000/api/v1"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "guest_session_id",
+      "value": ""
+    },
+    {
+      "key": "verification_token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Bootstrap",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/app/bootstrap"
+      }
+    },
+    {
+      "name": "Create Guest Session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/app/guest-sessions",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"device_id\": \"device-001\",\n  \"permissions\": {\n    \"location\": true,\n    \"notifications\": true\n  },\n  \"latitude\": 21.3891,\n  \"longitude\": 39.8579\n}"
+        }
+      }
+    },
+    {
+      "name": "Send Phone Code",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/app/phone/send-code",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"0500000000\",\n  \"purpose\": \"checkout\",\n  \"guest_session_id\": \"{{guest_session_id}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Verify Phone",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/app/phone/verify",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"verification_id\": 1,\n  \"code\": \"123456\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Stores",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/app/stores"
+      }
+    },
+    {
+      "name": "Create Guest Order",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/app/orders",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"guest_session_id\": \"{{guest_session_id}}\",\n  \"verification_token\": \"{{verification_token}}\",\n  \"store_id\": 1,\n  \"city_id\": 1,\n  \"distance_km\": 8,\n  \"latitude\": 21.4,\n  \"longitude\": 39.8,\n  \"address\": {\n    \"label\": \"المنزل\",\n    \"text\": \"مكة المكرمة\"\n  },\n  \"items\": [\n    {\n      \"product_id\": 1,\n      \"quantity\": 1\n    }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "Upload Prepared Proof",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{base_url}}/app/orders/1/journey-proof"
+      }
+    },
+    {
+      "name": "Owner Settings",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{base_url}}/owner/app/settings"
+      }
+    },
+    {
+      "name": "Owner Vehicle Override",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/owner/app/orders/1/vehicle-override",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"vehicle_type\": \"car\",\n  \"reason\": \"طلب عائلي كبير\"\n}"
+        }
+      }
+    }
+  ]
+}

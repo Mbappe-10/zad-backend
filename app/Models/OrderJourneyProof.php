@@ -1,0 +1,4 @@
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+class OrderJourneyProof extends Model { protected $guarded=[]; protected function casts(): array { return ['latitude'=>'decimal:7','longitude'=>'decimal:7']; } public function order(){ return $this->belongsTo(Order::class); } }

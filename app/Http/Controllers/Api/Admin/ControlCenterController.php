@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\ControlCenterActionRequest;
 use App\Http\Requests\Admin\UpdatePlatformControlRequest;
-use App\Http\Resources\PlatformControlCollection;
 use App\Http\Resources\PlatformControlResource;
 use App\Models\PlatformControl;
 use Illuminate\Http\JsonResponse;
@@ -19,9 +18,6 @@ use Throwable;
 
 class ControlCenterController extends Controller
 {
-    /**
-     * الإعدادات الافتراضية لمركز التحكم.
-     */
     private const DEFAULT_SECTIONS = [
         'platform' => [
             'platformEnabled' => true,
@@ -32,7 +28,6 @@ class ControlCenterController extends Controller
             'defaultLanguage' => 'ar',
             'timezone' => 'Asia/Riyadh',
         ],
-
         'modules' => [
             'salesEnabled' => true,
             'deliveryEnabled' => true,
@@ -43,7 +38,6 @@ class ControlCenterController extends Controller
             'liveStreamingEnabled' => true,
             'governanceEnabled' => true,
         ],
-
         'security' => [
             'twoFactorForOwner' => true,
             'twoFactorForAdmins' => false,
@@ -53,7 +47,6 @@ class ControlCenterController extends Controller
             'allowMultipleSessions' => false,
             'requireSensitiveActionConfirmation' => true,
         ],
-
         'artificial_intelligence' => [
             'enabled' => true,
             'requireOwnerApproval' => true,
@@ -63,7 +56,6 @@ class ControlCenterController extends Controller
             'maximumAutomaticActionValue' => 500,
             'recordAllDecisions' => true,
         ],
-
         'services' => [
             'mailEnabled' => true,
             'smsEnabled' => false,
@@ -72,7 +64,6 @@ class ControlCenterController extends Controller
             'paymentGatewayEnabled' => false,
             'cloudStorageEnabled' => false,
         ],
-
         'operations' => [
             'queueEnabled' => true,
             'schedulerEnabled' => true,
@@ -81,7 +72,6 @@ class ControlCenterController extends Controller
             'backupRetentionDays' => 30,
             'logRetentionDays' => 365,
         ],
-
         'governance' => [
             'auditLogsEnabled' => true,
             'preventAuditLogDeletion' => true,
@@ -91,50 +81,52 @@ class ControlCenterController extends Controller
         ],
     ];
 
-    /**
-     * عرض مركز التحكم كاملًا.
-     */
+    private const AVAILABLE_ACTIONS = [
+        'maintenance-on',
+        'maintenance-off',
+        'registrations-on',
+        'registrations-off',
+        'orders-on',
+        'orders-off',
+        'cache-clear',
+        'queue-restart',
+        'backup',
+    ];
+
     public function index(Request $request): JsonResponse
     {
         $this->ensurePlatformOwner($request);
 
-        $this->ensureDefaultSectionsExist(
-            $request->user()->id,
-        );
+        $userId = (int) $request->user()->getKey();
+
+        $this->ensureDefaultSectionsExist($userId);
 
         $controls = PlatformControl::query()
             ->with('updatedBy:id,name,email')
+            ->whereIn('section', array_keys(self::DEFAULT_SECTIONS))
             ->orderBy('section')
             ->get();
 
+        $history = PlatformControl::query()
+            ->where('section', 'action_history')
+            ->value('value');
+
         return response()->json([
-            'data' => new PlatformControlCollection($controls),
-
+            'data' => PlatformControlResource::collection($controls),
+            'history' => array_values(
+                is_array($history) ? ($history['items'] ?? []) : [],
+            ),
             'health' => $this->getHealthStatus(),
-
-            'availableActions' => [
-                'maintenance-on',
-                'maintenance-off',
-                'registrations-on',
-                'registrations-off',
-                'orders-on',
-                'orders-off',
-                'cache-clear',
-                'queue-restart',
-                'backup',
-            ],
-
+            'availableActions' => self::AVAILABLE_ACTIONS,
             'meta' => [
                 'isOwner' => true,
                 'canManagePlatform' => true,
+                'sectionsCount' => $controls->count(),
                 'generatedAt' => now()->toISOString(),
             ],
         ]);
     }
 
-    /**
-     * تحديث قسم واحد.
-     */
     public function update(
         UpdatePlatformControlRequest $request,
         string $section,
@@ -145,27 +137,35 @@ class ControlCenterController extends Controller
             ], 404);
         }
 
+        $validated = $request->validated();
+
         $control = PlatformControl::query()
             ->where('section', $section)
             ->first();
 
-        if (
-            $control?->is_sensitive === true &&
-            ! $request->boolean('confirmation')
-        ) {
+        $isSensitive = $control?->is_sensitive
+            ?? $this->isSensitiveSection($section);
+
+        if ($isSensitive && ! $request->boolean('confirmation')) {
             return response()->json([
                 'message' => 'يجب تأكيد تعديل هذا القسم الحساس.',
+                'errors' => [
+                    'confirmation' => [
+                        'يجب تأكيد تعديل هذا القسم الحساس.',
+                    ],
+                ],
             ], 422);
         }
 
-        $validated = $request->validated();
+        $existingValue = is_array($control?->value)
+            ? $control->value
+            : self::DEFAULT_SECTIONS[$section];
 
-        $existingValue = $control?->value
-            ?? self::DEFAULT_SECTIONS[$section];
+        $incomingValue = $validated['value'] ?? [];
 
         $mergedValue = array_replace_recursive(
             $existingValue,
-            $validated['value'],
+            $incomingValue,
         );
 
         $control = DB::transaction(function () use (
@@ -173,21 +173,17 @@ class ControlCenterController extends Controller
             $section,
             $validated,
             $mergedValue,
-        ) {
+            $isSensitive,
+        ): PlatformControl {
             return PlatformControl::query()->updateOrCreate(
-                [
-                    'section' => $section,
-                ],
+                ['section' => $section],
                 [
                     'value' => $mergedValue,
-
                     'description' => $validated['description']
                         ?? $this->sectionDescription($section),
-
                     'is_sensitive' => $validated['is_sensitive']
-                        ?? $this->isSensitiveSection($section),
-
-                    'updated_by' => $request->user()->id,
+                        ?? $isSensitive,
+                    'updated_by' => $request->user()->getKey(),
                 ],
             );
         });
@@ -195,11 +191,12 @@ class ControlCenterController extends Controller
         $control->load('updatedBy:id,name,email');
 
         $this->recordAction(
-            userId: $request->user()->id,
+            userId: (int) $request->user()->getKey(),
             action: 'section-updated',
             reason: $validated['reason'] ?? null,
             context: [
                 'section' => $section,
+                'changedKeys' => array_keys($incomingValue),
             ],
         );
 
@@ -207,117 +204,85 @@ class ControlCenterController extends Controller
 
         return response()->json([
             'message' => 'تم حفظ إعدادات القسم بنجاح.',
-
             'data' => new PlatformControlResource($control),
         ]);
     }
 
-    /**
-     * تنفيذ عملية حساسة من مركز التحكم.
-     */
     public function action(
         ControlCenterActionRequest $request,
         string $action,
     ): JsonResponse {
-        $allowedActions = [
-            'maintenance-on',
-            'maintenance-off',
-            'registrations-on',
-            'registrations-off',
-            'orders-on',
-            'orders-off',
-            'cache-clear',
-            'queue-restart',
-            'backup',
-        ];
-
-        if (! in_array($action, $allowedActions, true)) {
+        if (! in_array($action, self::AVAILABLE_ACTIONS, true)) {
             return response()->json([
                 'message' => 'عملية مركز التحكم غير معروفة.',
             ], 404);
         }
 
+        $userId = (int) $request->user()->getKey();
+
         $result = match ($action) {
             'maintenance-on' => $this->updatePlatformFlag(
                 key: 'maintenanceMode',
                 value: true,
-                userId: $request->user()->id,
+                userId: $userId,
             ),
-
             'maintenance-off' => $this->updatePlatformFlag(
                 key: 'maintenanceMode',
                 value: false,
-                userId: $request->user()->id,
+                userId: $userId,
             ),
-
             'registrations-on' => $this->updatePlatformFlag(
                 key: 'registrationsEnabled',
                 value: true,
-                userId: $request->user()->id,
+                userId: $userId,
             ),
-
             'registrations-off' => $this->updatePlatformFlag(
                 key: 'registrationsEnabled',
                 value: false,
-                userId: $request->user()->id,
+                userId: $userId,
             ),
-
             'orders-on' => $this->updatePlatformFlag(
                 key: 'newOrdersEnabled',
                 value: true,
-                userId: $request->user()->id,
+                userId: $userId,
             ),
-
             'orders-off' => $this->updatePlatformFlag(
                 key: 'newOrdersEnabled',
                 value: false,
-                userId: $request->user()->id,
+                userId: $userId,
             ),
-
             'cache-clear' => $this->clearApplicationCache(),
-
             'queue-restart' => $this->restartQueue(),
-
             'backup' => $this->createControlCenterBackup(),
-
-            default => null,
+            default => [],
         };
 
+        $validated = $request->validated();
+
         $this->recordAction(
-            userId: $request->user()->id,
+            userId: $userId,
             action: $action,
-            reason: $request->validated('reason'),
-            context: [
-                'result' => $result,
-            ],
+            reason: $validated['reason'] ?? null,
+            context: ['result' => $result],
         );
 
         return response()->json([
             'message' => $this->actionSuccessMessage($action),
-
             'action' => $action,
-
             'result' => $result,
-
             'executedAt' => now()->toISOString(),
         ]);
     }
 
-    private function ensureDefaultSectionsExist(
-        int $userId,
-    ): void {
+    private function ensureDefaultSectionsExist(int $userId): void
+    {
         foreach (self::DEFAULT_SECTIONS as $section => $value) {
             PlatformControl::query()->firstOrCreate(
-                [
-                    'section' => $section,
-                ],
+                ['section' => $section],
                 [
                     'value' => $value,
-
                     'description' => $this->sectionDescription($section),
-
                     'is_sensitive' => $this->isSensitiveSection($section),
-
                     'updated_by' => $userId,
                 ],
             );
@@ -329,21 +294,19 @@ class ControlCenterController extends Controller
         bool $value,
         int $userId,
     ): array {
-        $control = PlatformControl::query()
-            ->firstOrCreate(
-                [
-                    'section' => 'platform',
-                ],
-                [
-                    'value' => self::DEFAULT_SECTIONS['platform'],
-                    'description' => $this->sectionDescription('platform'),
-                    'is_sensitive' => true,
-                    'updated_by' => $userId,
-                ],
-            );
+        $control = PlatformControl::query()->firstOrCreate(
+            ['section' => 'platform'],
+            [
+                'value' => self::DEFAULT_SECTIONS['platform'],
+                'description' => $this->sectionDescription('platform'),
+                'is_sensitive' => true,
+                'updated_by' => $userId,
+            ],
+        );
 
-        $settings = $control->value
-            ?? self::DEFAULT_SECTIONS['platform'];
+        $settings = is_array($control->value)
+            ? $control->value
+            : self::DEFAULT_SECTIONS['platform'];
 
         Arr::set($settings, $key, $value);
 
@@ -386,11 +349,11 @@ class ControlCenterController extends Controller
         $controls = PlatformControl::query()
             ->orderBy('section')
             ->get()
-            ->map(fn (PlatformControl $control) => [
+            ->map(fn (PlatformControl $control): array => [
                 'section' => $control->section,
                 'value' => $control->value,
                 'description' => $control->description,
-                'is_sensitive' => $control->is_sensitive,
+                'is_sensitive' => (bool) $control->is_sensitive,
                 'updated_at' => $control->updated_at?->toISOString(),
             ])
             ->values()
@@ -401,20 +364,25 @@ class ControlCenterController extends Controller
             now()->format('Y-m-d_H-i-s'),
         );
 
-        Storage::disk('local')->put(
-            $fileName,
-            json_encode(
-                [
-                    'generatedAt' => now()->toISOString(),
-                    'application' => config('app.name'),
-                    'environment' => app()->environment(),
-                    'sections' => $controls,
-                ],
-                JSON_PRETTY_PRINT |
-                JSON_UNESCAPED_UNICODE |
-                JSON_UNESCAPED_SLASHES,
-            ),
+        $payload = json_encode(
+            [
+                'generatedAt' => now()->toISOString(),
+                'application' => config('app.name'),
+                'environment' => app()->environment(),
+                'sections' => $controls,
+            ],
+            JSON_PRETTY_PRINT
+                | JSON_UNESCAPED_UNICODE
+                | JSON_UNESCAPED_SLASHES,
         );
+
+        if ($payload === false) {
+            throw new \RuntimeException(
+                'تعذر تجهيز بيانات النسخة الاحتياطية.',
+            );
+        }
+
+        Storage::disk('local')->put($fileName, $payload);
 
         return [
             'created' => true,
@@ -431,18 +399,13 @@ class ControlCenterController extends Controller
                 'environment' => app()->environment(),
                 'debug' => (bool) config('app.debug'),
             ],
-
             'database' => $this->databaseHealth(),
-
             'cache' => $this->cacheHealth(),
-
             'storage' => $this->storageHealth(),
-
             'queue' => [
-                'status' => 'unknown',
+                'status' => 'configured',
                 'connection' => config('queue.default'),
             ],
-
             'scheduler' => [
                 'status' => 'configured',
                 'timezone' => config('app.timezone'),
@@ -460,9 +423,11 @@ class ControlCenterController extends Controller
                 'connection' => DB::getDefaultConnection(),
             ];
         } catch (Throwable $exception) {
+            report($exception);
+
             return [
                 'status' => 'offline',
-                'message' => $exception->getMessage(),
+                'message' => 'تعذر الاتصال بقاعدة البيانات.',
             ];
         }
     }
@@ -479,16 +444,15 @@ class ControlCenterController extends Controller
             Cache::forget($key);
 
             return [
-                'status' => $healthy
-                    ? 'healthy'
-                    : 'warning',
-
+                'status' => $healthy ? 'healthy' : 'warning',
                 'store' => config('cache.default'),
             ];
         } catch (Throwable $exception) {
+            report($exception);
+
             return [
                 'status' => 'offline',
-                'message' => $exception->getMessage(),
+                'message' => 'تعذر فحص خدمة الكاش.',
             ];
         }
     }
@@ -505,16 +469,15 @@ class ControlCenterController extends Controller
             Storage::disk('local')->delete($file);
 
             return [
-                'status' => $healthy
-                    ? 'healthy'
-                    : 'warning',
-
+                'status' => $healthy ? 'healthy' : 'warning',
                 'disk' => 'local',
             ];
         } catch (Throwable $exception) {
+            report($exception);
+
             return [
                 'status' => 'offline',
-                'message' => $exception->getMessage(),
+                'message' => 'تعذر فحص التخزين المحلي.',
             ];
         }
     }
@@ -530,31 +493,29 @@ class ControlCenterController extends Controller
             $action,
             $reason,
             $context,
-        ) {
+        ): void {
             $historyControl = PlatformControl::query()
+                ->where('section', 'action_history')
                 ->lockForUpdate()
-                ->firstOrCreate(
-                    [
-                        'section' => 'action_history',
-                    ],
-                    [
-                        'value' => [
-                            'items' => [],
-                        ],
+                ->first();
 
-                        'description' => 'سجل عمليات مركز التحكم الرئيسي.',
+            if (! $historyControl) {
+                $historyControl = PlatformControl::query()->create([
+                    'section' => 'action_history',
+                    'value' => ['items' => []],
+                    'description' => 'سجل عمليات مركز التحكم الرئيسي.',
+                    'is_sensitive' => true,
+                    'updated_by' => $userId,
+                ]);
+            }
 
-                        'is_sensitive' => true,
+            $history = is_array($historyControl->value)
+                ? $historyControl->value
+                : ['items' => []];
 
-                        'updated_by' => $userId,
-                    ],
-                );
-
-            $history = $historyControl->value ?? [
-                'items' => [],
-            ];
-
-            $items = $history['items'] ?? [];
+            $items = is_array($history['items'] ?? null)
+                ? $history['items']
+                : [];
 
             array_unshift($items, [
                 'action' => $action,
@@ -570,60 +531,60 @@ class ControlCenterController extends Controller
                 'value' => [
                     'items' => array_slice($items, 0, 100),
                 ],
-
                 'updated_by' => $userId,
             ])->save();
         });
     }
 
-    private function ensurePlatformOwner(
-        Request $request,
-    ): void {
+    private function ensurePlatformOwner(Request $request): void
+    {
         $user = $request->user();
 
         abort_unless(
-            $user && (
-                (bool) $user->getAttribute('is_platform_owner') === true ||
-                $user->getAttribute('role') === 'platform_owner' ||
-                (
-                    method_exists($user, 'hasRole') &&
-                    $user->hasRole('platform_owner')
-                ) ||
-                $user
-                    ->roles()
-                    ->where('key', 'platform_owner')
-                    ->exists()
-            ),
+            $user && $this->isPlatformOwner($user),
             403,
             'هذه الصفحة خاصة بمالك المنصة.',
         );
     }
 
-    private function sectionDescription(
-        string $section,
-    ): string {
+    private function isPlatformOwner(object $user): bool
+    {
+        if (
+            (bool) $user->getAttribute('is_platform_owner') === true
+            || $user->getAttribute('role') === 'platform_owner'
+        ) {
+            return true;
+        }
+
+        if (
+            method_exists($user, 'hasRole')
+            && $user->hasRole('platform_owner')
+        ) {
+            return true;
+        }
+
+        return method_exists($user, 'roles')
+            && $user->roles()
+                ->where('key', 'platform_owner')
+                ->exists();
+    }
+
+    private function sectionDescription(string $section): string
+    {
         return match ($section) {
             'platform' => 'حالة المنصة والتسجيل والطلبات ووضع الصيانة.',
-
             'modules' => 'تشغيل وإيقاف وحدات منصة زاد.',
-
             'security' => 'إعدادات الحماية والجلسات والتحقق.',
-
             'artificial_intelligence' => 'ضوابط الذكاء الاصطناعي والموظفين الرقميين.',
-
             'services' => 'الخدمات الخارجية والبريد والرسائل والتخزين.',
-
             'operations' => 'التشغيل التقني والنسخ الاحتياطي والكاش والطوابير.',
-
             'governance' => 'الحوكمة والاعتمادات وسجل التغييرات.',
-
             default => 'إعدادات مركز التحكم الرئيسي.',
         };
     }
 
-    private function isSensitiveSection(
-        string $section,
-    ): bool {
+    private function isSensitiveSection(string $section): bool
+    {
         return in_array($section, [
             'platform',
             'security',
@@ -633,46 +594,19 @@ class ControlCenterController extends Controller
         ], true);
     }
 
-    private function actionSuccessMessage(
-        string $action,
-    ): string {
+    private function actionSuccessMessage(string $action): string
+    {
         return match ($action) {
             'maintenance-on' => 'تم تشغيل وضع الصيانة.',
-
             'maintenance-off' => 'تم إيقاف وضع الصيانة.',
-
             'registrations-on' => 'تم فتح التسجيل.',
-
             'registrations-off' => 'تم إيقاف التسجيل.',
-
-            'orders-on' => 'تم استقبال الطلبات الجديدة.',
-
+            'orders-on' => 'تم تشغيل استقبال الطلبات الجديدة.',
             'orders-off' => 'تم إيقاف استقبال الطلبات الجديدة.',
-
             'cache-clear' => 'تم مسح كاش التطبيق.',
-
             'queue-restart' => 'تم إرسال أمر إعادة تشغيل الطوابير.',
-
             'backup' => 'تم إنشاء نسخة احتياطية لمركز التحكم.',
-
             default => 'تم تنفيذ العملية بنجاح.',
         };
     }
 }
-
-Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
-    Route::get(
-        '/control-center',
-        [ControlCenterController::class, 'index'],
-    );
-
-    Route::patch(
-        '/control-center/{section}',
-        [ControlCenterController::class, 'update'],
-    );
-
-    Route::post(
-        '/control-center/actions/{action}',
-        [ControlCenterController::class, 'action'],
-    );
-});

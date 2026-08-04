@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\StoreController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BrandingSettingController;
@@ -177,6 +178,16 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     */
 
     Route::prefix('admin/families')->group(function () {
+        Route::prefix('stores')->group(function () {
+        Route::get('/', [StoreController::class, 'index']);
+        Route::post('/', [StoreController::class, 'store']);
+        Route::get('/{store}', [StoreController::class, 'show']);
+        Route::put('/{store}', [StoreController::class, 'update']);
+        Route::patch('/{store}', [StoreController::class, 'update']);
+        Route::patch('/{store}/status', [StoreController::class, 'changeStatus']);
+        Route::patch('/{store}/open-status', [StoreController::class, 'updateOpenStatus']);
+        Route::delete('/{store}', [StoreController::class, 'destroy']);
+
         Route::get('/stats', [ProductiveFamilyController::class, 'stats']);
         Route::get('/export', [ProductiveFamilyController::class, 'export']);
 

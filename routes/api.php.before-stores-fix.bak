@@ -167,6 +167,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/digital-employees/{digitalEmployee}/rules', [DigitalEmployeeController::class, 'addRule']);
     Route::post('/automation-rules/{rule}/toggle', [DigitalEmployeeController::class, 'toggleRule']);
 
+
     /*
     |--------------------------------------------------------------------------
     | Productive Families Management
@@ -177,61 +178,24 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     */
 
     Route::prefix('admin/families')->group(function () {
+        Route::prefix('stores')->group(function () {
+        Route::get('/', [StoreController::class, 'index']);
+        Route::post('/', [StoreController::class, 'store']);
+        Route::get('/{store}', [StoreController::class, 'show']);
+        Route::put('/{store}', [StoreController::class, 'update']);
+        Route::patch('/{store}', [StoreController::class, 'update']);
+        Route::patch('/{store}/status', [StoreController::class, 'changeStatus']);
+        Route::patch('/{store}/open-status', [StoreController::class, 'updateOpenStatus']);
+        Route::delete('/{store}', [StoreController::class, 'destroy']);
+
         Route::get('/stats', [ProductiveFamilyController::class, 'stats']);
         Route::get('/export', [ProductiveFamilyController::class, 'export']);
 
         Route::get('/', [ProductiveFamilyController::class, 'index']);
         Route::post('/', [ProductiveFamilyController::class, 'store']);
-
-        Route::match(
-            ['put', 'patch'],
-            '/{family}',
-            [ProductiveFamilyController::class, 'update'],
-        );
-
-        Route::patch(
-            '/{family}/status',
-            [ProductiveFamilyController::class, 'changeStatus'],
-        );
-
-        Route::delete(
-            '/{family}',
-            [ProductiveFamilyController::class, 'destroy'],
-        );
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | Stores Management
-    |--------------------------------------------------------------------------
-    */
-
-    Route::prefix('admin/stores')->group(function () {
-        Route::get('/', [StoreController::class, 'index']);
-        Route::post('/', [StoreController::class, 'store']);
-
-        Route::get('/{store}', [StoreController::class, 'show']);
-
-        Route::match(
-            ['put', 'patch'],
-            '/{store}',
-            [StoreController::class, 'update'],
-        );
-
-        Route::patch(
-            '/{store}/status',
-            [StoreController::class, 'changeStatus'],
-        );
-
-        Route::patch(
-            '/{store}/open-status',
-            [StoreController::class, 'updateOpenStatus'],
-        );
-
-        Route::delete(
-            '/{store}',
-            [StoreController::class, 'destroy'],
-        );
+        Route::put('/{family}', [ProductiveFamilyController::class, 'update']);
+        Route::patch('/{family}/status', [ProductiveFamilyController::class, 'changeStatus']);
+        Route::delete('/{family}', [ProductiveFamilyController::class, 'destroy']);
     });
 
     /*
@@ -240,6 +204,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     |--------------------------------------------------------------------------
     |
     | إدارة هوية المنصة وصفحة تسجيل الدخول.
+    | التحقق من صلاحية المستخدم سيتم أيضًا داخل Controller.
     |
     */
 
@@ -295,6 +260,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     |--------------------------------------------------------------------------
     | Admin Dashboard Compatibility API
     |--------------------------------------------------------------------------
+    |
+    | المسارات التالية هي طبقة الربط الموحدة لكل صفحات لوحة React. تحفظ
+    | السجلات الديناميكية في platform_records وتدعم CRUD والحالات والتصدير.
+    |
     */
 
     Route::prefix('admin')->group(function () {
@@ -303,39 +272,38 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/settings', [AdminResourceController::class, 'settings']);
         Route::put('/settings', [AdminResourceController::class, 'saveSettings']);
+     /*
+    |--------------------------------------------------------------------------
+    | Governed Platform Settings
+    |--------------------------------------------------------------------------
+    */
 
-        /*
-        |--------------------------------------------------------------------------
-        | Governed Platform Settings
-        |--------------------------------------------------------------------------
-        */
+ Route::get(
+       '/platform-settings/meta',
+    [PlatformSettingsController::class, 'meta'],
+    )->name('api.admin.platform-settings.meta');
 
-        Route::get(
-            '/platform-settings/meta',
-            [PlatformSettingsController::class, 'meta'],
-        )->name('api.admin.platform-settings.meta');
+    Route::get(
+       '/platform-settings/audits',
+       [PlatformSettingsController::class, 'audits'],
+    )->name('api.admin.platform-settings.audits');
 
-        Route::get(
-            '/platform-settings/audits',
-            [PlatformSettingsController::class, 'audits'],
-        )->name('api.admin.platform-settings.audits');
+    Route::post(
+       '/platform-settings/audits/{audit}/rollback',
+      [PlatformSettingsController::class, 'rollback'],
+    )->name('api.admin.platform-settings.rollback');
 
-        Route::post(
-            '/platform-settings/audits/{audit}/rollback',
-            [PlatformSettingsController::class, 'rollback'],
-        )->name('api.admin.platform-settings.rollback');
+    Route::get(
+        '/platform-settings',
+      [PlatformSettingsController::class, 'index'],
+    )->name('api.admin.platform-settings.index');
 
-        Route::get(
-            '/platform-settings',
-            [PlatformSettingsController::class, 'index'],
-        )->name('api.admin.platform-settings.index');
-
-        Route::put(
-            '/platform-settings',
-            [PlatformSettingsController::class, 'update'],
-        )->name('api.admin.platform-settings.update');
-
-        Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
+    Route::put(
+    '/platform-settings',
+    [PlatformSettingsController::class, 'update'],
+       )->name('api.admin.platform-settings.update');
+      
+       Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
             ->where('resource', 'support');
         Route::post('/{resource}/tickets', [AdminResourceController::class, 'store'])
             ->where('resource', 'support');

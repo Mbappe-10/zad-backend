@@ -72,6 +72,82 @@ class ControlCenterController extends Controller
             'backupRetentionDays' => 30,
             'logRetentionDays' => 365,
         ],
+
+        'orders_sales' => [
+            'enabled' => true,
+            'guestOrdersEnabled' => true,
+            'scheduledOrdersEnabled' => true,
+            'allowCustomerCancellation' => true,
+            'allowRefundRequests' => true,
+            'requireCancellationReason' => true,
+            'minimumOrderAmount' => 0,
+            'cancellationWindowMinutes' => 5,
+            'automaticOrderExpiryMinutes' => 15,
+        ],
+
+        'productive_families' => [
+            'registrationsEnabled' => true,
+            'automaticApprovalEnabled' => false,
+            'healthCertificateRequired' => true,
+            'identityVerificationRequired' => true,
+            'autoCreateStore' => true,
+            'suspendExpiredCertificates' => true,
+            'maximumStoresPerFamily' => 1,
+            'approvalSlaHours' => 48,
+        ],
+
+        'stores' => [
+            'enabled' => true,
+            'automaticStoreActivation' => false,
+            'allowTemporaryClosure' => true,
+            'ratingsEnabled' => true,
+            'showOnlyOpenStores' => false,
+            'priorityRankingEnabled' => true,
+            'minimumRatingForVisibility' => 0,
+            'defaultPreparationMinutes' => 30,
+        ],
+
+        'products_categories' => [
+            'productsEnabled' => true,
+            'categoriesEnabled' => true,
+            'productApprovalRequired' => true,
+            'inventoryTrackingEnabled' => true,
+            'hideOutOfStockProducts' => true,
+            'productImageRequired' => true,
+            'allowPriceChanges' => true,
+            'maximumProductsPerStore' => 500,
+            'maximumCategoriesPerStore' => 50,
+        ],
+
+        'delivery' => [
+            'enabled' => true,
+            'scooterEnabled' => true,
+            'motorcycleEnabled' => true,
+            'carEnabled' => true,
+            'smartDispatchEnabled' => true,
+            'automaticRedispatchEnabled' => true,
+            'showDistanceToCustomer' => false,
+            'courierAcceptanceSeconds' => 20,
+            'scooterMaximumDistanceKm' => 10,
+            'motorcycleMaximumDistanceKm' => 15,
+            'baseDeliveryFee' => 5,
+            'pricePerKilometer' => 1,
+        ],
+
+        'finance' => [
+            'walletsEnabled' => true,
+            'paymentsEnabled' => true,
+            'commissionsEnabled' => true,
+            'automaticPayoutsEnabled' => false,
+            'ownerApprovalRequired' => true,
+            'allowWalletFreeze' => true,
+            'platformCommissionPercent' => 10,
+            'minimumWithdrawalAmount' => 50,
+            'familyPayoutCycleDays' => 15,
+            'courierPayoutCycleDays' => 20,
+            'refundApprovalLimit' => 500,
+        ],
+
         'governance' => [
             'auditLogsEnabled' => true,
             'preventAuditLogDeletion' => true,
@@ -590,6 +666,9 @@ class ControlCenterController extends Controller
             'security',
             'artificial_intelligence',
             'operations',
+            'orders_sales',
+            'delivery',
+            'finance',
             'governance',
         ], true);
     }

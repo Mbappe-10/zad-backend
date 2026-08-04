@@ -12,7 +12,6 @@ use App\Http\Controllers\Api\DeliveryOperationsController;
 use App\Http\Controllers\Api\WorkforceController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
-use App\Http\Controllers\Api\Admin\ControlCenterController;
 use App\Http\Controllers\Api\AdminResourceController;
 use Illuminate\Support\Facades\Route;
 
@@ -261,32 +260,6 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/settings', [AdminResourceController::class, 'settings']);
         Route::put('/settings', [AdminResourceController::class, 'saveSettings']);
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Owner Master Control Center
-        |--------------------------------------------------------------------------
-        |
-        | مركز التحكم الرئيسي الخاص بمالك المنصة.
-        | يجب أن تسبق هذه المسارات المسارات الديناميكية /{resource}.
-        |
-        */
-
-        Route::get(
-            '/control-center',
-            [ControlCenterController::class, 'index'],
-        )->name('api.admin.control-center.index');
-
-        Route::patch(
-            '/control-center/{section}',
-            [ControlCenterController::class, 'update'],
-        )->name('api.admin.control-center.update');
-
-        Route::post(
-            '/control-center/actions/{action}',
-            [ControlCenterController::class, 'action'],
-        )->name('api.admin.control-center.action');
 
         Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
             ->where('resource', 'support');

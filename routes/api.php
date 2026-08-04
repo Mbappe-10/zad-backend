@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BrandingSettingController;
 use App\Http\Controllers\Api\PlatformRecordController;
@@ -260,8 +261,38 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/settings', [AdminResourceController::class, 'settings']);
         Route::put('/settings', [AdminResourceController::class, 'saveSettings']);
+     /*
+    |--------------------------------------------------------------------------
+    | Governed Platform Settings
+    |--------------------------------------------------------------------------
+    */
 
-        Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
+ Route::get(
+       '/platform-settings/meta',
+    [PlatformSettingsController::class, 'meta'],
+    )->name('api.admin.platform-settings.meta');
+
+    Route::get(
+       '/platform-settings/audits',
+       [PlatformSettingsController::class, 'audits'],
+    )->name('api.admin.platform-settings.audits');
+
+    Route::post(
+       '/platform-settings/audits/{audit}/rollback',
+      [PlatformSettingsController::class, 'rollback'],
+    )->name('api.admin.platform-settings.rollback');
+
+    Route::get(
+        '/platform-settings',
+      [PlatformSettingsController::class, 'index'],
+    )->name('api.admin.platform-settings.index');
+
+    Route::put(
+    '/platform-settings',
+    [PlatformSettingsController::class, 'update'],
+       )->name('api.admin.platform-settings.update');
+      
+       Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
             ->where('resource', 'support');
         Route::post('/{resource}/tickets', [AdminResourceController::class, 'store'])
             ->where('resource', 'support');

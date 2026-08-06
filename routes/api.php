@@ -1,5 +1,10 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\ProductFieldSettingController;
+use App\Http\Controllers\Api\Admin\ProductImageController;
+use App\Http\Controllers\Api\App\StoreCatalogController;
+use App\Http\Controllers\Api\App\BootstrapController;
+use App\Http\Controllers\Api\App\GuestSessionController;
 use App\Http\Controllers\Api\Admin\StoreController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\AuthController;
@@ -169,6 +174,38 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
+    | Product Image Upload
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post(
+        '/admin/products/{product}/image',
+        [ProductImageController::class, 'store'],
+    )->name('api.admin.products.image.store');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Product Field Settings
+    |--------------------------------------------------------------------------
+    |
+    | إدارة الحقول متاحة فقط للمستخدم المصادق عليه، ويمكن لاحقًا
+    | ربطها بصلاحية products.fields.manage أو products.fields.view.
+    |
+    */
+
+    Route::get(
+        '/admin/product-fields',
+        [ProductFieldSettingController::class, 'index'],
+    )->name('api.admin.product-fields.index');
+
+    Route::put(
+        '/admin/product-fields',
+        [ProductFieldSettingController::class, 'update'],
+    )->name('api.admin.product-fields.update');
+
+    /*
+    |--------------------------------------------------------------------------
     | Productive Families Management
     |--------------------------------------------------------------------------
     |
@@ -182,7 +219,6 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/', [ProductiveFamilyController::class, 'index']);
         Route::post('/', [ProductiveFamilyController::class, 'store']);
-
         Route::match(
             ['put', 'patch'],
             '/{family}',
@@ -381,4 +417,29 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::match(['post', 'patch'], '/{resource}/{record}/{action}', [AdminResourceController::class, 'action'])
             ->whereNumber('record');
     });
+});
+
+Route::prefix('v1/app')->group(function (): void {
+    Route::get('/bootstrap', BootstrapController::class);
+
+
+    Route::get(
+        '/product-fields',
+        [ProductFieldSettingController::class, 'familyFields'],
+    )->name('api.app.product-fields.index');
+
+    Route::get(
+        '/stores/{store}/products',
+        [StoreCatalogController::class, 'show'],
+    );
+
+    Route::post(
+        '/guest-sessions',
+        [GuestSessionController::class, 'store'],
+    );
+
+    Route::patch(
+        '/guest-sessions/{guest}',
+        [GuestSessionController::class, 'update'],
+    );
 });

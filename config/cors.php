@@ -1,43 +1,5 @@
 <?php
 
-/*
-|--------------------------------------------------------------------------
-| Allowed Origins
-|--------------------------------------------------------------------------
-|
-| يتم جلب الروابط المسموحة من متغير البيئة:
-|
-| CORS_ALLOWED_ORIGINS
-|
-| مثال:
-|
-| https://zad-admin-dashboard.vercel.app,
-| https://zad-admin-dashboard-zad6.vercel.app
-|
-*/
-
-$allowedOrigins = array_values(
-    array_filter(
-        array_map(
-            static fn (string $origin): string => rtrim(
-                trim($origin),
-                '/',
-            ),
-            explode(
-                ',',
-                (string) env(
-                    'CORS_ALLOWED_ORIGINS',
-                    env(
-                        'FRONTEND_URL',
-                        'http://127.0.0.1:8080',
-                    ),
-                ),
-            ),
-        ),
-        static fn (string $origin): bool => $origin !== '',
-    ),
-);
-
 return [
 
     /*
@@ -45,7 +7,8 @@ return [
     | CORS Paths
     |--------------------------------------------------------------------------
     |
-    | Laravel يضيف /api تلقائيًا لمسارات routes/api.php.
+    | جميع مسارات الـ API ومسارات الملفات العامة التي يحتاجها التطبيق
+    | ولوحة التحكم أثناء التطوير.
     |
     */
 
@@ -67,35 +30,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Exact Allowed Origins
+    | Allowed Origins
     |--------------------------------------------------------------------------
+    |
+    | السماح لجميع المنافذ المحلية مؤقتًا أثناء التطوير، لأن Flutter Web
+    | يستخدم منفذًا مختلفًا في كل تشغيل.
+    |
+    | سنستبدل هذا لاحقًا بروابط زاد الرسمية عند النشر.
+    |
     */
 
-    'allowed_origins' => $allowedOrigins,
+    'allowed_origins' => [
+        '*',
+    ],
 
     /*
     |--------------------------------------------------------------------------
-    | Vercel Preview Origins
+    | Allowed Origin Patterns
     |--------------------------------------------------------------------------
-    |
-    | روابط Preview في Vercel تتغير مع كل عملية نشر.
-    | هذا النمط يسمح فقط بمعاينات مشروع لوحة زاد.
-    |
     */
 
-    'allowed_origins_patterns' => [
-        '#^https://zad-admin-dashboard(?:-[a-z0-9-]+)?\.vercel\.app$#i',
-        '#^https://zad-admin-dashboard-[a-z0-9-]+-zad6\.vercel\.app$#i',
-    ],
+    'allowed_origins_patterns' => [],
 
     /*
     |--------------------------------------------------------------------------
     | Allowed Request Headers
     |--------------------------------------------------------------------------
-    |
-    | استخدام * يمنع فشل طلبات Preflight عند إضافة Header جديد
-    | مثل Authorization أو X-XSRF-TOKEN.
-    |
     */
 
     'allowed_headers' => [
@@ -125,9 +85,9 @@ return [
     | Credentials
     |--------------------------------------------------------------------------
     |
-    | مفعّل لدعم Sanctum والجلسات والكوكيز عند الحاجة.
+    | يجب أن تكون false عند استخدام allowed_origins = ['*'].
     |
     */
 
-    'supports_credentials' => true,
+    'supports_credentials' => false,
 ];

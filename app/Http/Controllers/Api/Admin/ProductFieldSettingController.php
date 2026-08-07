@@ -24,10 +24,16 @@ class ProductFieldSettingController extends Controller
     ];
 
     /**
-     * عرض جميع إعدادات الحقول للمالك أو الموظف المصرح له.
+     * عرض جميع إعدادات الحقول.
+     *
+     * هذا المسار متاح للمستخدم المصادق عليه حتى تستطيع صفحات
+     * لوحة التحكم قراءة إعدادات الحقول، لكن meta يوضح هل يملك
+     * المستخدم حق الإدارة والتعديل أم لا.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+
         $fields = ProductFieldSetting::query()
             ->orderBy('sort_order')
             ->orderBy('id')
@@ -37,15 +43,29 @@ class ProductFieldSettingController extends Controller
             'data' => $fields,
             'meta' => [
                 'protected_fields' => self::PROTECTED_FIELDS,
+                'is_platform_owner' => (bool) $user?->isPlatformOwner(),
+                'can_manage' => (bool) $user?->canManageProductFields(),
+                'can_view' => (bool) $user?->canViewProductFields(),
             ],
         ]);
     }
 
     /**
      * تحديث إعدادات مجموعة من الحقول.
+     *
+     * المالك يملك الصلاحية دائمًا.
+     * أي موظف آخر يحتاج products.fields.manage.
      */
     public function update(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        if ($user === null || ! $user->canManageProductFields()) {
+            return response()->json([
+                'message' => 'ليس لديك صلاحية لإدارة حقول المنتجات.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'fields' => [
                 'required',
@@ -118,7 +138,7 @@ class ProductFieldSettingController extends Controller
             'fields.*.field_key.exists' => 'أحد الحقول المرسلة غير موجود.',
         ]);
 
-        $userId = $request->user()?->id;
+        $userId = $user->id;
 
         DB::transaction(function () use (
             $validated,
@@ -192,6 +212,9 @@ class ProductFieldSettingController extends Controller
                 ->get(),
             'meta' => [
                 'protected_fields' => self::PROTECTED_FIELDS,
+                'is_platform_owner' => true,
+                'can_manage' => true,
+                'can_view' => true,
             ],
         ]);
     }

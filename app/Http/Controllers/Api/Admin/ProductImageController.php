@@ -16,6 +16,9 @@ class ProductImageController extends Controller
     ) {
     }
 
+    /**
+     * رفع أو استبدال صورة المنتج.
+     */
     public function store(
         Request $request,
         Product $product,
@@ -43,6 +46,32 @@ class ProductImageController extends Controller
             return response()->json([
                 'message' => 'تم رفع صورة المنتج وتحسينها وضغطها بنجاح.',
                 'data' => $result,
+            ]);
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * حذف صورة المنتج الحالية.
+     */
+    public function destroy(
+        Product $product,
+    ): JsonResponse {
+        try {
+            $this->productImageService->deleteProductImage(
+                $product,
+            );
+
+            return response()->json([
+                'message' => 'تم حذف صورة المنتج بنجاح.',
+                'data' => [
+                    'product_id' => $product->id,
+                    'image_path' => null,
+                    'image_url' => null,
+                ],
             ]);
         } catch (RuntimeException $exception) {
             return response()->json([

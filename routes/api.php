@@ -183,6 +183,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         [ProductImageController::class, 'store'],
     )->name('api.admin.products.image.store');
 
+    Route::delete(
+        '/admin/products/{product}/image',
+        [ProductImageController::class, 'destroy'],
+    )->name('api.admin.products.image.destroy');
+
 
     /*
     |--------------------------------------------------------------------------
@@ -202,7 +207,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::put(
         '/admin/product-fields',
         [ProductFieldSettingController::class, 'update'],
-    )->name('api.admin.product-fields.update');
+    )
+        ->middleware('permission:products.fields.manage')
+        ->name('api.admin.product-fields.update');
 
     /*
     |--------------------------------------------------------------------------

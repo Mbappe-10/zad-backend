@@ -122,6 +122,32 @@ class ProductImageService
         }
     }
 
+    /**
+     * حذف صورة المنتج الحالية من قاعدة البيانات ومن التخزين.
+     */
+    public function deleteProductImage(
+        Product $product,
+    ): void {
+        $oldImagePath = $this->firstImagePath(
+            $product->images,
+        );
+
+        DB::transaction(function () use ($product): void {
+            $product->forceFill([
+                'images' => null,
+            ])->save();
+        });
+
+        if ($oldImagePath !== null) {
+            $this->imageProcessor->delete(
+                $oldImagePath,
+            );
+        }
+    }
+
+    /**
+     * استخراج أول مسار صورة صالح من حقل images.
+     */
     private function firstImagePath(
         mixed $images,
     ): ?string {
@@ -149,9 +175,20 @@ class ProductImageService
             return null;
         }
 
-        return ltrim(
-            $firstImage,
+        $cleanPath = ltrim(
+            trim($firstImage),
             '/',
         );
+
+        if (str_starts_with($cleanPath, 'storage/')) {
+            $cleanPath = substr(
+                $cleanPath,
+                strlen('storage/'),
+            );
+        }
+
+        return $cleanPath !== ''
+            ? $cleanPath
+            : null;
     }
 }

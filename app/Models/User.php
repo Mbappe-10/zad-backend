@@ -253,6 +253,30 @@ class User extends Authenticatable
         return (bool) $this->is_platform_owner;
     }
 
+    /**
+     * هل يستطيع المستخدم عرض إعدادات حقول المنتجات؟
+     *
+     * مالك المنصة يستطيع العرض دائمًا.
+     */
+    public function canViewProductFields(): bool
+    {
+        return $this->isPlatformOwner()
+            || $this->hasPermission('products.fields.view')
+            || $this->hasPermission('products.fields.manage');
+    }
+
+    /**
+     * هل يستطيع المستخدم تعديل إعدادات حقول المنتجات؟
+     *
+     * مالك المنصة يمتلك هذه الصلاحية دائمًا حتى لو لم تكن
+     * مسجلة كسجل مستقل في جدول permissions.
+     */
+    public function canManageProductFields(): bool
+    {
+        return $this->isPlatformOwner()
+            || $this->hasPermission('products.fields.manage');
+    }
+
     /*
     |--------------------------------------------------------------------------
     | التحقق من الصلاحيات
@@ -400,7 +424,13 @@ class User extends Authenticatable
                     fn (Permission $permission): string => $this->permissionIdentifier($permission),
                 )
                 ->filter()
-                ->unique()
+                ->merge([
+                    'products.fields.view',
+                    'products.fields.manage',
+                ])
+                ->unique(
+                    fn (string $permission): string => $this->normalizeIdentifier($permission),
+                )
                 ->values()
                 ->all();
         }

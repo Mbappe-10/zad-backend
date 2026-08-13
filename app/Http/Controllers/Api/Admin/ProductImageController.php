@@ -8,6 +8,7 @@ use App\Services\Image\ProductImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
+use Throwable;
 
 class ProductImageController extends Controller
 {
@@ -17,7 +18,7 @@ class ProductImageController extends Controller
     }
 
     /**
-     * رفع أو استبدال صورة المنتج.
+     * رفع صورة المنتج مباشرة بدون مراجعة آلية أو معالجة ذكاء اصطناعي.
      */
     public function store(
         Request $request,
@@ -26,15 +27,15 @@ class ProductImageController extends Controller
         $validated = $request->validate([
             'image' => [
                 'required',
-                'image',
-                'mimes:jpg,jpeg,png,webp',
+                'file',
+                'mimes:jpg,jpeg,png,webp,gif',
                 'max:10240',
             ],
         ], [
             'image.required' => 'الرجاء اختيار صورة المنتج.',
-            'image.image' => 'الملف المرفوع يجب أن يكون صورة صالحة.',
-            'image.mimes' => 'الصيغ المسموحة هي JPG وPNG وWebP.',
-            'image.max' => 'حجم الصورة الأصلية يجب ألا يتجاوز 10 ميجابايت.',
+            'image.file' => 'الملف المرفوع غير صالح.',
+            'image.mimes' => 'الصيغ المسموحة هي JPG وPNG وWebP وGIF.',
+            'image.max' => 'حجم الصورة يجب ألا يتجاوز 10 ميجابايت.',
         ]);
 
         try {
@@ -44,13 +45,19 @@ class ProductImageController extends Controller
             );
 
             return response()->json([
-                'message' => 'تم رفع صورة المنتج وتحسينها وضغطها بنجاح.',
+                'message' => 'تم حفظ صورة المنتج بنجاح.',
                 'data' => $result,
             ]);
         } catch (RuntimeException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
             ], 422);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'تعذر حفظ صورة المنتج. تحقق من مجلد التخزين ثم حاول مرة أخرى.',
+            ], 500);
         }
     }
 
@@ -67,16 +74,17 @@ class ProductImageController extends Controller
 
             return response()->json([
                 'message' => 'تم حذف صورة المنتج بنجاح.',
-                'data' => [
-                    'product_id' => $product->id,
-                    'image_path' => null,
-                    'image_url' => null,
-                ],
             ]);
         } catch (RuntimeException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
             ], 422);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'تعذر حذف صورة المنتج.',
+            ], 500);
         }
     }
 }

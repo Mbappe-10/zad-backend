@@ -1,5 +1,12 @@
 <?php
 
+use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
+use App\Http\Controllers\Api\App\SocialAuthController;
+use App\Http\Controllers\Api\App\FamilyOrderController;
+use App\Http\Controllers\Api\App\DriverOrderController;
+use App\Http\Controllers\Api\App\AppOrderController;
+use App\Http\Controllers\Api\App\PhoneVerificationController;
+use App\Http\Controllers\Api\Admin\DriverController;
 use App\Http\Controllers\Api\Admin\ProductFieldSettingController;
 use App\Http\Controllers\Api\Admin\ProductImageController;
 use App\Http\Controllers\Api\App\StoreCatalogController;
@@ -65,6 +72,16 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Current Authenticated User
     |--------------------------------------------------------------------------
     */
+Route::prefix('v1/app/family')->group(function (): void {
+    Route::get('/orders', [FamilyOrderController::class, 'index']);
+    Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
+});
+
+Route::prefix('v1/app/driver')->group(function (): void {
+    Route::get('/orders', [DriverOrderController::class, 'index']);
+    Route::get('/orders/{order}', [DriverOrderController::class, 'show']);
+});
+
 
     Route::get('/me', [AuthController::class, 'me'])
         ->name('api.auth.me');
@@ -142,6 +159,30 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/wallets/{wallet}/payouts', [FinanceController::class, 'requestPayout']);
         Route::post('/payouts/{payout}/decision', [FinanceController::class, 'decidePayout']);
         Route::get('/ledger', [FinanceController::class, 'ledger']);
+    });
+     
+    Route::prefix('admin/drivers')->group(function () {
+        Route::get('/stats', [DriverController::class, 'stats']);
+        Route::get('/export', [DriverController::class, 'export']);
+
+        Route::get('/', [DriverController::class, 'index']);
+        Route::post('/', [DriverController::class, 'store']);
+
+    Route::match(
+        ['put', 'patch'],
+        '/{driver}',
+        [DriverController::class, 'update'],
+    );
+
+    Route::patch(
+        '/{driver}/status',
+        [DriverController::class, 'changeStatus'],
+    );
+
+    Route::delete(
+        '/{driver}',
+        [DriverController::class, 'destroy'],
+        );
     });
 
     Route::prefix('core')->group(function () {
@@ -429,6 +470,35 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 Route::prefix('v1/app')->group(function (): void {
     Route::get('/bootstrap', BootstrapController::class);
 
+    Route::post(
+        '/auth/google',
+        [SocialAuthController::class, 'google'],
+    )->middleware('throttle:10,1');
+
+    Route::post(
+        '/phone-verifications/send',
+        [PhoneVerificationController::class, 'send'],
+    );
+
+    Route::post(
+        '/phone-verifications/verify',
+        [PhoneVerificationController::class, 'verify'],
+    );
+
+    Route::get(
+        '/orders',
+        [AppOrderController::class, 'index'],
+    );
+
+    Route::post(
+        '/orders',
+        [AppOrderController::class, 'store'],
+    );
+
+    Route::get(
+        '/orders/{order}',
+        [AppOrderController::class, 'show'],
+    );
 
     Route::get(
         '/product-fields',
@@ -449,4 +519,16 @@ Route::prefix('v1/app')->group(function (): void {
         '/guest-sessions/{guest}',
         [GuestSessionController::class, 'update'],
     );
+
+    Route::middleware('auth:sanctum')->group(function (): void {
+        Route::get(
+            '/productive-family/profile',
+            [ProductiveFamilyProfileController::class, 'show'],
+        );
+
+        Route::post(
+            '/productive-family/profile',
+            [ProductiveFamilyProfileController::class, 'store'],
+        )->middleware('throttle:10,1');
+    });
 });

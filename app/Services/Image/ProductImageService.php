@@ -5,18 +5,16 @@ namespace App\Services\Image;
 use App\Models\Product;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
 class ProductImageService
 {
-    public function __construct(
-        private readonly ImageProcessingService $imageProcessor,
-    ) {
-    }
-
     /**
-     * يرفع صورة واحدة للمنتج ويستبدل الصورة السابقة بأمان.
+     * رفع صورة المنتج مباشرة بدون ذكاء اصطناعي أو قص أو ضغط أو فحص جودة.
+     * الهدف في نسخة الإطلاق: حفظ الصورة كما رفعها المستخدم.
      *
      * @return array{
      *     product_id: int,
@@ -33,6 +31,8 @@ class ProductImageService
         Product $product,
         UploadedFile $file,
     ): array {
+        $product->refresh();
+
         $store = DB::table('stores')
             ->where('id', $product->store_id)
             ->whereNull('deleted_at')
@@ -68,53 +68,118 @@ class ProductImageService
             $product->images,
         );
 
-        $processed = null;
+        $extension = strtolower(
+            $file->guessExtension()
+                ?: $file->getClientOriginalExtension()
+                ?: 'jpg',
+        );
+
+        $allowedExtensions = [
+            'jpg',
+            'jpeg',
+            'png',
+            'webp',
+            'gif',
+        ];
+
+        if (! in_array($extension, $allowedExtensions, true)) {
+            throw new RuntimeException(
+                'صيغة الصورة غير مدعومة. استخدم JPG أو PNG أو WebP أو GIF.',
+            );
+        }
+
+        $fileName = Str::uuid()->toString().'.'.$extension;
+        $newImagePath = null;
 
         try {
-            $processed = $this->imageProcessor->processProductImage(
-                $file,
+            /*
+             * نحفظ الملف مباشرة كما هو بدون Intervention Image.
+             * هذا يلغي مشاكل المعالجة والضغط في نسخة الإطلاق.
+             */
+            $storedPath = $file->storeAs(
                 $directory,
+                $fileName,
+                'public',
             );
+
+            if (! is_string($storedPath) || trim($storedPath) === '') {
+                throw new RuntimeException(
+                    'تعذر حفظ صورة المنتج في التخزين.',
+                );
+            }
+
+            $newImagePath = ltrim($storedPath, '/');
 
             DB::transaction(function () use (
                 $product,
-                $processed,
+                $newImagePath,
             ): void {
                 $product->forceFill([
                     'images' => [
-                        $processed['path'],
+                        $newImagePath,
                     ],
                 ])->save();
             });
 
+            $product->refresh();
+
+            /*
+             * لا نحذف الصورة القديمة إلا بعد نجاح حفظ الجديدة في قاعدة البيانات.
+             */
             if (
-                $oldImagePath !== null &&
-                $oldImagePath !== $processed['path']
+                $oldImagePath !== null
+                && $oldImagePath !== $newImagePath
             ) {
-                $this->imageProcessor->delete(
+                Storage::disk('public')->delete(
                     $oldImagePath,
                 );
             }
 
+            $imageInformation = @getimagesize(
+                $file->getRealPath(),
+            );
+
+            $width = is_array($imageInformation)
+                ? (int) ($imageInformation[0] ?? 0)
+                : 0;
+
+            $height = is_array($imageInformation)
+                ? (int) ($imageInformation[1] ?? 0)
+                : 0;
+
+            $sizeBytes = (int) ($file->getSize() ?: 0);
+
             return [
                 'product_id' => $productId,
-                'image_path' => $processed['path'],
-                'image_url' => asset(
-                    'storage/'.$processed['path'],
+                'image_path' => $newImagePath,
+                /*
+                 * نعيد مسارًا نسبيًا بدل asset() حتى لا يحدث تعارض
+                 * بين localhost و 127.0.0.1 في بيئة التطوير.
+                 */
+                'image_url' => '/storage/'.$newImagePath,
+                'size_bytes' => $sizeBytes,
+                'size_kb' => round(
+                    $sizeBytes / 1024,
+                    2,
                 ),
-                'size_bytes' => $processed['size_bytes'],
-                'size_kb' => $processed['size_kb'],
-                'width' => $processed['width'],
-                'height' => $processed['height'],
-                'mime_type' => $processed['mime_type'],
+                'width' => $width,
+                'height' => $height,
+                'mime_type' => (string) (
+                    $file->getMimeType()
+                    ?: $file->getClientMimeType()
+                    ?: 'application/octet-stream'
+                ),
             ];
         } catch (Throwable $exception) {
+            /*
+             * إذا فشل تحديث قاعدة البيانات بعد حفظ الملف، نحذف الملف الجديد.
+             */
             if (
-                is_array($processed) &&
-                isset($processed['path'])
+                $newImagePath !== null
+                && Storage::disk('public')->exists($newImagePath)
             ) {
-                $this->imageProcessor->delete(
-                    $processed['path'],
+                Storage::disk('public')->delete(
+                    $newImagePath,
                 );
             }
 
@@ -128,6 +193,8 @@ class ProductImageService
     public function deleteProductImage(
         Product $product,
     ): void {
+        $product->refresh();
+
         $oldImagePath = $this->firstImagePath(
             $product->images,
         );
@@ -139,7 +206,7 @@ class ProductImageService
         });
 
         if ($oldImagePath !== null) {
-            $this->imageProcessor->delete(
+            Storage::disk('public')->delete(
                 $oldImagePath,
             );
         }
@@ -169,8 +236,8 @@ class ProductImageService
         $firstImage = $images[0] ?? null;
 
         if (
-            ! is_string($firstImage) ||
-            trim($firstImage) === ''
+            ! is_string($firstImage)
+            || trim($firstImage) === ''
         ) {
             return null;
         }

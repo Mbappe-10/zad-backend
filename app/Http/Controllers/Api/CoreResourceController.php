@@ -18,20 +18,17 @@ use App\Models\Store;
 use App\Models\Vehicle;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
-use App\Services\Product\ProductAutoReviewService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CoreResourceController extends Controller
 {
-    public function __construct(
-        private readonly ProductAutoReviewService $productAutoReviewService,
-    ) {
-    }
+    private const FAMILY_PRODUCT_LIMIT = 10;
 
     private const CONFIG = [
         'cities' => [City::class, ['code', 'name_ar', 'name_en'], ['code' => 'required|string|max:50|unique:cities,code', 'name_ar' => 'required|string|max:150', 'name_en' => 'required|string|max:150', 'is_active' => 'boolean', 'delivery_base_fee' => 'numeric|min:0', 'manager_id' => 'nullable|exists:users,id'], ['code', 'name_ar', 'name_en'], ['is_active', 'manager_id']],
@@ -72,30 +69,76 @@ class CoreResourceController extends Controller
 
     public function store(Request $request, string $resource): JsonResponse
     {
+        /*
+         * نسخة الإطلاق:
+         * المنتج ينشر مباشرة بدون مراجعة آلية أو انتظار اعتماد.
+         */
+        if ($resource === 'products') {
+            $request->merge([
+                'status' => 'active',
+            ]);
+        }
+
         [$model,,$rules] = $this->config($resource);
         $data = $request->validate($rules);
 
-        /*
-         * المنتجات لا تعتمد على الحالة التي يرسلها المستخدم.
-         * تبدأ المراجعة آليًا بعد الحفظ.
-         */
         if ($resource === 'products') {
-            $data['status'] = 'pending';
+            $store = Store::query()
+                ->select([
+                    'id',
+                    'productive_family_id',
+                ])
+                ->findOrFail((int) $data['store_id']);
+
+            $record = DB::transaction(function () use (
+                $data,
+                $store,
+            ): Product {
+                /*
+                 * قفل سجل الأسرة أثناء العد والحفظ حتى يبقى الحد 10
+                 * حتى لو وصل طلبان في نفس اللحظة.
+                 */
+                DB::table('productive_families')
+                    ->where('id', $store->productive_family_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $storeIds = Store::query()
+                    ->where('productive_family_id', $store->productive_family_id)
+                    ->pluck('id');
+
+                $productsCount = Product::query()
+                    ->whereIn('store_id', $storeIds)
+                    ->count();
+
+                if ($productsCount >= self::FAMILY_PRODUCT_LIMIT) {
+                    throw ValidationException::withMessages([
+                        'store_id' => [
+                            'وصلت الأسرة المنتجة إلى الحد الأقصى المسموح وهو 10 منتجات.',
+                        ],
+                    ]);
+                }
+
+                $productData = $data;
+                $productData['status'] = 'active';
+
+                return Product::query()->create(
+                    $productData,
+                );
+            });
+
+            return response()->json([
+                'message' => 'تم حفظ المنتج ونشره مباشرة بنجاح.',
+                'data' => new CoreResource($record->fresh()),
+                'meta' => [
+                    'family_product_limit' => self::FAMILY_PRODUCT_LIMIT,
+                ],
+            ], 201);
         }
 
         $record = DB::transaction(
             fn () => $model::create($data),
         );
-
-        if ($resource === 'products' && $record instanceof Product) {
-            $review = $this->reviewProduct($record);
-
-            return response()->json([
-                'message' => $this->productReviewMessage($review),
-                'data' => new CoreResource($record->fresh()),
-                'auto_review' => $review,
-            ], 201);
-        }
 
         return response()->json([
             'message' => 'تمت الإضافة بنجاح.',
@@ -112,6 +155,12 @@ class CoreResourceController extends Controller
 
     public function update(Request $request, string $resource, int $id): JsonResponse
     {
+        if ($resource === 'products') {
+            $request->merge([
+                'status' => 'active',
+            ]);
+        }
+
         [$model,,$rules] = $this->config($resource);
         $record = $model::query()->findOrFail($id);
         $data = $request->validate(
@@ -122,88 +171,20 @@ class CoreResourceController extends Controller
             ),
         );
 
-        /*
-         * عند تعديل المنتج يعاد فحصه آليًا.
-         * لا نسمح للواجهة باعتماد المنتج مباشرة.
-         */
         if ($resource === 'products') {
-            unset($data['status']);
-            $data['status'] = 'pending';
+            $data['status'] = 'active';
         }
 
         DB::transaction(
             fn () => $record->update($data),
         );
 
-        if ($resource === 'products' && $record instanceof Product) {
-            $review = $this->reviewProduct($record->fresh());
-
-            return response()->json([
-                'message' => $this->productReviewMessage($review),
-                'data' => new CoreResource($record->fresh()),
-                'auto_review' => $review,
-            ]);
-        }
-
         return response()->json([
-            'message' => 'تم التحديث بنجاح.',
+            'message' => $resource === 'products'
+                ? 'تم تحديث المنتج ونشره مباشرة بنجاح.'
+                : 'تم التحديث بنجاح.',
             'data' => new CoreResource($record->fresh()),
         ]);
-    }
-
-    /**
-     * مراجعة المنتج آليًا وتطبيق النتيجة على حالة المنتج.
-     *
-     * نحافظ حاليًا على الحالات الموجودة في المشروع:
-     * active  = اجتاز المراجعة ونُشر
-     * draft   = يحتاج تعديل من الأسرة
-     * pending = يحتاج مراجعة بشرية استثنائية
-     *
-     * @return array{
-     *     status: string,
-     *     approved: bool,
-     *     score: int,
-     *     reasons: array<int, string>
-     * }
-     */
-    private function reviewProduct(Product $product): array
-    {
-        $product->refresh();
-
-        $review = $this->productAutoReviewService->review(
-            $product,
-        );
-
-        $systemStatus = match ($review['status']) {
-            'published' => 'active',
-            'needs_changes' => 'draft',
-            'manual_review' => 'pending',
-            default => 'pending',
-        };
-
-        if ($product->status !== $systemStatus) {
-            $product->forceFill([
-                'status' => $systemStatus,
-            ])->save();
-        }
-
-        return [
-            ...$review,
-            'system_status' => $systemStatus,
-        ];
-    }
-
-    /**
-     * رسالة مبسطة للواجهة بعد المراجعة الآلية.
-     */
-    private function productReviewMessage(array $review): string
-    {
-        return match ($review['status'] ?? null) {
-            'published' => 'تم حفظ المنتج واعتماده ونشره آليًا بنجاح.',
-            'needs_changes' => 'تم حفظ المنتج، ويحتاج إلى بعض التعديلات قبل النشر.',
-            'manual_review' => 'تم حفظ المنتج وتحويله للمراجعة الاستثنائية.',
-            default => 'تم حفظ المنتج وإرساله للمراجعة الآلية.',
-        };
     }
 
     public function destroy(string $resource, int $id): JsonResponse

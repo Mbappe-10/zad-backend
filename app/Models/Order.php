@@ -14,53 +14,23 @@ class Order extends Model
     use HasFactory;
     use SoftDeletes;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Order Statuses
-    |--------------------------------------------------------------------------
-    */
-
     public const STATUS_PENDING = 'pending';
-
     public const STATUS_ACCEPTED = 'accepted';
-
     public const STATUS_PREPARING = 'preparing';
-
     public const STATUS_READY = 'ready';
-
     public const STATUS_ASSIGNED = 'assigned';
-
     public const STATUS_PICKED_UP = 'picked_up';
-
     public const STATUS_DELIVERING = 'delivering';
-
     public const STATUS_DELIVERED = 'delivered';
-
     public const STATUS_COMPLETED = 'completed';
-
     public const STATUS_CANCELLED = 'cancelled';
-
     public const STATUS_REJECTED = 'rejected';
 
-    /*
-    |--------------------------------------------------------------------------
-    | Payment Statuses
-    |--------------------------------------------------------------------------
-    */
-
+    public const PAYMENT_UNPAID = 'unpaid';
     public const PAYMENT_PENDING = 'pending';
-
     public const PAYMENT_PAID = 'paid';
-
     public const PAYMENT_FAILED = 'failed';
-
     public const PAYMENT_REFUNDED = 'refunded';
-
-    /*
-    |--------------------------------------------------------------------------
-    | Mass Assignment
-    |--------------------------------------------------------------------------
-    */
 
     protected $fillable = [
         'number',
@@ -81,6 +51,15 @@ class Order extends Model
         'delivery_latitude',
         'delivery_longitude',
         'notes',
+        'driver_notes',
+        'guest_session_id',
+        'contact_phone',
+        'package_size',
+        'recommended_vehicle_type',
+        'assigned_vehicle_type',
+        'vehicle_rule_overridden',
+        'vehicle_rule_overridden_by',
+        'vehicle_override_reason',
         'accepted_at',
         'preparing_at',
         'ready_at',
@@ -88,12 +67,6 @@ class Order extends Model
         'delivered_at',
         'cancelled_at',
     ];
-
-    /*
-    |--------------------------------------------------------------------------
-    | Attribute Casting
-    |--------------------------------------------------------------------------
-    */
 
     protected function casts(): array
     {
@@ -103,18 +76,16 @@ class Order extends Model
             'driver_id' => 'integer',
             'city_id' => 'integer',
             'delivery_zone_id' => 'integer',
-
             'subtotal' => 'decimal:2',
             'delivery_fee' => 'decimal:2',
             'discount' => 'decimal:2',
             'tax' => 'decimal:2',
             'total' => 'decimal:2',
-
             'delivery_distance_km' => 'decimal:2',
             'delivery_latitude' => 'decimal:7',
             'delivery_longitude' => 'decimal:7',
             'delivery_address' => 'array',
-
+            'vehicle_rule_overridden' => 'boolean',
             'accepted_at' => 'datetime',
             'preparing_at' => 'datetime',
             'ready_at' => 'datetime',
@@ -123,12 +94,6 @@ class Order extends Model
             'cancelled_at' => 'datetime',
         ];
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Relationships
-    |--------------------------------------------------------------------------
-    */
 
     public function customer(): BelongsTo
     {
@@ -169,12 +134,6 @@ class Order extends Model
     {
         return $this->hasMany(OrderStatusHistory::class);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Query Scopes
-    |--------------------------------------------------------------------------
-    */
 
     public function scopeRunning(Builder $query): Builder
     {
@@ -220,12 +179,6 @@ class Order extends Model
     {
         return $query->whereNull('driver_id');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Status Helpers
-    |--------------------------------------------------------------------------
-    */
 
     public static function runningStatuses(): array
     {
@@ -273,12 +226,6 @@ class Order extends Model
         ];
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | State Checks
-    |--------------------------------------------------------------------------
-    */
-
     public function isRunning(): bool
     {
         return in_array($this->status, self::runningStatuses(), true);
@@ -310,21 +257,13 @@ class Order extends Model
         ], true);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Time Calculations
-    |--------------------------------------------------------------------------
-    */
-
     public function preparationMinutes(): ?int
     {
         if (! $this->accepted_at || ! $this->ready_at) {
             return null;
         }
 
-        return (int) $this->accepted_at->diffInMinutes(
-            $this->ready_at,
-        );
+        return (int) $this->accepted_at->diffInMinutes($this->ready_at);
     }
 
     public function deliveryMinutes(): ?int
@@ -333,9 +272,7 @@ class Order extends Model
             return null;
         }
 
-        return (int) $this->picked_up_at->diffInMinutes(
-            $this->delivered_at,
-        );
+        return (int) $this->picked_up_at->diffInMinutes($this->delivered_at);
     }
 
     public function totalProcessingMinutes(): ?int
@@ -344,8 +281,6 @@ class Order extends Model
             return null;
         }
 
-        return (int) $this->created_at->diffInMinutes(
-            $this->delivered_at,
-        );
+        return (int) $this->created_at->diffInMinutes($this->delivered_at);
     }
 }

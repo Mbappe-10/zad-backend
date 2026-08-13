@@ -25,6 +25,8 @@ class User extends Authenticatable
         'email',
         'phone',
         'password',
+        'auth_provider',
+        'provider_user_id',
         'profile_photo',
         'department_id',
         'job_title_id',

@@ -13,10 +13,29 @@ class OrderItem extends Model
 
     protected $guarded = ['id'];
 
-    protected $fillable = ['order_id', 'product_id', 'product_name', 'quantity', 'unit_price', 'total', 'options'];
+    protected $fillable = [
+        'order_id',
+        'product_id',
+        'product_name',
+        'preparation_mode',
+        'quantity',
+        'unit_price',
+        'total',
+        'options',
+    ];
 
     protected function casts(): array
     {
-        return ['unit_price' => 'decimal:2', 'total' => 'decimal:2', 'options' => 'array'];
+        return [
+            'quantity' => 'integer',
+            'unit_price' => 'decimal:2',
+            'total' => 'decimal:2',
+            'options' => 'array',
+        ];
+    }
+
+    public function requiresLivePreparation(): bool
+    {
+        return $this->preparation_mode === Product::PREPARATION_MADE_TO_ORDER;
     }
 }

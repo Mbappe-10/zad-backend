@@ -32,6 +32,9 @@ class Order extends Model
     public const PAYMENT_FAILED = 'failed';
     public const PAYMENT_REFUNDED = 'refunded';
 
+    public const FULFILLMENT_READY_NOW = 'ready_now';
+    public const FULFILLMENT_LIVE_PREPARATION = 'live_preparation';
+
     protected $fillable = [
         'number',
         'customer_id',
@@ -41,6 +44,7 @@ class Order extends Model
         'delivery_zone_id',
         'status',
         'payment_status',
+        'fulfillment_mode',
         'subtotal',
         'delivery_fee',
         'discount',
@@ -195,34 +199,28 @@ class Order extends Model
 
     public static function completedStatuses(): array
     {
-        return [
-            self::STATUS_DELIVERED,
-            self::STATUS_COMPLETED,
-        ];
+        return [self::STATUS_DELIVERED, self::STATUS_COMPLETED];
     }
 
     public static function cancelledStatuses(): array
     {
-        return [
-            self::STATUS_CANCELLED,
-            self::STATUS_REJECTED,
-        ];
+        return [self::STATUS_CANCELLED, self::STATUS_REJECTED];
     }
 
     public static function availableStatuses(): array
     {
         return [
-            self::STATUS_PENDING,
-            self::STATUS_ACCEPTED,
-            self::STATUS_PREPARING,
-            self::STATUS_READY,
-            self::STATUS_ASSIGNED,
-            self::STATUS_PICKED_UP,
-            self::STATUS_DELIVERING,
-            self::STATUS_DELIVERED,
-            self::STATUS_COMPLETED,
-            self::STATUS_CANCELLED,
-            self::STATUS_REJECTED,
+            ...self::runningStatuses(),
+            ...self::completedStatuses(),
+            ...self::cancelledStatuses(),
+        ];
+    }
+
+    public static function fulfillmentModes(): array
+    {
+        return [
+            self::FULFILLMENT_READY_NOW,
+            self::FULFILLMENT_LIVE_PREPARATION,
         ];
     }
 
@@ -244,6 +242,11 @@ class Order extends Model
     public function isPaid(): bool
     {
         return $this->payment_status === self::PAYMENT_PAID;
+    }
+
+    public function requiresLivePreparation(): bool
+    {
+        return $this->fulfillment_mode === self::FULFILLMENT_LIVE_PREPARATION;
     }
 
     public function isAssignable(): bool

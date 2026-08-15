@@ -89,12 +89,18 @@ class AppOrderController extends Controller
 
         $packageSize = 'small';
         $subtotal = 0.0;
+        $fulfillmentMode = Order::FULFILLMENT_READY_NOW;
 
         foreach ($data['items'] as $item) {
             $product = $products[(int) $item['product_id']];
             $quantity = (int) $item['quantity'];
+            $preparationMode = $this->productPreparationMode($product);
 
             $subtotal += (float) $product->price * $quantity;
+
+            if ($preparationMode === Product::PREPARATION_MADE_TO_ORDER) {
+                $fulfillmentMode = Order::FULFILLMENT_LIVE_PREPARATION;
+            }
 
             $productPackageSize = $product->package_size ?? 'small';
 
@@ -119,6 +125,7 @@ class AppOrderController extends Controller
             $subtotal,
             $packageSize,
             $vehicleRecommendation,
+            $fulfillmentMode,
         ): Order {
             $order = Order::query()->create([
                 'number' => $this->generateOrderNumber(),
@@ -129,6 +136,7 @@ class AppOrderController extends Controller
                 'city_id' => $data['city_id'] ?? $store->city_id,
                 'status' => Order::STATUS_PENDING,
                 'payment_status' => Order::PAYMENT_UNPAID,
+                'fulfillment_mode' => $fulfillmentMode,
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => 0,
                 'discount' => 0,
@@ -153,6 +161,7 @@ class AppOrderController extends Controller
                     'order_id' => $order->id,
                     'product_id' => $product->id,
                     'product_name' => $product->name_ar,
+                    'preparation_mode' => $this->productPreparationMode($product),
                     'quantity' => $quantity,
                     'unit_price' => $unitPrice,
                     'total' => round($unitPrice * $quantity, 2),
@@ -206,6 +215,17 @@ class AppOrderController extends Controller
         return response()->json([
             'data' => $order->load(['items', 'store', 'driver', 'history']),
         ]);
+    }
+
+    private function productPreparationMode(Product $product): string
+    {
+        return in_array(
+            $product->preparation_mode,
+            Product::preparationModes(),
+            true,
+        )
+            ? $product->preparation_mode
+            : Product::PREPARATION_MADE_TO_ORDER;
     }
 
     private function verifiedPhone(

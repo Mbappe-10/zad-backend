@@ -322,6 +322,13 @@ class OrderLiveController extends Controller
                 'canPublish' => $canPublish,
                 'canSubscribe' => $canSubscribe,
                 'canPublishData' => false,
+                // الأسرة تنشر الكاميرا فقط: لا ميكروفون،
+                // لا مشاركة شاشة، ولا صوت مشاركة شاشة.
+                // المشاهد لا يملك صلاحية النشر أصلًا.
+                'canPublishSources' => $canPublish
+                    ? ['camera']
+                    : [],
+                'canUpdateOwnMetadata' => false,
             ],
             'metadata' => '',
         ], $apiSecret, 'HS256');
@@ -345,6 +352,10 @@ class OrderLiveController extends Controller
             'permissions' => [
                 'can_publish' => $canPublish,
                 'can_subscribe' => $canSubscribe,
+                'can_publish_camera' => $canPublish,
+                'can_publish_microphone' => false,
+                'can_publish_screen_share' => false,
+                'can_publish_data' => false,
             ],
         ];
     }

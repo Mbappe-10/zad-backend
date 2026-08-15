@@ -33,6 +33,13 @@ class OrderLiveSession extends Model
         'last_heartbeat_at',
         'ended_at',
         'ended_reason',
+        'preparation_minutes',
+        'grace_minutes',
+        'extended_minutes',
+        'scheduled_end_at',
+        'warning_sent_at',
+        'admin_updated_by_user_id',
+        'admin_action_reason',
     ];
 
     protected function casts(): array
@@ -43,6 +50,9 @@ class OrderLiveSession extends Model
             'started_by_user_id' => 'integer',
             'viewer_count' => 'integer',
             'peak_viewers' => 'integer',
+            'preparation_minutes' => 'integer',
+            'grace_minutes' => 'integer',
+            'extended_minutes' => 'integer',
             'compliance' => 'array',
             'metadata' => 'array',
             'final_photo_at' => 'datetime',
@@ -51,6 +61,8 @@ class OrderLiveSession extends Model
             'resumed_at' => 'datetime',
             'last_heartbeat_at' => 'datetime',
             'ended_at' => 'datetime',
+            'scheduled_end_at' => 'datetime',
+            'warning_sent_at' => 'datetime',
         ];
     }
 
@@ -69,12 +81,13 @@ class OrderLiveSession extends Model
         return $this->belongsTo(User::class, 'started_by_user_id');
     }
 
+    public function adminUpdatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'admin_updated_by_user_id');
+    }
+
     public function isWatchable(): bool
     {
-        return in_array(
-            $this->status,
-            [self::STATUS_LIVE, self::STATUS_PAUSED],
-            true,
-        );
+        return in_array($this->status, [self::STATUS_LIVE, self::STATUS_PAUSED], true);
     }
 }

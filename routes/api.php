@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\DeliveryOperationsController;
 use App\Http\Controllers\Api\WorkforceController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
+use App\Http\Controllers\Api\Admin\LiveBroadcastAdminController;
 use App\Http\Controllers\Api\AdminResourceController;
 use Illuminate\Support\Facades\Route;
 
@@ -409,6 +410,37 @@ Route::prefix('v1/app/driver')->group(function (): void {
 
         Route::get('/settings', [AdminResourceController::class, 'settings']);
         Route::put('/settings', [AdminResourceController::class, 'saveSettings']);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Live Broadcast Owner Control
+        |--------------------------------------------------------------------------
+        |
+        | هذه المسارات محمية داخل LiveBroadcastAdminController، ولا يسمح
+        | بتنفيذها إلا لمالك المنصة. يجب أن تبقى قبل مسارات {resource}
+        | الديناميكية الموجودة في أسفل هذه المجموعة.
+        |
+        */
+
+        Route::get(
+            '/live-broadcasts',
+            [LiveBroadcastAdminController::class, 'index'],
+        )->name('api.admin.live-broadcasts.index');
+
+        Route::post(
+            '/live-broadcasts/{session}/extend',
+            [LiveBroadcastAdminController::class, 'extend'],
+        )->name('api.admin.live-broadcasts.extend');
+
+        Route::post(
+            '/live-broadcasts/{session}/end',
+            [LiveBroadcastAdminController::class, 'end'],
+        )->name('api.admin.live-broadcasts.end');
+
+        Route::put(
+            '/live-broadcast-settings',
+            [LiveBroadcastAdminController::class, 'updateSettings'],
+        )->name('api.admin.live-broadcast-settings.update');
 
         /*
         |--------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppProfile;
 use App\Models\ProductiveFamily;
 use App\Models\Store;
 use Illuminate\Http\JsonResponse;
@@ -183,16 +184,30 @@ class ProductiveFamilyController extends Controller
     public function destroy(ProductiveFamily $family): JsonResponse
     {
         DB::transaction(function () use ($family): void {
-            $family->store()->update([
-                'status' => 'suspended',
-                'is_open' => false,
-            ]);
+            $store = $family->store()->first();
+
+            if ($store !== null) {
+                $store->update([
+                    'status' => 'archived',
+                    'is_open' => false,
+                ]);
+                $store->delete();
+            }
+
+            AppProfile::query()
+                ->with('user')
+                ->where('productive_family_id', $family->id)
+                ->get()
+                ->each(function (AppProfile $profile): void {
+                    // نجبر التطبيق على طلب تسجيل جديد بدل استعمال جلسة قديمة.
+                    $profile->user?->tokens()->delete();
+                });
 
             $family->delete();
         });
 
         return response()->json([
-            'message' => 'تم حذف الأسرة وتعليق متجرها المرتبط بنجاح.',
+            'message' => 'تم حذف الأسرة ومتجرها من القوائم وإعادة ضبط رحلة التسجيل. السجلات التاريخية تبقى مؤرشفة.',
         ]);
     }
 

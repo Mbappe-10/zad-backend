@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppProfile;
 use App\Models\ProductiveFamily;
 use App\Models\Store;
 use Illuminate\Http\JsonResponse;
@@ -194,14 +195,24 @@ class StoreController extends Controller
 
     public function destroy(Store $store): JsonResponse
     {
-        $store->update([
-            'status' => 'archived',
-            'is_open' => false,
-        ]);
-        $store->delete();
+        DB::transaction(function () use ($store): void {
+            $store->update([
+                'status' => 'archived',
+                'is_open' => false,
+            ]);
+            $store->delete();
+
+            AppProfile::query()
+                ->with('user')
+                ->where('productive_family_id', $store->productive_family_id)
+                ->get()
+                ->each(function (AppProfile $profile): void {
+                    $profile->user?->tokens()->delete();
+                });
+        });
 
         return response()->json([
-            'message' => 'تمت أرشفة المتجر وحذفه حذفًا ناعمًا بنجاح.',
+            'message' => 'تم حذف المتجر من القوائم وإعادة حساب اكتمال ملف الأسرة.',
         ]);
     }
 

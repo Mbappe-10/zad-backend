@@ -30,13 +30,9 @@ class ProductiveFamilyProfileController extends Controller
             ->with('store')
             ->find($profile->productive_family_id);
 
-        if (! $family) {
-            $profile->update([
-                'productive_family_id' => null,
-            ]);
-
+        if (! $family || ! $family->store) {
             return response()->json([
-                'message' => 'لم يتم العثور على بيانات الأسرة المنتجة.',
+                'message' => 'بيانات الأسرة أو المتجر غير مكتملة.',
                 'next_step' => 'complete_productive_family_profile',
             ], 404);
         }
@@ -139,12 +135,91 @@ class ProductiveFamilyProfileController extends Controller
                 }
 
                 if ($profile->productive_family_id) {
-                    $existingFamily = ProductiveFamily::query()
-                        ->with('store')
+                    $existingFamily = ProductiveFamily::withTrashed()
                         ->find($profile->productive_family_id);
 
                     if ($existingFamily) {
-                        return [$existingFamily, false];
+                        $reactivated = $existingFamily->trashed();
+
+                        if ($existingFamily->trashed()) {
+                            $existingFamily->restore();
+                        }
+
+                        $existingMetadata = is_array($existingFamily->metadata)
+                            ? $existingFamily->metadata
+                            : [];
+
+                        $existingFamily->update([
+                            'owner_name' => trim($data['owner_name']),
+                            'phone' => $this->normalizePhone($data['phone']),
+                            'email' => $data['email'] ?? null,
+                            'health_certificate_number' =>
+                                $data['health_certificate_number'] ?? null,
+                            'health_certificate_expires_at' =>
+                                $data['health_certificate_expires_at'] ?? null,
+                            'status' => 'pending',
+                            'city_id' => $data['city_id'] ?? null,
+                            'approved_by' => null,
+                            'approved_at' => null,
+                            'metadata' => array_merge($existingMetadata, [
+                                'family_name' => trim($data['family_name']),
+                                'store_name' => trim($data['store_name']),
+                                'city' => trim($data['city']),
+                                'district' => isset($data['district'])
+                                    ? trim($data['district'])
+                                    : null,
+                            ]),
+                        ]);
+
+                        $existingStore = Store::withTrashed()
+                            ->where('productive_family_id', $existingFamily->id)
+                            ->first();
+
+                        if ($existingStore) {
+                            $reactivated = $reactivated || $existingStore->trashed();
+
+                            if ($existingStore->trashed()) {
+                                $existingStore->restore();
+                            }
+
+                            $existingStore->update([
+                                'city_id' => $data['city_id'] ?? null,
+                                'name_ar' => trim($data['store_name']),
+                                'description_ar' =>
+                                    $data['store_description_ar'] ?? null,
+                                'status' => 'pending',
+                                'is_open' => false,
+                            ]);
+                        } else {
+                            $reactivated = true;
+                            $existingStore = Store::query()->create([
+                                'productive_family_id' => $existingFamily->id,
+                                'city_id' => $data['city_id'] ?? null,
+                                'name_ar' => trim($data['store_name']),
+                                'name_en' => null,
+                                'slug' => $this->generateStoreSlug(
+                                    $data['store_name'],
+                                    $existingFamily->id,
+                                ),
+                                'description_ar' =>
+                                    $data['store_description_ar'] ?? null,
+                                'description_en' => null,
+                                'status' => 'pending',
+                                'is_open' => false,
+                                'rating' => 0,
+                                'rating_count' => 0,
+                                'working_hours' => [],
+                            ]);
+                        }
+
+                        $profile->update([
+                            'productive_family_id' => $existingFamily->id,
+                            'active_mode' => 'productive_family',
+                        ]);
+
+                        $existingFamily->setRelation('store', $existingStore);
+
+                        return [$existingFamily, $reactivated];
                     }
                 }
 
@@ -206,7 +281,7 @@ class ProductiveFamilyProfileController extends Controller
 
         return response()->json([
             'message' => $created
-                ? 'تم إنشاء الأسرة والمتجر وإرسال الطلب للمراجعة.'
+                ? 'تم حفظ بيانات الأسرة والمتجر وإرسالها للمراجعة.'
                 : 'بيانات الأسرة والمتجر موجودة مسبقًا.',
             'data' => $this->transformFamily($family),
             'next_step' => 'dashboard',

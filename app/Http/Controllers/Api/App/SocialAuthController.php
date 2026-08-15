@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
+use App\Models\Driver;
+use App\Models\ProductiveFamily;
 use App\Models\User;
 use Google\Client as GoogleClient;
 use Illuminate\Http\JsonResponse;
@@ -191,14 +193,25 @@ class SocialAuthController extends Controller
     ): string {
         if (
             $activeMode === 'productive_family'
-            && ! $profile->productive_family_id
+            && (
+                ! $profile->productive_family_id
+                || ! ProductiveFamily::query()
+                    ->whereKey($profile->productive_family_id)
+                    ->whereHas('store')
+                    ->exists()
+            )
         ) {
             return 'complete_productive_family_profile';
         }
 
         if (
             $activeMode === 'driver'
-            && ! $profile->driver_id
+            && (
+                ! $profile->driver_id
+                || ! Driver::query()
+                    ->whereKey($profile->driver_id)
+                    ->exists()
+            )
         ) {
             return 'complete_driver_profile';
         }

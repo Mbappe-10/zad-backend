@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
+use App\Models\LiveBroadcastSetting;
 use App\Models\Order;
 use App\Models\OrderLiveSession;
+use App\Models\Product;
 use App\Models\Store;
 use App\Services\DeliveryOperationsService;
 use Firebase\JWT\JWT;
@@ -46,6 +48,10 @@ class OrderLiveController extends Controller
             );
         }
 
+        $settings = LiveBroadcastSetting::current();
+        $preparationMinutes = $this->preparationMinutes($order);
+        $graceMinutes = (int) $settings->default_grace_minutes;
+
         $session = OrderLiveSession::query()
             ->where('order_id', $order->id)
             ->whereIn('status', [
@@ -64,6 +70,9 @@ class OrderLiveController extends Controller
                 'room_name' => $this->newRoomName($order),
                 'status' => OrderLiveSession::STATUS_WAITING,
                 'quality_profile' => 'adaptive',
+                'preparation_minutes' => $preparationMinutes,
+                'grace_minutes' => $graceMinutes,
+                'extended_minutes' => 0,
                 'compliance' => [
                     'mask' => 'pending',
                     'gloves' => 'pending',
@@ -79,10 +88,19 @@ class OrderLiveController extends Controller
             $session->public_id,
         );
 
+        $startedAt = $session->started_at ?? now();
+        $scheduledEndAt = $session->scheduled_end_at
+            ?? $startedAt->copy()->addMinutes(
+                (int) $session->preparation_minutes
+                + (int) $session->grace_minutes
+                + (int) $session->extended_minutes,
+            );
+
         $session->forceFill([
             'publisher_identity' => $publisherIdentity,
             'status' => OrderLiveSession::STATUS_LIVE,
-            'started_at' => $session->started_at ?? now(),
+            'started_at' => $startedAt,
+            'scheduled_end_at' => $scheduledEndAt,
             'resumed_at' => $session->paused_at !== null ? now() : null,
             'paused_at' => null,
             'last_heartbeat_at' => now(),
@@ -362,6 +380,16 @@ class OrderLiveController extends Controller
 
     private function sessionPayload(OrderLiveSession $session): array
     {
+        $remainingSeconds = $session->scheduled_end_at === null
+            ? 0
+            : max(
+                0,
+                now()->diffInSeconds(
+                    $session->scheduled_end_at,
+                    false,
+                ),
+            );
+
         return [
             'id' => $session->public_id,
             'available' => $session->isWatchable(),
@@ -373,6 +401,11 @@ class OrderLiveController extends Controller
             'started_at' => $session->started_at,
             'paused_at' => $session->paused_at,
             'ended_at' => $session->ended_at,
+            'preparation_minutes' => (int) $session->preparation_minutes,
+            'grace_minutes' => (int) $session->grace_minutes,
+            'extended_minutes' => (int) $session->extended_minutes,
+            'scheduled_end_at' => $session->scheduled_end_at,
+            'remaining_seconds' => $remainingSeconds,
             'final_photo_url' => $session->final_photo_path === null
                 ? null
                 : Storage::disk('public')->url(
@@ -456,5 +489,27 @@ class OrderLiveController extends Controller
             $order->id,
             Str::lower((string) Str::ulid()),
         );
+    }
+
+    private function preparationMinutes(Order $order): int
+    {
+        $productIds = $order->items()
+            ->whereNotNull('product_id')
+            ->pluck('product_id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+
+        $minutes = $productIds->isEmpty()
+            ? null
+            : Product::query()
+                ->whereIn('id', $productIds)
+                ->max('preparation_minutes');
+
+        $minutes = (int) ($minutes ?: 15);
+
+        // حد تشغيلي آمن يمنع إدخال مدة صفرية أو مبالغ فيها.
+        return max(1, min($minutes, 240));
     }
 }

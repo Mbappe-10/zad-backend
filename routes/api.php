@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\OrderJourneyAdminController;
 use App\Http\Controllers\Api\App\OrderLiveController;
 use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
 use App\Http\Controllers\Api\App\SocialAuthController;
@@ -74,6 +75,45 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Current Authenticated User
     |--------------------------------------------------------------------------
     */
+     Route::get(
+        '/delivery/orders/{order}/journey',
+        [OrderJourneyAdminController::class, 'journey'],
+    );
+
+    Route::get(
+        '/admin/journey-retention-settings',
+        [OrderJourneyAdminController::class, 'settings'],
+    );
+
+    Route::put(
+        '/admin/journey-retention-settings',
+        [OrderJourneyAdminController::class, 'updateSettings'],
+    );
+
+    Route::post(
+        '/delivery/orders/{order}/retention/hold',
+        [OrderJourneyAdminController::class, 'hold'],
+    );
+
+    Route::post(
+        '/delivery/orders/{order}/retention/release',
+        [OrderJourneyAdminController::class, 'release'],
+    );
+
+    Route::post(
+        '/delivery/orders/{order}/retention/extend',
+        [OrderJourneyAdminController::class, 'extend'],
+    );
+
+    Route::post(
+        '/delivery/orders/{order}/retention/purge',
+        [OrderJourneyAdminController::class, 'purge'],
+    );
+
+    Route::post(
+        '/delivery/orders/retention/bulk',
+        [OrderJourneyAdminController::class, 'bulk'],
+    );
 Route::prefix('v1/app/family')->group(function (): void {
     Route::get('/orders', [FamilyOrderController::class, 'index']);
     Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);

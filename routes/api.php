@@ -6,9 +6,11 @@ use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
 use App\Http\Controllers\Api\App\SocialAuthController;
 use App\Http\Controllers\Api\App\FamilyOrderController;
 use App\Http\Controllers\Api\App\DriverOrderController;
+use App\Http\Controllers\Api\App\DriverProfileController;
 use App\Http\Controllers\Api\App\AppOrderController;
 use App\Http\Controllers\Api\App\PhoneVerificationController;
 use App\Http\Controllers\Api\Admin\DriverController;
+use App\Http\Controllers\Api\Admin\DriverProfileFieldController;
 use App\Http\Controllers\Api\Admin\ProductFieldSettingController;
 use App\Http\Controllers\Api\Admin\ProductImageController;
 use App\Http\Controllers\Api\App\StoreCatalogController;
@@ -141,6 +143,18 @@ Route::prefix('v1/app/family')->group(function (): void {
 });
 
 Route::prefix('v1/app/driver')->group(function (): void {
+    Route::get('/profile', [DriverProfileController::class, 'show']);
+
+    Route::post(
+        '/profile',
+        [DriverProfileController::class, 'store'],
+    )->middleware('throttle:5,1');
+
+    Route::get(
+        '/profile-fields',
+        [DriverProfileController::class, 'fields'],
+    );
+
     Route::get('/orders', [DriverOrderController::class, 'index']);
     Route::get('/orders/{order}', [DriverOrderController::class, 'show']);
 });
@@ -450,6 +464,39 @@ Route::prefix('v1/app/driver')->group(function (): void {
 
         Route::get('/settings', [AdminResourceController::class, 'settings']);
         Route::put('/settings', [AdminResourceController::class, 'saveSettings']);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Driver Registration Field Settings
+        |--------------------------------------------------------------------------
+        |
+        | إدارة الأسئلة الإضافية في نموذج المندوب. يجب أن تبقى هذه المسارات
+        | قبل مسارات /{resource} الديناميكية الموجودة في أسفل المجموعة.
+        |
+        */
+
+        Route::prefix('driver-profile-fields')->group(function (): void {
+            Route::get(
+                '/',
+                [DriverProfileFieldController::class, 'index'],
+            )->name('api.admin.driver-profile-fields.index');
+
+            Route::post(
+                '/',
+                [DriverProfileFieldController::class, 'store'],
+            )->name('api.admin.driver-profile-fields.store');
+
+            Route::match(
+                ['put', 'patch'],
+                '/{field}',
+                [DriverProfileFieldController::class, 'update'],
+            )->name('api.admin.driver-profile-fields.update');
+
+            Route::delete(
+                '/{field}',
+                [DriverProfileFieldController::class, 'destroy'],
+            )->name('api.admin.driver-profile-fields.destroy');
+        });
 
         /*
         |--------------------------------------------------------------------------

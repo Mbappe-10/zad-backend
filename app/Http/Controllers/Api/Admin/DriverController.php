@@ -153,13 +153,144 @@ class DriverController extends Controller
         ]);
     }
 
-    public function changeStatus(Request $request, Driver $driver): JsonResponse
-    {
-        $validated = $request->validate([
-            'status' => ['required', 'string', Rule::in([
-                'pending', 'active', 'offline', 'busy', 'suspended', 'rejected',
-            ])],
+    public function changeStatus(
+    Request $request,
+    Driver $driver,
+): JsonResponse {
+    $validated = $request->validate([
+        'status' => [
+            'required',
+            'string',
+            Rule::in([
+                'pending',
+                'approved',
+                'active',
+                'offline',
+                'busy',
+                'suspended',
+                'rejected',
+            ]),
+        ],
+        'rejection_reason' => [
+            'nullable',
+            'string',
+            'max:2000',
+        ],
+    ]);
+
+    $requestedStatus = $validated['status'];
+
+    /*
+    |--------------------------------------------------------------------------
+    | اعتماد طلب المندوب
+    |--------------------------------------------------------------------------
+    */
+
+    if (in_array(
+        $requestedStatus,
+        ['approved', 'active', 'offline', 'busy'],
+        true,
+    )) {
+        $driver->forceFill([
+            'status' => $requestedStatus === 'approved'
+                ? 'active'
+                : $requestedStatus,
+
+            'application_status' => 'approved',
+
+            'is_online' => $requestedStatus === 'busy'
+                ? $driver->is_online
+                : false,
+
+            'reviewed_by' => $request->user()?->id,
+            'reviewed_at' => now(),
+            'rejection_reason' => null,
+        ])->save();
+
+        return response()->json([
+            'message' => 'تم اعتماد حساب المندوب بنجاح.',
+            'data' => $driver->fresh([
+                'city',
+                'vehicle',
+                'documents',
+            ]),
         ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | رفض طلب المندوب
+    |--------------------------------------------------------------------------
+    */
+
+    if ($requestedStatus === 'rejected') {
+        $driver->forceFill([
+            'status' => 'rejected',
+            'application_status' => 'rejected',
+            'is_online' => false,
+            'reviewed_by' => $request->user()?->id,
+            'reviewed_at' => now(),
+            'rejection_reason' =>
+                $validated['rejection_reason']
+                ?? 'يرجى مراجعة بيانات طلب الانضمام.',
+        ])->save();
+
+        return response()->json([
+            'message' => 'تم رفض طلب المندوب.',
+            'data' => $driver->fresh([
+                'city',
+                'vehicle',
+                'documents',
+            ]),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | إعادة الطلب للمراجعة
+    |--------------------------------------------------------------------------
+    */
+
+    if ($requestedStatus === 'pending') {
+        $driver->forceFill([
+            'status' => 'pending',
+            'application_status' => 'pending',
+            'is_online' => false,
+            'reviewed_by' => null,
+            'reviewed_at' => null,
+            'rejection_reason' => null,
+        ])->save();
+
+        return response()->json([
+            'message' => 'تمت إعادة طلب المندوب للمراجعة.',
+            'data' => $driver->fresh([
+                'city',
+                'vehicle',
+                'documents',
+            ]),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | الإيقاف المؤقت
+    |--------------------------------------------------------------------------
+    */
+
+    $driver->forceFill([
+        'status' => 'suspended',
+        'is_online' => false,
+    ])->save();
+
+    return response()->json([
+        'message' => 'تم إيقاف حساب المندوب مؤقتًا.',
+        'data' => $driver->fresh([
+            'city',
+            'vehicle',
+            'documents',
+        ]),
+    ]);
+}
 
         $driver->update([
             'status' => $validated['status'],
@@ -344,4 +475,72 @@ class DriverController extends Controller
 
         return $code;
     }
+}
+
+public function show(Driver $driver): JsonResponse
+{
+    $driver->load([
+        'city',
+        'vehicle',
+        'documents',
+    ]);
+
+    $metadata = is_array($driver->metadata)
+        ? $driver->metadata
+        : [];
+
+    return response()->json([
+        'data' => [
+            'id' => $driver->id,
+            'code' => $driver->code,
+            'name' => $driver->name,
+            'phone' => $driver->phone,
+            'emergency_phone' => $driver->emergency_phone,
+
+            'identity_number' => $driver->identity_number,
+
+            'city' => $driver->city?->name_ar
+                ?? ($metadata['city'] ?? null),
+
+            'vehicle_type' => $driver->vehicle_type,
+            'plate_number' => $driver->plate_number,
+            'license_number' => $driver->license_number,
+
+            'status' => $driver->status,
+            'application_status' => $driver->application_status,
+            'rejection_reason' => $driver->rejection_reason,
+
+            'submitted_at' => $driver->submitted_at?->toISOString(),
+            'reviewed_at' => $driver->reviewed_at?->toISOString(),
+
+            'custom_fields' => $metadata['custom_fields'] ?? [],
+
+            'documents' => $driver->documents
+                ->map(function ($document): array {
+                    return [
+                        'id' => $document->id,
+                        'type' => $document->type,
+                        'label' => match ($document->type) {
+                            'identity_photo' => 'صورة الهوية',
+                            'profile_photo' => 'الصورة الشخصية',
+                            'helmet_photo' => 'صورة المندوب بالخوذة',
+                            'scooter_front' => 'صورة السكوتر من الأمام',
+                            'scooter_rear' => 'صورة السكوتر من الخلف',
+                            'delivery_box' => 'صورة صندوق التوصيل',
+                            'motorcycle_license' => 'رخصة الدباب',
+                            'motorcycle_photo' => 'صورة الدباب',
+                            'driving_license' => 'رخصة القيادة',
+                            'vehicle_registration' => 'استمارة المركبة',
+                            'cargo_interior' => 'مكان حفظ الطلب',
+                            default => $document->type,
+                        },
+                        'url' => $document->url,
+                        'status' => $document->status,
+                        'rejection_reason' =>
+                            $document->rejection_reason,
+                    ];
+                })
+                ->values(),
+        ],
+    ]);
 }

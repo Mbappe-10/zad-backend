@@ -245,6 +245,11 @@ Route::prefix('v1/app/driver')->group(function (): void {
         Route::get('/', [DriverController::class, 'index']);
         Route::post('/', [DriverController::class, 'store']);
 
+        Route::get(
+           '/{driver}',
+         [DriverController::class, 'show'],
+         ); 
+
     Route::match(
         ['put', 'patch'],
         '/{driver}',

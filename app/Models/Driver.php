@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -49,6 +50,11 @@ class Driver extends Model
         'reviewed_by',
         'rejection_reason',
     ];
+
+    public function documents(): HasMany
+{
+    return $this->hasMany(DriverDocument::class);
+}
 
     protected function casts(): array
     {

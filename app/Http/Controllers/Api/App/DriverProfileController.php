@@ -203,11 +203,7 @@ class DriverProfileController extends Controller
                 'max:30',
             ],
 
-            'city_id' => [
-                'required',
-                'integer',
-                'exists:cities,id',
-            ],
+            'city' => ['required', 'string', 'max:120'],
 
             'vehicle_type' => [
                 'required',
@@ -331,8 +327,6 @@ class DriverProfileController extends Controller
                             $data['identity_number'],
                         ),
 
-                        'city_id' => (int) $data['city_id'],
-
                         'vehicle_type' => $vehicleType,
 
                         'plate_number' => isset(
@@ -374,13 +368,11 @@ class DriverProfileController extends Controller
                         'rejection_reason' => null,
 
                         'metadata' => array_merge(
-                            $existingMetadata,
+                            (array) ($profile->driver?->metadata ?? []),
                             [
-                                'custom_fields' =>
-                                    $data['answers'] ?? [],
+                                'city' => trim($data['city']),
 
-                                'last_submitted_vehicle_type' =>
-                                    $vehicleType,
+                                  'custom_fields' => $data['answers'] ?? [],
                             ],
                         ),
                     ],

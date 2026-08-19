@@ -2,21 +2,33 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Driver extends Model
 {
     use HasFactory, SoftDeletes;
 
+    /*
+    |--------------------------------------------------------------------------
+    | حالات طلب الانضمام
+    |--------------------------------------------------------------------------
+    */
+
     public const APPLICATION_DRAFT = 'draft';
     public const APPLICATION_PENDING = 'pending';
     public const APPLICATION_APPROVED = 'approved';
     public const APPLICATION_REJECTED = 'rejected';
+
+    /*
+    |--------------------------------------------------------------------------
+    | أنواع المركبات
+    |--------------------------------------------------------------------------
+    */
 
     public const VEHICLE_SCOOTER = 'scooter';
     public const VEHICLE_MOTORCYCLE = 'motorcycle';
@@ -28,33 +40,41 @@ class Driver extends Model
         'user_id',
         'city_id',
         'vehicle_id',
+
         'code',
         'name',
         'phone',
         'emergency_phone',
+
         'identity_number',
         'license_number',
+
         'vehicle_type',
         'plate_number',
+
         'status',
         'application_status',
+
         'is_online',
         'current_latitude',
         'current_longitude',
         'location_updated_at',
         'active_orders_count',
         'rating',
+
         'metadata',
+
         'submitted_at',
         'reviewed_at',
         'reviewed_by',
         'rejection_reason',
     ];
 
-    public function documents(): HasMany
-{
-    return $this->hasMany(DriverDocument::class);
-}
+    /*
+    |--------------------------------------------------------------------------
+    | التحويلات
+    |--------------------------------------------------------------------------
+    */
 
     protected function casts(): array
     {
@@ -79,55 +99,113 @@ class Driver extends Model
         ];
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | المستخدم المرتبط
+    |--------------------------------------------------------------------------
+    */
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    public function vehicle(): BelongsTo
-    {
-        return $this->belongsTo(Vehicle::class);
-    }
+    /*
+    |--------------------------------------------------------------------------
+    | المدينة
+    |--------------------------------------------------------------------------
+    */
 
     public function city(): BelongsTo
     {
         return $this->belongsTo(City::class);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | المركبة
+    |--------------------------------------------------------------------------
+    */
+
+    public function vehicle(): BelongsTo
+    {
+        return $this->belongsTo(Vehicle::class);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | مستندات وصور المندوب
+    |--------------------------------------------------------------------------
+    */
+
     public function documents(): HasMany
     {
         return $this->hasMany(DriverDocument::class);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | المسؤول الذي راجع الطلب
+    |--------------------------------------------------------------------------
+    */
+
     public function reviewer(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'reviewed_by');
+        return $this->belongsTo(
+            User::class,
+            'reviewed_by',
+        );
     }
 
-    public function appProfile()
+    /*
+    |--------------------------------------------------------------------------
+    | ملف المستخدم داخل التطبيق
+    |--------------------------------------------------------------------------
+    */
+
+    public function appProfile(): HasOne
     {
-        return $this->hasOne(AppProfile::class);
+        return $this->hasOne(
+            AppProfile::class,
+            'driver_id',
+        );
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | فحص حالة طلب الانضمام
+    |--------------------------------------------------------------------------
+    */
 
     public function isApplicationDraft(): bool
     {
-        return $this->application_status === self::APPLICATION_DRAFT;
+        return $this->application_status ===
+            self::APPLICATION_DRAFT;
     }
 
     public function isApplicationPending(): bool
     {
-        return $this->application_status === self::APPLICATION_PENDING;
+        return $this->application_status ===
+            self::APPLICATION_PENDING;
     }
 
     public function isApplicationApproved(): bool
     {
-        return $this->application_status === self::APPLICATION_APPROVED;
+        return $this->application_status ===
+            self::APPLICATION_APPROVED;
     }
 
     public function isApplicationRejected(): bool
     {
-        return $this->application_status === self::APPLICATION_REJECTED;
+        return $this->application_status ===
+            self::APPLICATION_REJECTED;
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | أهلية استقبال الطلبات
+    |--------------------------------------------------------------------------
+    */
 
     public function canReceiveOrders(): bool
     {
@@ -135,6 +213,12 @@ class Driver extends Model
             && $this->status === 'active'
             && $this->is_online;
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | أنواع المركبات المتاحة
+    |--------------------------------------------------------------------------
+    */
 
     public static function vehicleTypes(): array
     {
@@ -144,6 +228,12 @@ class Driver extends Model
             self::VEHICLE_CAR,
         ];
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | حالات طلب الانضمام المتاحة
+    |--------------------------------------------------------------------------
+    */
 
     public static function applicationStatuses(): array
     {
@@ -155,33 +245,50 @@ class Driver extends Model
         ];
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | المستندات المطلوبة حسب نوع المركبة
+    |--------------------------------------------------------------------------
+    */
+
     public static function requiredDocumentsFor(
         string $vehicleType,
     ): array {
         return match ($vehicleType) {
+            /*
+            | السكوتر:
+            | هوية + صورة بالخوذة + أمام + خلف + صندوق.
+            */
             self::VEHICLE_SCOOTER => [
                 'identity_photo',
-                'profile_photo',
+                'helmet_photo',
                 'scooter_front',
                 'scooter_rear',
                 'delivery_box',
-                'helmet_photo',
             ],
 
+            /*
+            | الدباب:
+            | هوية + صورة بالخوذة + رخصة الدباب
+            | + صورة الدباب + صندوق التوصيل.
+            */
             self::VEHICLE_MOTORCYCLE => [
                 'identity_photo',
-                'profile_photo',
+                'helmet_photo',
                 'motorcycle_license',
                 'motorcycle_photo',
                 'delivery_box',
-                'helmet_photo',
             ],
 
+            /*
+            | السيارة:
+            | هوية + صورة شخصية + رخصة القيادة
+            | + مكان حفظ الطلب داخل السيارة.
+            */
             self::VEHICLE_CAR => [
                 'identity_photo',
                 'profile_photo',
                 'driving_license',
-                'vehicle_registration',
                 'cargo_interior',
             ],
 

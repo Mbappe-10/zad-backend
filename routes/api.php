@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\OrderJourneyAdminController;
 use App\Http\Controllers\Api\Admin\ProductFieldSettingController;
 use App\Http\Controllers\Api\Admin\ProductImageController;
 use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
+use App\Http\Controllers\Api\Admin\RolePortalAdminController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\Admin\StoreController;
 use App\Http\Controllers\Api\AdminResourceController;
@@ -15,11 +16,13 @@ use App\Http\Controllers\Api\App\BootstrapController;
 use App\Http\Controllers\Api\App\DriverOrderController;
 use App\Http\Controllers\Api\App\DriverProfileController;
 use App\Http\Controllers\Api\App\FamilyOrderController;
+use App\Http\Controllers\Api\App\FamilyProductController;
 use App\Http\Controllers\Api\App\GuestSessionController;
 use App\Http\Controllers\Api\App\OrderLiveController;
 use App\Http\Controllers\Api\App\PhoneVerificationController;
 use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
 use App\Http\Controllers\Api\App\RoleDashboardController;
+use App\Http\Controllers\Api\App\RolePortalController;
 use App\Http\Controllers\Api\App\SocialAuthController;
 use App\Http\Controllers\Api\App\StoreCatalogController;
 use App\Http\Controllers\Api\ApprovalRequestController;
@@ -95,6 +98,27 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     )->middleware('throttle:20,1');
 
     Route::get(
+        '/v1/app/{role}/portal/{module}',
+        [RolePortalController::class, 'show'],
+    )->whereIn('role', ['family', 'driver']);
+
+    Route::post(
+        '/v1/app/{role}/portal/{module}',
+        [RolePortalController::class, 'store'],
+    )
+        ->whereIn('role', ['family', 'driver'])
+        ->middleware('throttle:10,1');
+
+    Route::prefix('admin/role-portal')->group(function (): void {
+        Route::get('/', [RolePortalAdminController::class, 'index'])
+            ->middleware('permission:governance.view');
+        Route::post('/', [RolePortalAdminController::class, 'store'])
+            ->middleware('permission:governance.approve');
+        Route::patch('/{record}', [RolePortalAdminController::class, 'update'])
+            ->middleware('permission:governance.approve');
+    });
+
+    Route::get(
         '/delivery/orders/{order}/journey',
         [OrderJourneyAdminController::class, 'journey'],
     );
@@ -135,9 +159,24 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     );
     
     Route::prefix('v1/app/family')->group(function (): void {
+        Route::get('/overview', [FamilyOrderController::class, 'overview']);
         Route::get('/orders', [FamilyOrderController::class, 'index']);
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
+
+        Route::get('/products', [FamilyProductController::class, 'index']);
+        Route::post('/products', [FamilyProductController::class, 'store'])
+            ->middleware('throttle:10,1');
+        Route::put('/products/{product}', [FamilyProductController::class, 'update']);
+        Route::patch(
+            '/products/{product}/availability',
+            [FamilyProductController::class, 'availability'],
+        );
+        Route::post(
+            '/products/{product}/image',
+            [FamilyProductController::class, 'uploadImage'],
+        )->middleware('throttle:10,1');
+        Route::delete('/products/{product}', [FamilyProductController::class, 'destroy']);
 
         Route::post(
             '/orders/{order}/live/start',

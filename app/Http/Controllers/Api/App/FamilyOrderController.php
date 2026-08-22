@@ -70,7 +70,7 @@ class FamilyOrderController extends Controller
                 Order::STATUS_ASSIGNED,
             ])
             ->with([
-                'items:id,order_id,product_id,product_name,preparation_mode,quantity,unit_price,total,options',
+                'items:id,order_id,product_id,product_name,quantity,unit_price,total,options',
                 'store:id,productive_family_id,name_ar,name_en',
             ])
             ->latest()
@@ -83,10 +83,17 @@ class FamilyOrderController extends Controller
 
     public function show(Request $request, Order $order): JsonResponse
     {
-        $this->ensureBelongsToFamily($request, $order);
+        $familyId = $this->familyId($request);
+
+        $belongsToFamily = Store::query()
+            ->whereKey($order->store_id)
+            ->where('productive_family_id', $familyId)
+            ->exists();
+
+        abort_unless($belongsToFamily, 403);
 
         $order->load([
-            'items:id,order_id,product_id,product_name,preparation_mode,quantity,unit_price,total,options',
+            'items:id,order_id,product_id,product_name,quantity,unit_price,total,options',
             'store:id,productive_family_id,name_ar,name_en',
         ]);
 
@@ -104,29 +111,12 @@ class FamilyOrderController extends Controller
                 'required',
                 'in:accepted,preparing,ready,cancelled',
             ],
-            'fulfillment_mode' => [
-                'nullable',
-                'in:ready_now,live_preparation',
-            ],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $targetStatus = $data['status'];
-        $fulfillmentMode = $data['fulfillment_mode']
-            ?? $order->fulfillment_mode
-            ?? Order::FULFILLMENT_LIVE_PREPARATION;
-
-        if ($targetStatus === Order::STATUS_PREPARING) {
-            $fulfillmentMode = Order::FULFILLMENT_LIVE_PREPARATION;
-        }
-
-        $order->forceFill([
-            'fulfillment_mode' => $fulfillmentMode,
-        ])->save();
-
-        $order = $this->moveToStatus(
-            $order->fresh(),
-            $targetStatus,
+        $order = $this->delivery->transition(
+            $order,
+            $data['status'],
             $data['note'] ?? null,
             $request->user()?->id,
         );
@@ -152,69 +142,16 @@ class FamilyOrderController extends Controller
         }
 
         $order->load([
-            'items:id,order_id,product_id,product_name,preparation_mode,quantity,unit_price,total,options',
+            'items:id,order_id,product_id,product_name,quantity,unit_price,total,options',
             'store:id,productive_family_id,name_ar,name_en',
         ]);
 
         return response()->json([
-            'message' => $this->transitionMessage($order, $dispatchStatus),
+            'message' => 'تم تحديث حالة الطلب.',
             'dispatch_status' => $dispatchStatus,
             'dispatch_message' => $dispatchMessage,
             'data' => $this->familyPayload($order),
         ]);
-    }
-
-    private function moveToStatus(
-        Order $order,
-        string $targetStatus,
-        ?string $note,
-        ?int $userId,
-    ): Order {
-        if ($order->status === $targetStatus) {
-            return $order;
-        }
-
-        if (
-            $order->status === Order::STATUS_PENDING &&
-            in_array($targetStatus, [
-                Order::STATUS_PREPARING,
-                Order::STATUS_READY,
-            ], true)
-        ) {
-            $order = $this->delivery->transition(
-                $order,
-                Order::STATUS_ACCEPTED,
-                'قبلت الأسرة المنتجة الطلب.',
-                $userId,
-            );
-        }
-
-        return $this->delivery->transition(
-            $order,
-            $targetStatus,
-            $note,
-            $userId,
-        );
-    }
-
-    private function transitionMessage(
-        Order $order,
-        string $dispatchStatus,
-    ): string {
-        if ($dispatchStatus === 'assigned') {
-            return 'الطلب جاهز وتم إسناده إلى مندوب مناسب.';
-        }
-
-        if ($dispatchStatus === 'searching') {
-            return 'الطلب جاهز، وجارٍ البحث عن مندوب.';
-        }
-
-        return match ($order->status) {
-            Order::STATUS_ACCEPTED => 'تم قبول الطلب. اختاري بدء التجهيز أو إعلانه جاهزًا.',
-            Order::STATUS_PREPARING => 'بدأ تجهيز الطلب ويمكن تشغيل البث المباشر.',
-            Order::STATUS_CANCELLED => 'تم إلغاء الطلب.',
-            default => 'تم تحديث حالة الطلب.',
-        };
     }
 
     private function familyId(Request $request): int
@@ -252,10 +189,8 @@ class FamilyOrderController extends Controller
             'id' => $order->id,
             'number' => $order->number,
             'store_id' => $order->store_id,
-            'driver_id' => $order->driver_id,
             'status' => $order->status,
             'payment_status' => $order->payment_status,
-            'fulfillment_mode' => $order->fulfillment_mode,
             'subtotal' => (float) $order->subtotal,
             'total' => (float) $order->total,
             'package_size' => $order->package_size,

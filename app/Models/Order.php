@@ -14,6 +14,11 @@ class Order extends Model
     use HasFactory;
     use SoftDeletes;
 
+    public function journeyProofs(): HasMany
+{
+    return $this->hasMany(OrderJourneyProof::class);
+}
+
     public const STATUS_PENDING = 'pending';
     public const STATUS_ACCEPTED = 'accepted';
     public const STATUS_PREPARING = 'preparing';

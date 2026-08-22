@@ -292,19 +292,6 @@ class DriverController extends Controller
     ]);
 }
 
-        $driver->update([
-            'status' => $validated['status'],
-            'is_online' => in_array($validated['status'], ['active', 'busy'], true)
-                ? $driver->is_online
-                : false,
-        ]);
-
-        return response()->json([
-            'message' => 'تم تحديث حالة المندوب بنجاح.',
-            'data' => $this->transformDriver($driver->fresh(['city', 'vehicle'])),
-        ]);
-    }
-
     public function destroy(Driver $driver): JsonResponse
     {
         if ((int) $driver->active_orders_count > 0) {
@@ -475,72 +462,63 @@ class DriverController extends Controller
 
         return $code;
     }
-}
+    public function show(Driver $driver): JsonResponse
+    {
+        $driver->load([
+            'city',
+            'vehicle',
+            'documents',
+        ]);
 
-public function show(Driver $driver): JsonResponse
-{
-    $driver->load([
-        'city',
-        'vehicle',
-        'documents',
-    ]);
+        $metadata = is_array($driver->metadata)
+            ? $driver->metadata
+            : [];
 
-    $metadata = is_array($driver->metadata)
-        ? $driver->metadata
-        : [];
-
-    return response()->json([
-        'data' => [
-            'id' => $driver->id,
-            'code' => $driver->code,
-            'name' => $driver->name,
-            'phone' => $driver->phone,
-            'emergency_phone' => $driver->emergency_phone,
-
-            'identity_number' => $driver->identity_number,
-
-            'city' => $driver->city?->name_ar
-                ?? ($metadata['city'] ?? null),
-
-            'vehicle_type' => $driver->vehicle_type,
-            'plate_number' => $driver->plate_number,
-            'license_number' => $driver->license_number,
-
-            'status' => $driver->status,
-            'application_status' => $driver->application_status,
-            'rejection_reason' => $driver->rejection_reason,
-
-            'submitted_at' => $driver->submitted_at?->toISOString(),
-            'reviewed_at' => $driver->reviewed_at?->toISOString(),
-
-            'custom_fields' => $metadata['custom_fields'] ?? [],
-
-            'documents' => $driver->documents
-                ->map(function ($document): array {
-                    return [
-                        'id' => $document->id,
-                        'type' => $document->type,
-                        'label' => match ($document->type) {
-                            'identity_photo' => 'صورة الهوية',
-                            'profile_photo' => 'الصورة الشخصية',
-                            'helmet_photo' => 'صورة المندوب بالخوذة',
-                            'scooter_front' => 'صورة السكوتر من الأمام',
-                            'scooter_rear' => 'صورة السكوتر من الخلف',
-                            'delivery_box' => 'صورة صندوق التوصيل',
-                            'motorcycle_license' => 'رخصة الدباب',
-                            'motorcycle_photo' => 'صورة الدباب',
-                            'driving_license' => 'رخصة القيادة',
-                            'vehicle_registration' => 'استمارة المركبة',
-                            'cargo_interior' => 'مكان حفظ الطلب',
-                            default => $document->type,
-                        },
-                        'url' => $document->url,
-                        'status' => $document->status,
-                        'rejection_reason' =>
-                            $document->rejection_reason,
-                    ];
-                })
-                ->values(),
-        ],
-    ]);
+        return response()->json([
+            'data' => [
+                'id' => $driver->id,
+                'code' => $driver->code,
+                'name' => $driver->name,
+                'phone' => $driver->phone,
+                'emergency_phone' => $driver->emergency_phone,
+                'identity_number' => $driver->identity_number,
+                'city' => $driver->city?->name_ar
+                    ?? ($metadata['city'] ?? null),
+                'vehicle_type' => $driver->vehicle_type,
+                'plate_number' => $driver->plate_number,
+                'license_number' => $driver->license_number,
+                'status' => $driver->status,
+                'application_status' => $driver->application_status,
+                'rejection_reason' => $driver->rejection_reason,
+                'submitted_at' => $driver->submitted_at?->toISOString(),
+                'reviewed_at' => $driver->reviewed_at?->toISOString(),
+                'custom_fields' => $metadata['custom_fields'] ?? [],
+                'documents' => $driver->documents
+                    ->map(function ($document): array {
+                        return [
+                            'id' => $document->id,
+                            'type' => $document->type,
+                            'label' => match ($document->type) {
+                                'identity_photo' => 'صورة الهوية',
+                                'profile_photo' => 'الصورة الشخصية',
+                                'helmet_photo' => 'صورة المندوب بالخوذة',
+                                'scooter_front' => 'صورة السكوتر من الأمام',
+                                'scooter_rear' => 'صورة السكوتر من الخلف',
+                                'delivery_box' => 'صورة صندوق التوصيل',
+                                'motorcycle_license' => 'رخصة الدباب',
+                                'motorcycle_photo' => 'صورة الدباب',
+                                'driving_license' => 'رخصة القيادة',
+                                'vehicle_registration' => 'استمارة المركبة',
+                                'cargo_interior' => 'مكان حفظ الطلب',
+                                default => $document->type,
+                            },
+                            'url' => $document->url,
+                            'status' => $document->status,
+                            'rejection_reason' => $document->rejection_reason,
+                        ];
+                    })
+                    ->values(),
+            ],
+        ]);
+    }
 }

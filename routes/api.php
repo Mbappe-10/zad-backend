@@ -1,37 +1,38 @@
 <?php
 
-use App\Http\Controllers\Api\Admin\OrderJourneyAdminController;
-use App\Http\Controllers\Api\App\OrderLiveController;
-use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
-use App\Http\Controllers\Api\App\SocialAuthController;
-use App\Http\Controllers\Api\App\FamilyOrderController;
-use App\Http\Controllers\Api\App\DriverOrderController;
-use App\Http\Controllers\Api\App\DriverProfileController;
-use App\Http\Controllers\Api\App\AppOrderController;
-use App\Http\Controllers\Api\App\PhoneVerificationController;
-use App\Http\Controllers\Api\Admin\DriverController;
 use App\Http\Controllers\Api\Admin\DriverProfileFieldController;
+use App\Http\Controllers\Api\Admin\DriverController;
+use App\Http\Controllers\Api\Admin\LiveBroadcastAdminController;
+use App\Http\Controllers\Api\Admin\OrderJourneyAdminController;
 use App\Http\Controllers\Api\Admin\ProductFieldSettingController;
 use App\Http\Controllers\Api\Admin\ProductImageController;
-use App\Http\Controllers\Api\App\StoreCatalogController;
-use App\Http\Controllers\Api\App\BootstrapController;
-use App\Http\Controllers\Api\App\GuestSessionController;
-use App\Http\Controllers\Api\Admin\StoreController;
+use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
+use App\Http\Controllers\Api\Admin\StoreController;
+use App\Http\Controllers\Api\AdminResourceController;
+use App\Http\Controllers\Api\App\AppOrderController;
+use App\Http\Controllers\Api\App\BootstrapController;
+use App\Http\Controllers\Api\App\DriverOrderController;
+use App\Http\Controllers\Api\App\DriverProfileController;
+use App\Http\Controllers\Api\App\FamilyOrderController;
+use App\Http\Controllers\Api\App\GuestSessionController;
+use App\Http\Controllers\Api\App\OrderLiveController;
+use App\Http\Controllers\Api\App\PhoneVerificationController;
+use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
+use App\Http\Controllers\Api\App\RoleDashboardController;
+use App\Http\Controllers\Api\App\SocialAuthController;
+use App\Http\Controllers\Api\App\StoreCatalogController;
+use App\Http\Controllers\Api\ApprovalRequestController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BrandingSettingController;
-use App\Http\Controllers\Api\PlatformRecordController;
-use App\Http\Controllers\Api\DigitalEmployeeController;
-use App\Http\Controllers\Api\ApprovalRequestController;
-use App\Http\Controllers\Api\SystemDictionaryController;
 use App\Http\Controllers\Api\CoreResourceController;
-use App\Http\Controllers\Api\FinanceController;
 use App\Http\Controllers\Api\DeliveryOperationsController;
-use App\Http\Controllers\Api\WorkforceController;
+use App\Http\Controllers\Api\DigitalEmployeeController;
+use App\Http\Controllers\Api\FinanceController;
+use App\Http\Controllers\Api\PlatformRecordController;
 use App\Http\Controllers\Api\ReportController;
-use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
-use App\Http\Controllers\Api\Admin\LiveBroadcastAdminController;
-use App\Http\Controllers\Api\AdminResourceController;
+use App\Http\Controllers\Api\SystemDictionaryController;
+use App\Http\Controllers\Api\WorkforceController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -77,7 +78,23 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Current Authenticated User
     |--------------------------------------------------------------------------
     */
-     Route::get(
+
+    Route::get(
+        '/v1/app/driver/dashboard',
+        [RoleDashboardController::class, 'driver'],
+    );
+
+    Route::get(
+        '/v1/app/family/dashboard',
+        [RoleDashboardController::class, 'family'],
+    );
+
+    Route::patch(
+        '/v1/app/family/availability',
+        [RoleDashboardController::class, 'familyAvailability'],
+    )->middleware('throttle:20,1');
+
+    Route::get(
         '/delivery/orders/{order}/journey',
         [OrderJourneyAdminController::class, 'journey'],
     );
@@ -116,34 +133,44 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         '/delivery/orders/retention/bulk',
         [OrderJourneyAdminController::class, 'bulk'],
     );
-Route::prefix('v1/app/family')->group(function (): void {
-    Route::get('/orders', [FamilyOrderController::class, 'index']);
-    Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
-    Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
+    
+    Route::prefix('v1/app/family')->group(function (): void {
+        Route::get('/orders', [FamilyOrderController::class, 'index']);
+        Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
+        Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
 
-    Route::post(
-        '/orders/{order}/live/start',
-        [OrderLiveController::class, 'start'],
+        Route::post(
+            '/orders/{order}/live/start',
+            [OrderLiveController::class, 'start'],
+        );
+
+        Route::post(
+            '/orders/{order}/live/pause',
+            [OrderLiveController::class, 'pause'],
+        );
+
+        Route::post(
+            '/orders/{order}/live/resume',
+            [OrderLiveController::class, 'resume'],
+        );
+
+        Route::post(
+            '/orders/{order}/live/finish',
+            [OrderLiveController::class, 'finish'],
+        );
+    });
+
+    Route::prefix('v1/app/driver')->group(function (): void {
+    /*
+    |--------------------------------------------------------------------------
+    | ملف المندوب
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        '/profile',
+        [DriverProfileController::class, 'show'],
     );
-
-    Route::post(
-        '/orders/{order}/live/pause',
-        [OrderLiveController::class, 'pause'],
-    );
-
-    Route::post(
-        '/orders/{order}/live/resume',
-        [OrderLiveController::class, 'resume'],
-    );
-
-    Route::post(
-        '/orders/{order}/live/finish',
-        [OrderLiveController::class, 'finish'],
-    );
-});
-
-Route::prefix('v1/app/driver')->group(function (): void {
-    Route::get('/profile', [DriverProfileController::class, 'show']);
 
     Route::post(
         '/profile',
@@ -155,9 +182,53 @@ Route::prefix('v1/app/driver')->group(function (): void {
         [DriverProfileController::class, 'fields'],
     );
 
-    Route::get('/orders', [DriverOrderController::class, 'index']);
-    Route::get('/orders/{order}', [DriverOrderController::class, 'show']);
-});
+    /*
+    |--------------------------------------------------------------------------
+    | التوفر والموقع
+    |--------------------------------------------------------------------------
+    */
+
+    Route::patch(
+        '/availability',
+        [DriverOrderController::class, 'availability'],
+    )->middleware('throttle:20,1');
+
+    Route::post(
+        '/location',
+        [DriverOrderController::class, 'location'],
+    )->middleware('throttle:60,1');
+
+    /*
+    |--------------------------------------------------------------------------
+    | مهام المندوب
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        '/orders',
+        [DriverOrderController::class, 'index'],
+    );
+
+    Route::get(
+        '/orders/{order}',
+        [DriverOrderController::class, 'show'],
+    );
+
+    Route::post(
+        '/orders/{order}/pickup',
+        [DriverOrderController::class, 'pickup'],
+    )->middleware('throttle:10,1');
+
+    Route::post(
+        '/orders/{order}/start-delivery',
+        [DriverOrderController::class, 'startDelivery'],
+    )->middleware('throttle:20,1');
+
+    Route::post(
+        '/orders/{order}/deliver',
+        [DriverOrderController::class, 'deliver'],
+    )->middleware('throttle:10,1');
+    });
 
 
     Route::get('/me', [AuthController::class, 'me'])
@@ -238,7 +309,7 @@ Route::prefix('v1/app/driver')->group(function (): void {
         Route::get('/ledger', [FinanceController::class, 'ledger']);
     });
      
-    Route::prefix('admin/drivers')->group(function () {
+    Route::prefix('admin/drivers')->group(function (): void {
         Route::get('/stats', [DriverController::class, 'stats']);
         Route::get('/export', [DriverController::class, 'export']);
 
@@ -246,24 +317,24 @@ Route::prefix('v1/app/driver')->group(function (): void {
         Route::post('/', [DriverController::class, 'store']);
 
         Route::get(
-           '/{driver}',
-         [DriverController::class, 'show'],
-         ); 
+            '/{driver}',
+            [DriverController::class, 'show'],
+        );
 
-    Route::match(
-        ['put', 'patch'],
-        '/{driver}',
-        [DriverController::class, 'update'],
-    );
+        Route::match(
+            ['put', 'patch'],
+            '/{driver}',
+            [DriverController::class, 'update'],
+        );
 
-    Route::patch(
-        '/{driver}/status',
-        [DriverController::class, 'changeStatus'],
-    );
+        Route::patch(
+            '/{driver}/status',
+            [DriverController::class, 'changeStatus'],
+        );
 
-    Route::delete(
-        '/{driver}',
-        [DriverController::class, 'destroy'],
+        Route::delete(
+            '/{driver}',
+            [DriverController::class, 'destroy'],
         );
     });
 

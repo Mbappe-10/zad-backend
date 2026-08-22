@@ -164,6 +164,7 @@ class RolePortalController extends Controller
         $data = $request->validate([
             'contract_id' => ['required', 'integer', 'exists:role_portal_records,id'],
             'accepted' => ['required', 'accepted'],
+            'signature_base64' => ['required', 'string', 'max:2000000'],
         ]);
 
         $contract = RolePortalRecord::query()
@@ -172,6 +173,19 @@ class RolePortalController extends Controller
             ->where('role', $context['role'])
             ->where('status', 'published')
             ->firstOrFail();
+
+        $acceptedAt = now();
+        $hashSource = implode('|', [
+            $contract->reference,
+            (string) $contract->version,
+            $contract->title,
+            (string) $contract->content,
+            $data['signature_base64'],
+            $context['owner_type'],
+            (string) $context['owner_id'],
+            $acceptedAt->toIso8601String(),
+        ]);
+        $documentHash = hash('sha256', $hashSource);
 
         $acceptance = RolePortalRecord::query()->updateOrCreate(
             [
@@ -186,20 +200,33 @@ class RolePortalController extends Controller
                 'user_id' => $request->user()->id,
                 'title' => $contract->title,
                 'status' => 'accepted',
-                'content' => 'تمت الموافقة الإلكترونية على العقد.',
+                // تحفظ نسخة العقد نفسها، وليس رابطًا إلى نص قابل للتغيير.
+                'content' => $contract->content,
                 'payload' => [
                     'contract_id' => $contract->id,
+                    'contract_reference' => $contract->reference,
+                    'contract_title' => $contract->title,
+                    'contract_content' => $contract->content,
+                    'contract_version' => $contract->version,
+                    'signature_base64' => $data['signature_base64'],
+                    'document_hash' => $documentHash,
                     'ip_address' => $request->ip(),
                     'user_agent' => Str::limit((string) $request->userAgent(), 500),
-                    'accepted_at' => now()->toIso8601String(),
+                    'accepted_at' => $acceptedAt->toIso8601String(),
+                    'brand' => [
+                        'logo_asset' => 'assets/contracts/zad_logo.png',
+                        'seal_asset' => 'assets/contracts/zad_seal.png',
+                        'seal_label' => 'ZAD PLATFORM',
+                    ],
                 ],
-                'effective_at' => now(),
+                'effective_at' => $acceptedAt,
             ],
         );
 
         return response()->json([
             'message' => 'تم توثيق موافقتك على العقد.',
             'data' => $this->recordPayload($acceptance),
+            'document_hash' => $documentHash,
         ]);
     }
 

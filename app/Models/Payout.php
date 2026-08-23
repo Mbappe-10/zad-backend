@@ -10,7 +10,17 @@ class Payout extends Model
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2', 'fee' => 'decimal:2', 'net_amount' => 'decimal:2', 'approved_at' => 'datetime', 'paid_at' => 'datetime'];
+        return [
+            'amount' => 'decimal:2',
+            'fee' => 'decimal:2',
+            'net_amount' => 'decimal:2',
+            'approved_at' => 'datetime',
+            'paid_at' => 'datetime',
+            'contract_signed_at' => 'datetime',
+            'declaration_signed_at' => 'datetime',
+            'policy_snapshot' => 'array',
+            'declaration_snapshot' => 'array',
+        ];
     }
 
     public function wallet()

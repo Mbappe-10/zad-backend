@@ -117,14 +117,18 @@ class RolePortalAdminController extends Controller
         RolePortalRecord $record,
     ): JsonResponse {
         $data = $request->validate([
-            'status' => ['required', Rule::in([
+            'status' => ['sometimes', 'required', Rule::in([
                 'pending', 'approved', 'rejected', 'resolved', 'closed',
                 'active', 'draft', 'published', 'archived',
             ])],
+            'title' => ['sometimes', 'required', 'string', 'min:3', 'max:180'],
+            'content' => ['sometimes', 'required', 'string', 'min:20'],
             'admin_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        if ($record->module === 'contract' && $data['status'] === 'published') {
+        $nextStatus = $data['status'] ?? $record->status;
+
+        if ($record->module === 'contract' && $nextStatus === 'published') {
             RolePortalRecord::query()
                 ->where('role', $record->role)
                 ->where('module', 'contract')
@@ -134,10 +138,14 @@ class RolePortalAdminController extends Controller
         }
 
         $payload = $record->payload ?? [];
-        $payload['admin_note'] = $data['admin_note'] ?? null;
+        if (array_key_exists('admin_note', $data)) {
+            $payload['admin_note'] = $data['admin_note'];
+        }
 
         $record->update([
-            'status' => $data['status'],
+            'title' => $data['title'] ?? $record->title,
+            'content' => $data['content'] ?? $record->content,
+            'status' => $nextStatus,
             'payload' => $payload,
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
@@ -146,6 +154,20 @@ class RolePortalAdminController extends Controller
         return response()->json([
             'message' => 'تم تحديث السجل.',
             'data' => $record->fresh(),
+        ]);
+    }
+
+    public function destroy(Request $request, RolePortalRecord $record): JsonResponse
+    {
+        abort_unless($record->module === 'contract', 422, 'الحذف متاح للعقود فقط من هذه الشاشة.');
+        abort_if($record->status === 'published', 422, 'أرشف العقد المنشور أولًا قبل حذفه.');
+
+        $reference = $record->reference;
+        $record->delete();
+
+        return response()->json([
+            'message' => 'تم حذف العقد.',
+            'reference' => $reference,
         ]);
     }
 }

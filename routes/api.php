@@ -116,6 +116,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             ->middleware('permission:governance.approve');
         Route::patch('/{record}', [RolePortalAdminController::class, 'update'])
             ->middleware('permission:governance.approve');
+        Route::delete('/{record}', [RolePortalAdminController::class, 'destroy'])
+            ->middleware('permission:governance.approve');
     });
 
     Route::get(

@@ -7,6 +7,7 @@ use App\Models\AppProfile;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\Payout;
+use App\Models\PlatformControl;
 use App\Models\ProductiveFamily;
 use App\Models\RolePortalRecord;
 use App\Models\Wallet;
@@ -15,6 +16,7 @@ use App\Services\FinancialService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -139,7 +141,27 @@ class RolePortalController extends Controller
             'iban' => ['required', 'string', 'max:50'],
             'account_name' => ['required', 'string', 'max:150'],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'declaration_accepted' => ['required', 'accepted'],
+            'signature_base64' => ['required', 'string', 'max:2000000'],
         ]);
+
+        $policy = $this->payoutPolicy($context['role']);
+        $contractState = $this->signedContract($context);
+        abort_if($contractState === null, 428, 'يلزم توقيع العقد الإلكتروني المنشور والفعال قبل تقديم طلب السحب.');
+
+        abort_if((float) $data['amount'] < (float) $policy['minimum_amount'], 422,
+            'الحد الأدنى للسحب لهذا الحساب هو '.$policy['minimum_amount'].' ريال.');
+
+        $openPayout = Payout::query()->where('wallet_id', $wallet->id)
+            ->whereIn('status', ['pending', 'approved', 'processing'])->exists();
+        abort_if($openPayout, 422, 'يوجد طلب سحب مفتوح لهذا الحساب.');
+
+        $lastPayout = Payout::query()->where('wallet_id', $wallet->id)
+            ->where('status', '!=', 'rejected')->latest()->first();
+        if ($lastPayout && $lastPayout->created_at->addDays((int) $policy['cycle_days'])->isFuture()) {
+            abort(422, 'يتاح طلب السحب القادم بتاريخ '.$lastPayout->created_at
+                ->addDays((int) $policy['cycle_days'])->format('Y-m-d H:i'));
+        }
 
         abort_if(
             (float) $data['amount'] > (float) $wallet->available_balance,
@@ -147,14 +169,55 @@ class RolePortalController extends Controller
             'المبلغ المطلوب أكبر من الرصيد المتاح.',
         );
 
+        $signedAt = now();
+        $declarationReference = 'ZAD-WD-'.Str::upper($context['role']).'-'.$signedAt->format('YmdHis').'-'.Str::upper(Str::random(5));
+        $fee = min((float) $policy['transfer_fee'], (float) $data['amount']);
+        $declarationSnapshot = [
+            'text' => 'أقر بصحة مبلغ السحب وبيانات الحساب البنكي، وأفوض منصة زاد بتحويل صافي المبلغ وفق سياسة السحب الظاهرة، وأعلم أن الطلب يخضع للمراجعة والتسوية.',
+            'amount' => (float) $data['amount'],
+            'fee' => $fee,
+            'net_amount' => round((float) $data['amount'] - $fee, 2),
+            'bank_name' => $data['bank_name'],
+            'account_name' => $data['account_name'],
+            'iban_masked' => $this->maskIban($data['iban']),
+            'contract_status' => 'signed_active_verified',
+            'contract_reference' => $contractState['contract']->reference,
+            'contract_version' => $contractState['contract']->version,
+            'contract_acceptance_reference' => $contractState['acceptance']->reference,
+            'signed_at' => $signedAt->toIso8601String(),
+        ];
+        $declarationHash = hash('sha256', json_encode([
+            $declarationReference, $declarationSnapshot, $policy,
+            $data['signature_base64'], $request->user()->id,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        $acceptancePayload = $contractState['acceptance']->payload ?? [];
         $payout = $this->financialService->requestPayout(
             $wallet,
-            [...$data, 'fee' => 0],
+            [
+                ...Arr::only($data, ['amount', 'bank_name', 'iban', 'account_name', 'notes']),
+                'fee' => $fee,
+                'account_role' => $context['role'],
+                'contract_id' => $contractState['contract']->id,
+                'contract_acceptance_id' => $contractState['acceptance']->id,
+                'contract_reference' => $contractState['contract']->reference,
+                'contract_version' => $contractState['contract']->version,
+                'contract_acceptance_reference' => $contractState['acceptance']->reference,
+                'contract_document_hash' => $acceptancePayload['document_hash'] ?? null,
+                'contract_signed_at' => $contractState['acceptance']->effective_at,
+                'declaration_reference' => $declarationReference,
+                'declaration_version' => 'WITHDRAWAL-'.$context['role'].'-V1',
+                'declaration_signature' => $data['signature_base64'],
+                'declaration_hash' => $declarationHash,
+                'declaration_signed_at' => $signedAt,
+                'policy_snapshot' => $policy,
+                'declaration_snapshot' => $declarationSnapshot,
+            ],
             $request->user()->id,
         );
 
         return response()->json([
-            'message' => 'تم إرسال طلب السحب للمراجعة.',
+            'message' => 'تم توقيع إقرار السحب وإرسال الطلب للمراجعة.',
             'data' => $payout,
         ], 201);
     }
@@ -270,6 +333,8 @@ class RolePortalController extends Controller
 
         return [
             'wallet' => $wallet,
+            'payout_policy' => $this->payoutPolicy($context['role']),
+            'payout_eligibility' => $this->payoutEligibility($context, $wallet),
             'transactions' => WalletTransaction::query()
                 ->where('wallet_id', $wallet->id)
                 ->latest()
@@ -283,6 +348,68 @@ class RolePortalController extends Controller
         ];
     }
 
+    private function payoutPolicy(string $role): array
+    {
+        $settings = PlatformControl::query()->where('section', 'finance')->value('value') ?? [];
+        $family = $role === 'family';
+
+        return [
+            'version' => (string) ($settings['payoutPolicyVersion'] ?? 'PAYOUT-POLICY-V1'),
+            'role' => $role,
+            'minimum_amount' => (float) ($settings[$family ? 'familyMinimumWithdrawalAmount' : 'courierMinimumWithdrawalAmount'] ?? ($family ? 80 : 100)),
+            'cycle_days' => (int) ($settings[$family ? 'familyPayoutCycleDays' : 'courierPayoutCycleDays'] ?? ($family ? 5 : 21)),
+            'processing_days' => (int) ($settings[$family ? 'familyPayoutProcessingDays' : 'courierPayoutProcessingDays'] ?? ($family ? 1 : 3)),
+            'hold_hours' => (int) ($settings[$family ? 'familyPayoutHoldHours' : 'courierPayoutHoldHours'] ?? 24),
+            'transfer_fee' => (float) ($settings['payoutTransferFee'] ?? 0),
+            'effective_at' => now()->toIso8601String(),
+        ];
+    }
+
+    private function signedContract(array $context): ?array
+    {
+        $contract = RolePortalRecord::query()
+            ->where('role', $context['role'])->where('module', 'contract')
+            ->where('status', 'published')
+            ->where(fn (Builder $query) => $query->whereNull('effective_at')->orWhere('effective_at', '<=', now()))
+            ->orderByDesc('version')->orderByDesc('id')->first();
+        if (! $contract) return null;
+
+        $acceptance = RolePortalRecord::query()
+            ->where('role', $context['role'])->where('module', 'contract-acceptance')
+            ->where('owner_type', $context['owner_type'])->where('owner_id', $context['owner_id'])
+            ->where('version', $contract->version)->where('status', 'accepted')->first();
+
+        return $acceptance ? compact('contract', 'acceptance') : null;
+    }
+
+    private function payoutEligibility(array $context, Wallet $wallet): array
+    {
+        $policy = $this->payoutPolicy($context['role']);
+        $signedContract = $this->signedContract($context);
+        if ($signedContract === null) return ['eligible' => false, 'code' => 'contract_required', 'message' => 'يلزم توقيع العقد الحالي أولًا.'];
+        $contractSummary = [
+            'id' => $signedContract['contract']->id,
+            'reference' => $signedContract['contract']->reference,
+            'version' => $signedContract['contract']->version,
+            'status' => 'signed_active_verified',
+            'acceptance_reference' => $signedContract['acceptance']->reference,
+            'signed_at' => $signedContract['acceptance']->effective_at,
+        ];
+        if ($wallet->is_frozen) return ['eligible' => false, 'code' => 'wallet_frozen', 'message' => 'المحفظة مجمدة مؤقتًا.'];
+        if ((float) $wallet->available_balance < (float) $policy['minimum_amount']) return ['eligible' => false, 'code' => 'minimum_not_met', 'message' => 'لم يصل الرصيد إلى الحد الأدنى للسحب.'];
+        if (Payout::query()->where('wallet_id', $wallet->id)->whereIn('status', ['pending', 'approved', 'processing'])->exists()) return ['eligible' => false, 'code' => 'open_payout', 'message' => 'يوجد طلب سحب مفتوح.'];
+        $last = Payout::query()->where('wallet_id', $wallet->id)->where('status', '!=', 'rejected')->latest()->first();
+        $next = $last?->created_at?->copy()->addDays((int) $policy['cycle_days']);
+        if ($next?->isFuture()) return ['eligible' => false, 'code' => 'cycle_pending', 'message' => 'لم تكتمل دورة السحب.', 'next_eligible_at' => $next->toIso8601String()];
+        return ['eligible' => true, 'code' => 'ready', 'message' => 'الحساب مؤهل لطلب السحب.', 'contract' => $contractSummary];
+    }
+
+    private function maskIban(string $iban): string
+    {
+        $clean = preg_replace('/\s+/', '', $iban) ?? $iban;
+        return strlen($clean) <= 8 ? str_repeat('*', max(strlen($clean) - 4, 0)).substr($clean, -4) : substr($clean, 0, 4).str_repeat('*', strlen($clean) - 8).substr($clean, -4);
+    }
+
     private function contractData(array $context): array
     {
         $contract = RolePortalRecord::query()
@@ -293,7 +420,8 @@ class RolePortalController extends Controller
                 $query->whereNull('effective_at')
                     ->orWhere('effective_at', '<=', now());
             })
-            ->latest('version')
+            ->orderByDesc('version')
+            ->orderByDesc('id')
             ->first();
 
         if (! $contract) {

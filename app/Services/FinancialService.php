@@ -37,6 +37,11 @@ class FinancialService
             if ($wallet->is_frozen) {
                 throw ValidationException::withMessages(['wallet' => 'المحفظة مجمدة.']);
             }
+            if (Payout::query()->where('wallet_id', $wallet->id)
+                ->whereIn('status', ['pending', 'approved', 'processing'])
+                ->lockForUpdate()->exists()) {
+                throw ValidationException::withMessages(['payout' => 'يوجد طلب سحب مفتوح لهذا الحساب.']);
+            }
             $amount = (float) $data['amount'];
             if ($amount <= 0 || $amount > (float) $wallet->available_balance) {
                 throw ValidationException::withMessages(['amount' => 'الرصيد المتاح غير كافٍ.']);

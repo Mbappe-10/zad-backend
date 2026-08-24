@@ -279,7 +279,7 @@ class AppOrderController extends Controller
     {
         do {
             $number =
-                'ZAD-'.
+                'ZADSYNC-'.
                 now()->format('ymd').
                 '-'.
                 Str::upper(Str::random(6));

@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::table('users', function (Blueprint $table) {
             /*
              * حسابات Google / Apple لا تحتاج
-             * بريدًا أو كلمة مرور داخل زاد.
+             * بريدًا أو كلمة مرور داخل زاد سينك.
              */
             $table->string('email')
                 ->nullable()

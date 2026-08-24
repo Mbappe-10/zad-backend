@@ -119,7 +119,7 @@ class ProductiveFamilyProfileController extends Controller
                 if (! $profile) {
                     abort(
                         422,
-                        'لم يتم العثور على الملف الخاص بحساب زاد.',
+                        'لم يتم العثور على الملف الخاص بحساب زاد سينك.',
                     );
                 }
 

@@ -24,14 +24,14 @@ class ProfileManagementTest extends TestCase
         Sanctum::actingAs($user);
 
         $this->putJson('/api/profile', [
-            'name_ar' => 'مدير منصة زاد',
-            'name_en' => 'ZAD Platform Manager',
+            'name_ar' => 'مدير منصة زاد سينك',
+            'name_en' => 'ZADSYNC Platform Manager',
             'phone' => '0500000000',
             'locale' => 'ar',
             'timezone' => 'Asia/Riyadh',
         ])
             ->assertOk()
-            ->assertJsonPath('user.nameAr', 'مدير منصة زاد')
+            ->assertJsonPath('user.nameAr', 'مدير منصة زاد سينك')
             ->assertJsonPath('user.phone', '0500000000');
 
         $this->putJson('/api/profile/password', [

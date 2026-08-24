@@ -146,6 +146,7 @@ class RolePortalController extends Controller
         ]);
 
         $policy = $this->payoutPolicy($context['role']);
+        $declarationTemplate = $this->payoutDeclarationTemplate($context['role']);
         $contractState = $this->signedContract($context);
         abort_if($contractState === null, 428, 'يلزم توقيع العقد الإلكتروني المنشور والفعال قبل تقديم طلب السحب.');
 
@@ -170,10 +171,15 @@ class RolePortalController extends Controller
         );
 
         $signedAt = now();
-        $declarationReference = 'ZAD-WD-'.Str::upper($context['role']).'-'.$signedAt->format('YmdHis').'-'.Str::upper(Str::random(5));
+        $declarationReference = 'ZADSYNC-WD-'.Str::upper($context['role']).'-'.$signedAt->format('YmdHis').'-'.Str::upper(Str::random(5));
         $fee = min((float) $policy['transfer_fee'], (float) $data['amount']);
         $declarationSnapshot = [
-            'text' => 'أقر بصحة مبلغ السحب وبيانات الحساب البنكي، وأفوض منصة زاد بتحويل صافي المبلغ وفق سياسة السحب الظاهرة، وأعلم أن الطلب يخضع للمراجعة والتسوية.',
+            'title' => $declarationTemplate?->title ?? 'إقرار طلب تحويل مستحقات مالية',
+            'text' => $declarationTemplate?->content ?? $policy['declaration_text'],
+            'template_reference' => $declarationTemplate?->reference,
+            'template_version' => $declarationTemplate?->version,
+            'logo_url' => data_get($declarationTemplate?->payload, 'logo_url'),
+            'seal_url' => data_get($declarationTemplate?->payload, 'seal_url'),
             'amount' => (float) $data['amount'],
             'fee' => $fee,
             'net_amount' => round((float) $data['amount'] - $fee, 2),
@@ -206,7 +212,7 @@ class RolePortalController extends Controller
                 'contract_document_hash' => $acceptancePayload['document_hash'] ?? null,
                 'contract_signed_at' => $contractState['acceptance']->effective_at,
                 'declaration_reference' => $declarationReference,
-                'declaration_version' => 'WITHDRAWAL-'.$context['role'].'-V1',
+                'declaration_version' => $declarationTemplate?->reference ?? $policy['declaration_version'],
                 'declaration_signature' => $data['signature_base64'],
                 'declaration_hash' => $declarationHash,
                 'declaration_signed_at' => $signedAt,
@@ -279,7 +285,7 @@ class RolePortalController extends Controller
                     'brand' => [
                         'logo_asset' => 'assets/contracts/zad_logo.png',
                         'seal_asset' => 'assets/contracts/zad_seal.png',
-                        'seal_label' => 'ZAD PLATFORM',
+                        'seal_label' => 'ZADSYNC PLATFORM',
                     ],
                 ],
                 'effective_at' => $acceptedAt,
@@ -352,6 +358,7 @@ class RolePortalController extends Controller
     {
         $settings = PlatformControl::query()->where('section', 'finance')->value('value') ?? [];
         $family = $role === 'family';
+        $template = $this->payoutDeclarationTemplate($role);
 
         return [
             'version' => (string) ($settings['payoutPolicyVersion'] ?? 'PAYOUT-POLICY-V1'),
@@ -361,8 +368,25 @@ class RolePortalController extends Controller
             'processing_days' => (int) ($settings[$family ? 'familyPayoutProcessingDays' : 'courierPayoutProcessingDays'] ?? ($family ? 1 : 3)),
             'hold_hours' => (int) ($settings[$family ? 'familyPayoutHoldHours' : 'courierPayoutHoldHours'] ?? 24),
             'transfer_fee' => (float) ($settings['payoutTransferFee'] ?? 0),
+            'declaration_version' => (string) ($template?->reference ?? ($settings[$family ? 'familyPayoutDeclarationVersion' : 'courierPayoutDeclarationVersion'] ?? ($family ? 'WITHDRAWAL-FAMILY-V1' : 'WITHDRAWAL-DRIVER-V1'))),
+            'declaration_title' => $template?->title ?? 'إقرار طلب تحويل مستحقات مالية',
+            'declaration_text' => (string) ($template?->content ?? ($settings[$family ? 'familyPayoutDeclarationText' : 'courierPayoutDeclarationText'] ?? 'أقر بصحة بيانات طلب السحب وأوافق على السياسة المطبقة.')),
+            'declaration_logo_url' => data_get($template?->payload, 'logo_url'),
+            'declaration_seal_url' => data_get($template?->payload, 'seal_url'),
             'effective_at' => now()->toIso8601String(),
         ];
+    }
+
+    private function payoutDeclarationTemplate(string $role): ?RolePortalRecord
+    {
+        return RolePortalRecord::query()
+            ->where('role', $role)
+            ->where('module', 'payout-declaration')
+            ->where('status', 'published')
+            ->where(fn (Builder $query) => $query->whereNull('effective_at')->orWhere('effective_at', '<=', now()))
+            ->orderByDesc('version')
+            ->orderByDesc('id')
+            ->first();
     }
 
     private function signedContract(array $context): ?array

@@ -195,14 +195,14 @@ class User extends Authenticatable
                 ?: $this->name
                 ?: $this->name_en
                 ?: $this->email
-                ?: 'مستخدم زاد';
+                ?: 'مستخدم زاد سينك';
         }
 
         return $this->name_en
             ?: $this->name
             ?: $this->name_ar
             ?: $this->email
-            ?: 'ZAD User';
+            ?: 'ZADSYNC User';
     }
 
     /*

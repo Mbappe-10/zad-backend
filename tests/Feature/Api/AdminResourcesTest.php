@@ -68,13 +68,13 @@ class AdminResourcesTest extends TestCase
         $this->putJson('/api/admin/settings', [
             'settings' => [
                 'general' => [
-                    'appNameAr' => 'زاد',
+                    'appNameAr' => 'زاد سينك',
                     'timezone' => 'Asia/Riyadh',
                 ],
             ],
         ])
             ->assertOk()
-            ->assertJsonPath('data.general.appNameAr', 'زاد');
+            ->assertJsonPath('data.general.appNameAr', 'زاد سينك');
 
         $this->getJson('/api/admin/settings')
             ->assertOk()

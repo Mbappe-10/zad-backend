@@ -57,7 +57,7 @@ class SocialAuthController extends Controller
         $name = trim((string) ($payload['name'] ?? ''));
 
         if ($name === '') {
-            $name = 'مستخدم زاد';
+            $name = 'مستخدم زاد سينك';
         }
 
         /*
@@ -145,7 +145,7 @@ class SocialAuthController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | إصدار Sanctum Token لتطبيق ZAD
+        | إصدار Sanctum Token لتطبيق ZADSYNC
         |--------------------------------------------------------------------------
         */
 
@@ -157,7 +157,7 @@ class SocialAuthController extends Controller
 
         return response()->json([
             'message' => $isNewUser
-                ? 'تم إنشاء حساب زاد بنجاح.'
+                ? 'تم إنشاء حساب زاد سينك بنجاح.'
                 : 'تم تسجيل الدخول بنجاح.',
 
             'is_new_user' => $isNewUser,

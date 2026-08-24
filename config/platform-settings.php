@@ -14,8 +14,8 @@ return [
 
     'general' => [
 
-        'appNameAr' => 'زاد',
-        'appNameEn' => 'ZAD',
+        'appNameAr' => 'زاد سينك',
+        'appNameEn' => 'ZADSYNC',
 
         'supportEmail' => 'support@zad.sa',
 

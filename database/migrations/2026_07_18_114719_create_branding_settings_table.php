@@ -17,8 +17,8 @@ return new class extends Migration
             |--------------------------------------------------------------------------
             */
 
-            $table->string('platform_name_ar')->default('زاد');
-            $table->string('platform_name_en')->default('ZAD');
+            $table->string('platform_name_ar')->default('زاد سينك');
+            $table->string('platform_name_en')->default('ZADSYNC');
 
             $table->string('company_name_ar')->nullable();
             $table->string('company_name_en')->nullable();

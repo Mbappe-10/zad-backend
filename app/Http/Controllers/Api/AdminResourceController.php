@@ -97,7 +97,7 @@ class AdminResourceController extends Controller
         $status = $this->statusFromPayload($payload);
 
         if ($resource === 'support' && empty($payload['ticket_number'])) {
-            $payload['ticket_number'] = 'ZAD-'.now()->format('ymd-His');
+            $payload['ticket_number'] = 'ZADSYNC-'.now()->format('ymd-His');
             $payload['messages'] = [];
             $payload['messages_count'] = 0;
         }
@@ -847,7 +847,7 @@ class AdminResourceController extends Controller
                 : [];
             $messages[] = [
                 'id' => count($messages) + 1,
-                'sender_name' => $request->user()?->name ?? 'ZAD Support',
+                'sender_name' => $request->user()?->name ?? 'ZADSYNC Support',
                 'sender_type' => 'agent',
                 'message' => (string) $request->input('message', ''),
                 'created_at' => now()->toISOString(),

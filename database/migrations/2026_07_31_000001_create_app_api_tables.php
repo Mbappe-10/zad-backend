@@ -109,7 +109,7 @@ return new class extends Migration
             [
                 'key' => 'app.name',
                 'value' => json_encode(
-                    'زاد',
+                    'زاد سينك',
                     JSON_UNESCAPED_UNICODE
                     | JSON_UNESCAPED_SLASHES,
                 ),

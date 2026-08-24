@@ -1,4 +1,4 @@
-# ZAD Unified Mobile App API — Guest First
+# ZADSYNC Unified Mobile App API — Guest First
 
 ## سلوك التطبيق
 - يفتح مباشرة على الصفحة الرئيسية كضيف، بلا تسجيل دخول.

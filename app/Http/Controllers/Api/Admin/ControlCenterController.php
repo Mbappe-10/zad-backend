@@ -152,6 +152,10 @@ class ControlCenterController extends Controller
             'courierPayoutHoldHours' => 24,
             'payoutTransferFee' => 0,
             'payoutPolicyVersion' => 'PAYOUT-POLICY-V1',
+            'familyPayoutDeclarationVersion' => 'WITHDRAWAL-FAMILY-V1',
+            'courierPayoutDeclarationVersion' => 'WITHDRAWAL-DRIVER-V1',
+            'familyPayoutDeclarationText' => 'أقر بصحة مبلغ السحب وبيانات الحساب البنكي، وأفوض منصة زاد سينك بتحويل صافي المبلغ إلى الحساب المعتمد، وأوافق على سياسة سحب الأسر المنتجة الظاهرة ونسختها وقت تقديم الطلب، وأعلم أن الطلب يخضع للمراجعة والتسوية.',
+            'courierPayoutDeclarationText' => 'أقر بصحة مبلغ السحب وبيانات الحساب البنكي، وأفوض منصة زاد سينك بتحويل صافي المبلغ إلى الحساب المعتمد، وأوافق على سياسة سحب المندوبين الظاهرة ونسختها وقت تقديم الطلب، وأعلم أن الطلب يخضع للمراجعة والتسوية.',
             'refundApprovalLimit' => 500,
         ],
 
@@ -656,7 +660,7 @@ class ControlCenterController extends Controller
     {
         return match ($section) {
             'platform' => 'حالة المنصة والتسجيل والطلبات ووضع الصيانة.',
-            'modules' => 'تشغيل وإيقاف وحدات منصة زاد.',
+            'modules' => 'تشغيل وإيقاف وحدات منصة زاد سينك.',
             'security' => 'إعدادات الحماية والجلسات والتحقق.',
             'artificial_intelligence' => 'ضوابط الذكاء الاصطناعي والموظفين الرقميين.',
             'services' => 'الخدمات الخارجية والبريد والرسائل والتخزين.',

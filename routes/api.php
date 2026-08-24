@@ -8,6 +8,8 @@ use App\Http\Controllers\Api\Admin\ProductFieldSettingController;
 use App\Http\Controllers\Api\Admin\ProductImageController;
 use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
 use App\Http\Controllers\Api\Admin\RolePortalAdminController;
+use App\Http\Controllers\Api\Admin\ControlCenterController;
+use App\Http\Controllers\Api\Admin\PayoutAdminController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\Admin\StoreController;
 use App\Http\Controllers\Api\AdminResourceController;
@@ -75,6 +77,10 @@ Route::post('/auth/login', [AuthController::class, 'login'])
     ->name('api.auth.login');
 
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+
+    Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
+    Route::patch('/admin/control-center/{section}', [ControlCenterController::class, 'update']);
+    Route::post('/admin/control-center/actions/{action}', [ControlCenterController::class, 'action']);
 
     /*
     |--------------------------------------------------------------------------
@@ -576,6 +582,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     */
 
     Route::prefix('admin')->group(function () {
+        Route::get('/payout-requests', [PayoutAdminController::class, 'index']);
+        Route::get('/payout-requests/{payout}', [PayoutAdminController::class, 'show'])->whereNumber('payout');
+        Route::patch('/payout-requests/{payout}/decision', [PayoutAdminController::class, 'decide'])->whereNumber('payout');
         Route::get('/dashboard', [AdminResourceController::class, 'dashboard']);
         Route::get('/dashboard/export', [AdminResourceController::class, 'dashboardExport']);
 

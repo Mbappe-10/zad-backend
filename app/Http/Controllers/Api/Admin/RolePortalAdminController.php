@@ -40,7 +40,7 @@ class RolePortalAdminController extends Controller
     {
         $data = $request->validate([
             'role' => ['required', Rule::in(['family', 'driver'])],
-            'module' => ['required', Rule::in(['contract'])],
+            'module' => ['required', Rule::in(['contract', 'payout-declaration'])],
             'title' => ['required', 'string', 'min:3', 'max:180'],
             'content' => ['required', 'string', 'min:20'],
             'status' => ['required', Rule::in(['draft', 'published', 'archived'])],
@@ -53,23 +53,24 @@ class RolePortalAdminController extends Controller
         $logoPath = $this->storeBrandImage($data['logo_base64'] ?? null, 'logo');
         $sealPath = $this->storeBrandImage($data['seal_base64'] ?? null, 'seal');
 
+        $module = $data['module'];
         $version = (int) RolePortalRecord::query()
             ->where('role', $data['role'])
-            ->where('module', 'contract')
+            ->where('module', $module)
             ->max('version') + 1;
 
         if ($data['status'] === 'published') {
             RolePortalRecord::query()
                 ->where('role', $data['role'])
-                ->where('module', 'contract')
+                ->where('module', $module)
                 ->where('status', 'published')
                 ->update(['status' => 'archived']);
         }
 
         $record = RolePortalRecord::query()->create([
-            'reference' => 'CONTRACT-'.Str::upper($data['role']).'-'.$version.'-'.Str::upper(Str::random(5)),
+            'reference' => ($module === 'contract' ? 'CONTRACT-' : 'WITHDRAWAL-DECLARATION-').Str::upper($data['role']).'-'.$version.'-'.Str::upper(Str::random(5)),
             'role' => $data['role'],
-            'module' => 'contract',
+            'module' => $module,
             'user_id' => $request->user()->id,
             'title' => $data['title'],
             'status' => $data['status'],
@@ -79,13 +80,13 @@ class RolePortalAdminController extends Controller
                 'requires_reacceptance' => $data['requires_reacceptance'] ?? true,
                 'logo_url' => $logoPath ? url(Storage::url($logoPath)) : null,
                 'seal_url' => $sealPath ? url(Storage::url($sealPath)) : null,
-                'seal_label' => 'ZAD PLATFORM',
+                'seal_label' => 'ZADSYNC PLATFORM',
             ],
             'effective_at' => $data['effective_at'] ?? now(),
         ]);
 
         return response()->json([
-            'message' => 'تم حفظ إصدار العقد.',
+            'message' => $module === 'contract' ? 'تم حفظ إصدار العقد.' : 'تم حفظ إصدار إقرار السحب.',
             'data' => $record,
         ], 201);
     }
@@ -124,14 +125,16 @@ class RolePortalAdminController extends Controller
             'title' => ['sometimes', 'required', 'string', 'min:3', 'max:180'],
             'content' => ['sometimes', 'required', 'string', 'min:20'],
             'admin_note' => ['nullable', 'string', 'max:2000'],
+            'logo_base64' => ['nullable', 'string', 'max:3000000'],
+            'seal_base64' => ['nullable', 'string', 'max:3000000'],
         ]);
 
         $nextStatus = $data['status'] ?? $record->status;
 
-        if ($record->module === 'contract' && $nextStatus === 'published') {
+        if (in_array($record->module, ['contract', 'payout-declaration'], true) && $nextStatus === 'published') {
             RolePortalRecord::query()
                 ->where('role', $record->role)
-                ->where('module', 'contract')
+                ->where('module', $record->module)
                 ->where('id', '!=', $record->id)
                 ->where('status', 'published')
                 ->update(['status' => 'archived']);
@@ -140,6 +143,14 @@ class RolePortalAdminController extends Controller
         $payload = $record->payload ?? [];
         if (array_key_exists('admin_note', $data)) {
             $payload['admin_note'] = $data['admin_note'];
+        }
+        if (! empty($data['logo_base64'])) {
+            $logoPath = $this->storeBrandImage($data['logo_base64'], 'logo');
+            $payload['logo_url'] = $logoPath ? url(Storage::url($logoPath)) : ($payload['logo_url'] ?? null);
+        }
+        if (! empty($data['seal_base64'])) {
+            $sealPath = $this->storeBrandImage($data['seal_base64'], 'seal');
+            $payload['seal_url'] = $sealPath ? url(Storage::url($sealPath)) : ($payload['seal_url'] ?? null);
         }
 
         $record->update([
@@ -159,8 +170,8 @@ class RolePortalAdminController extends Controller
 
     public function destroy(Request $request, RolePortalRecord $record): JsonResponse
     {
-        abort_unless($record->module === 'contract', 422, 'الحذف متاح للعقود فقط من هذه الشاشة.');
-        abort_if($record->status === 'published', 422, 'أرشف العقد المنشور أولًا قبل حذفه.');
+        abort_unless(in_array($record->module, ['contract', 'payout-declaration'], true), 422, 'الحذف غير متاح لهذا السجل.');
+        abort_if($record->status === 'published', 422, 'أرشف الإصدار المنشور أولًا قبل حذفه.');
 
         $reference = $record->reference;
         $record->delete();

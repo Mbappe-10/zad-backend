@@ -870,23 +870,23 @@ class BrandingSettingController extends Controller
     private function defaultSettings(): array
     {
         return [
-            'platform_name_ar' => 'زاد',
-            'platform_name_en' => 'ZAD',
+            'platform_name_ar' => 'زاد سينك',
+            'platform_name_en' => 'ZADSYNC',
 
-            'company_name_ar' => 'منصة زاد للأسر المنتجة',
-            'company_name_en' => 'ZAD Productive Families Platform',
+            'company_name_ar' => 'منصة زاد سينك للأسر المنتجة',
+            'company_name_en' => 'ZADSYNC Productive Families Platform',
 
-            'platform_description_ar' => 'منصة احترافية متكاملة لإدارة أعمال زاد بكفاءة وموثوقية.',
+            'platform_description_ar' => 'منصة احترافية متكاملة لإدارة أعمال زاد سينك بكفاءة وموثوقية.',
 
-            'platform_description_en' => 'A professional integrated platform for managing ZAD operations efficiently and reliably.',
+            'platform_description_en' => 'A professional integrated platform for managing ZADSYNC operations efficiently and reliably.',
 
-            'copyright_ar' => 'جميع الحقوق محفوظة © زاد '.now()->year,
+            'copyright_ar' => 'جميع الحقوق محفوظة © زاد سينك '.now()->year,
 
-            'copyright_en' => 'All rights reserved © ZAD '.now()->year,
+            'copyright_en' => 'All rights reserved © ZADSYNC '.now()->year,
 
-            'login_title_ar' => 'مرحبًا بك في لوحة تحكم زاد',
+            'login_title_ar' => 'مرحبًا بك في لوحة تحكم زاد سينك',
 
-            'login_title_en' => 'Welcome to ZAD Control Center',
+            'login_title_en' => 'Welcome to ZADSYNC Control Center',
 
             'login_description_ar' => 'منصة الأسر المنتجة',
 
@@ -959,12 +959,12 @@ class BrandingSettingController extends Controller
             'arabic_enabled' => true,
             'english_enabled' => true,
 
-            'seo_title_ar' => 'لوحة تحكم زاد',
-            'seo_title_en' => 'ZAD Admin Dashboard',
+            'seo_title_ar' => 'لوحة تحكم زاد سينك',
+            'seo_title_en' => 'ZADSYNC Admin Dashboard',
 
-            'seo_description_ar' => 'لوحة التحكم الإدارية لمنصة زاد للأسر المنتجة.',
+            'seo_description_ar' => 'لوحة التحكم الإدارية لمنصة زاد سينك للأسر المنتجة.',
 
-            'seo_description_en' => 'Administrative dashboard for the ZAD productive families platform.',
+            'seo_description_en' => 'Administrative dashboard for the ZADSYNC productive families platform.',
 
             'custom_settings' => [],
             'is_active' => true,

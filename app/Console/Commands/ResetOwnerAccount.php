@@ -10,7 +10,7 @@ class ResetOwnerAccount extends Command
 {
     protected $signature = 'zad:reset-owner';
 
-    protected $description = 'Create or reset the ZAD platform owner account';
+    protected $description = 'Create or reset the ZADSYNC platform owner account';
 
     public function handle(): int
     {
@@ -20,9 +20,9 @@ class ResetOwnerAccount extends Command
         $user = User::query()->updateOrCreate(
             ['email' => $email],
             [
-                'name' => 'مالك منصة زاد',
-                'name_ar' => 'مالك منصة زاد',
-                'name_en' => 'ZAD Platform Owner',
+                'name' => 'مالك منصة زاد سينك',
+                'name_ar' => 'مالك منصة زاد سينك',
+                'name_en' => 'ZADSYNC Platform Owner',
                 'password' => Hash::make($password),
                 'status' => 'active',
                 'is_approved' => true,

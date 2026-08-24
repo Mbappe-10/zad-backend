@@ -37,7 +37,7 @@ class CoreSystemSeeder extends Seeder
     }
 
     /**
-     * إنشاء أقسام منصة زاد.
+     * إنشاء أقسام منصة زاد سينك.
      *
      * @return array<string, Department>
      */
@@ -828,11 +828,11 @@ class CoreSystemSeeder extends Seeder
             'name' => 'Platform Owner',
             'name_ar' => env(
                 'ZAD_OWNER_NAME_AR',
-                'مالك منصة زاد',
+                'مالك منصة زاد سينك',
             ),
             'name_en' => env(
                 'ZAD_OWNER_NAME_EN',
-                'ZAD Platform Owner',
+                'ZADSYNC Platform Owner',
             ),
             'phone' => $owner->phone,
             'profile_photo' => $owner->profile_photo,

@@ -41,7 +41,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Google OAuth Web Client ID used to verify ID tokens received
-    | from the ZAD Flutter application.
+    | from the ZADSYNC Flutter application.
     |
     */
 

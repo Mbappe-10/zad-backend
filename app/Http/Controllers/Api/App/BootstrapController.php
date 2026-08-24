@@ -102,7 +102,7 @@ class BootstrapController extends Controller
             ->values();
 
         /*
-         * كل منتج في زاد تابع لمتجر أسرة منتجة حقيقي.
+         * كل منتج في زاد سينك تابع لمتجر أسرة منتجة حقيقي.
          * نربط المنتجات بالمتاجر هنا حتى يرجع اسم المتجر مع المنتج،
          * ولا يضطر تطبيق Flutter إلى عرض اسم افتراضي غير موجود.
          */
@@ -230,7 +230,7 @@ class BootstrapController extends Controller
 
         return response()->json([
             'app' => [
-                'name' => 'زاد',
+                'name' => 'زاد سينك',
                 'version' => '1.0.0',
                 'guest_first' => true,
             ],
@@ -384,9 +384,9 @@ class BootstrapController extends Controller
             $payload,
             ['titleAr', 'title_ar', 'nameAr', 'name_ar', 'title', 'name'],
             match ($kind) {
-                'coupon' => 'كوبون مميز من زاد',
-                'offer' => 'عرض مميز من زاد',
-                default => 'اكتشف جديد زاد',
+                'coupon' => 'كوبون مميز من زاد سينك',
+                'offer' => 'عرض مميز من زاد سينك',
+                default => 'اكتشف جديد زاد سينك',
             },
         );
         $titleEn = $this->stringFromPayload(

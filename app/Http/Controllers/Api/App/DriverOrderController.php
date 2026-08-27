@@ -35,13 +35,14 @@ class DriverOrderController extends Controller
                 Order::STATUS_DELIVERING,
             ])
             ->with([
-                'store:id,name_ar,name_en',
+                'store:id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
                 'journeyProofs',
             ])
             ->latest('updated_at')
             ->get()
             ->map(
-                fn (Order $order): array => $this->driverPayload($order),
+                fn (Order $order): array =>
+                    $this->driverPayload($order),
             )
             ->values();
 
@@ -59,10 +60,13 @@ class DriverOrderController extends Controller
     ): JsonResponse {
         $driver = $this->driver($request);
 
-        $this->ensureOrderBelongsToDriver($order, $driver);
+        $this->ensureOrderBelongsToDriver(
+            $order,
+            $driver,
+        );
 
         $order->load([
-            'store:id,name_ar,name_en',
+            'store:id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
             'journeyProofs',
         ]);
 
@@ -74,10 +78,14 @@ class DriverOrderController extends Controller
     /**
      * تشغيل أو إيقاف استقبال المهام.
      */
-    public function availability(Request $request): JsonResponse
-    {
+    public function availability(
+        Request $request,
+    ): JsonResponse {
         $data = $request->validate([
-            'is_online' => ['required', 'boolean'],
+            'is_online' => [
+                'required',
+                'boolean',
+            ],
         ]);
 
         $driver = $this->driver($request);
@@ -86,6 +94,7 @@ class DriverOrderController extends Controller
 
         $driver->update([
             'is_online' => (bool) $data['is_online'],
+
             'location_updated_at' => $data['is_online']
                 ? now()
                 : $driver->location_updated_at,
@@ -95,11 +104,13 @@ class DriverOrderController extends Controller
             'message' => $driver->is_online
                 ? 'أصبحت متاحًا لاستقبال المهام.'
                 : 'تم إيقاف استقبال المهام مؤقتًا.',
+
             'data' => [
                 'id' => $driver->id,
                 'is_online' => (bool) $driver->is_online,
                 'status' => $driver->status,
-                'application_status' => $driver->application_status,
+                'application_status' =>
+                    $driver->application_status,
             ],
         ]);
     }
@@ -107,14 +118,16 @@ class DriverOrderController extends Controller
     /**
      * تحديث موقع المندوب من التطبيق.
      */
-    public function location(Request $request): JsonResponse
-    {
+    public function location(
+        Request $request,
+    ): JsonResponse {
         $data = $request->validate([
             'latitude' => [
                 'required',
                 'numeric',
                 'between:-90,90',
             ],
+
             'longitude' => [
                 'required',
                 'numeric',
@@ -134,10 +147,16 @@ class DriverOrderController extends Controller
 
         return response()->json([
             'message' => 'تم تحديث موقع المندوب.',
+
             'data' => [
-                'latitude' => (float) $driver->current_latitude,
-                'longitude' => (float) $driver->current_longitude,
-                'location_updated_at' => $driver->location_updated_at,
+                'latitude' =>
+                    (float) $driver->current_latitude,
+
+                'longitude' =>
+                    (float) $driver->current_longitude,
+
+                'location_updated_at' =>
+                    $driver->location_updated_at,
             ],
         ]);
     }
@@ -152,7 +171,12 @@ class DriverOrderController extends Controller
         $driver = $this->driver($request);
 
         $this->ensureDriverApproved($driver);
-        $this->ensureOrderBelongsToDriver($order, $driver);
+
+        $this->ensureOrderBelongsToDriver(
+            $order,
+            $driver,
+        );
+
         $this->ensureOrderStatus(
             $order,
             [Order::STATUS_ASSIGNED],
@@ -172,12 +196,15 @@ class DriverOrderController extends Controller
         $order = $this->deliveryService->transition(
             order: $order,
             status: Order::STATUS_PICKED_UP,
-            note: $data['note'] ?? 'استلم المندوب الطلب.',
+            note: $data['note']
+                ?? 'استلم المندوب الطلب.',
             userId: $request->user()->id,
         );
 
         return response()->json([
-            'message' => 'تم توثيق استلام الطلب بنجاح.',
+            'message' =>
+                'تم توثيق استلام الطلب بنجاح.',
+
             'data' => $this->freshOrderPayload($order),
         ]);
     }
@@ -192,7 +219,12 @@ class DriverOrderController extends Controller
         $driver = $this->driver($request);
 
         $this->ensureDriverApproved($driver);
-        $this->ensureOrderBelongsToDriver($order, $driver);
+
+        $this->ensureOrderBelongsToDriver(
+            $order,
+            $driver,
+        );
+
         $this->ensureOrderStatus(
             $order,
             [Order::STATUS_PICKED_UP],
@@ -200,18 +232,24 @@ class DriverOrderController extends Controller
         );
 
         $data = $request->validate([
-            'note' => ['nullable', 'string', 'max:1000'],
+            'note' => [
+                'nullable',
+                'string',
+                'max:1000',
+            ],
         ]);
 
         $order = $this->deliveryService->transition(
             order: $order,
             status: Order::STATUS_DELIVERING,
-            note: $data['note'] ?? 'بدأ المندوب رحلة التوصيل.',
+            note: $data['note']
+                ?? 'بدأ المندوب رحلة التوصيل.',
             userId: $request->user()->id,
         );
 
         return response()->json([
             'message' => 'تم بدء رحلة التوصيل.',
+
             'data' => $this->freshOrderPayload($order),
         ]);
     }
@@ -226,7 +264,12 @@ class DriverOrderController extends Controller
         $driver = $this->driver($request);
 
         $this->ensureDriverApproved($driver);
-        $this->ensureOrderBelongsToDriver($order, $driver);
+
+        $this->ensureOrderBelongsToDriver(
+            $order,
+            $driver,
+        );
+
         $this->ensureOrderStatus(
             $order,
             [Order::STATUS_DELIVERING],
@@ -246,12 +289,15 @@ class DriverOrderController extends Controller
         $order = $this->deliveryService->transition(
             order: $order,
             status: Order::STATUS_DELIVERED,
-            note: $data['note'] ?? 'سلّم المندوب الطلب للعميل.',
+            note: $data['note']
+                ?? 'سلّم المندوب الطلب للعميل.',
             userId: $request->user()->id,
         );
 
         return response()->json([
-            'message' => 'تم توثيق تسليم الطلب بنجاح.',
+            'message' =>
+                'تم توثيق تسليم الطلب بنجاح.',
+
             'data' => $this->freshOrderPayload($order),
         ]);
     }
@@ -259,19 +305,26 @@ class DriverOrderController extends Controller
     /**
      * جلب المندوب المرتبط بالمستخدم الحالي.
      */
-    private function driver(Request $request): Driver
-    {
+    private function driver(
+        Request $request,
+    ): Driver {
         $profile = AppProfile::query()
-            ->where('user_id', $request->user()->id)
+            ->where(
+                'user_id',
+                $request->user()->id,
+            )
             ->first();
 
         abort_unless(
-            $profile !== null && $profile->driver_id !== null,
+            $profile !== null &&
+                $profile->driver_id !== null,
             403,
             'هذا الحساب غير مرتبط بمندوب.',
         );
 
-        $driver = Driver::query()->find($profile->driver_id);
+        $driver = Driver::query()->find(
+            $profile->driver_id,
+        );
 
         abort_unless(
             $driver !== null,
@@ -285,18 +338,26 @@ class DriverOrderController extends Controller
     /**
      * التأكد من اعتماد الحساب وعدم إيقافه.
      */
-    private function ensureDriverApproved(Driver $driver): void
-    {
+    private function ensureDriverApproved(
+        Driver $driver,
+    ): void {
         $applicationApproved =
-            $driver->application_status === Driver::APPLICATION_APPROVED;
+            $driver->application_status ===
+            Driver::APPLICATION_APPROVED;
 
         $operationallyApproved = in_array(
             $driver->status,
-            ['active', 'approved'],
+            [
+                'active',
+                'approved',
+            ],
             true,
         );
 
-        if (! $applicationApproved && ! $operationallyApproved) {
+        if (
+            ! $applicationApproved &&
+            ! $operationallyApproved
+        ) {
             throw ValidationException::withMessages([
                 'driver' => [
                     'حساب المندوب غير معتمد لاستقبال وتنفيذ المهام.',
@@ -304,7 +365,16 @@ class DriverOrderController extends Controller
             ]);
         }
 
-        if (in_array($driver->status, ['suspended', 'blocked'], true)) {
+        if (
+            in_array(
+                $driver->status,
+                [
+                    'suspended',
+                    'blocked',
+                ],
+                true,
+            )
+        ) {
             throw ValidationException::withMessages([
                 'driver' => [
                     'حساب المندوب موقوف مؤقتًا.',
@@ -321,7 +391,8 @@ class DriverOrderController extends Controller
         Driver $driver,
     ): void {
         abort_unless(
-            (int) $order->driver_id === (int) $driver->id,
+            (int) $order->driver_id ===
+                (int) $driver->id,
             403,
             'هذا الطلب غير مسند إلى حساب المندوب الحالي.',
         );
@@ -335,7 +406,13 @@ class DriverOrderController extends Controller
         array $allowedStatuses,
         string $message,
     ): void {
-        if (! in_array($order->status, $allowedStatuses, true)) {
+        if (
+            ! in_array(
+                $order->status,
+                $allowedStatuses,
+                true,
+            )
+        ) {
             throw ValidationException::withMessages([
                 'status' => [$message],
             ]);
@@ -345,8 +422,9 @@ class DriverOrderController extends Controller
     /**
      * قواعد صورة إثبات الاستلام أو التسليم.
      */
-    private function validateProofRequest(Request $request): array
-    {
+    private function validateProofRequest(
+        Request $request,
+    ): array {
         return $request->validate([
             'photo' => [
                 'required',
@@ -355,16 +433,19 @@ class DriverOrderController extends Controller
                 'mimes:jpg,jpeg,png,webp',
                 'max:8192',
             ],
+
             'latitude' => [
                 'nullable',
                 'numeric',
                 'between:-90,90',
             ],
+
             'longitude' => [
                 'nullable',
                 'numeric',
                 'between:-180,180',
             ],
+
             'note' => [
                 'nullable',
                 'string',
@@ -407,35 +488,54 @@ class DriverOrderController extends Controller
 
         $realPath = $file->getRealPath();
 
-        return OrderJourneyProof::query()->updateOrCreate(
-            [
-                'order_id' => $order->id,
-                'stage' => $stage,
-            ],
-            [
-                'photo_path' => $path,
-                'latitude' => $data['latitude'] ?? null,
-                'longitude' => $data['longitude'] ?? null,
-                'note' => $data['note'] ?? null,
-                'uploaded_by' => $request->user()->id,
-                'photo_checksum' => $realPath !== false
-                    ? hash_file('sha256', $realPath)
-                    : null,
-                'photo_size_bytes' => $file->getSize(),
-                'photo_mime_type' => $file->getMimeType(),
-                'photo_purged_at' => null,
-            ],
-        );
+        return OrderJourneyProof::query()
+            ->updateOrCreate(
+                [
+                    'order_id' => $order->id,
+                    'stage' => $stage,
+                ],
+                [
+                    'photo_path' => $path,
+
+                    'latitude' =>
+                        $data['latitude'] ?? null,
+
+                    'longitude' =>
+                        $data['longitude'] ?? null,
+
+                    'note' => $data['note'] ?? null,
+
+                    'uploaded_by' =>
+                        $request->user()->id,
+
+                    'photo_checksum' =>
+                        $realPath !== false
+                            ? hash_file(
+                                'sha256',
+                                $realPath,
+                            )
+                            : null,
+
+                    'photo_size_bytes' =>
+                        $file->getSize(),
+
+                    'photo_mime_type' =>
+                        $file->getMimeType(),
+
+                    'photo_purged_at' => null,
+                ],
+            );
     }
 
     /**
      * إعادة تحميل الطلب بعد تنفيذ الإجراء.
      */
-    private function freshOrderPayload(Order $order): array
-    {
+    private function freshOrderPayload(
+        Order $order,
+    ): array {
         $freshOrder = Order::query()
             ->with([
-                'store:id,name_ar,name_en',
+                'store:id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
                 'journeyProofs',
             ])
             ->findOrFail($order->id);
@@ -446,19 +546,52 @@ class DriverOrderController extends Controller
     /**
      * البيانات المرسلة لتطبيق المندوب.
      */
-    private function driverPayload(Order $order): array
-    {
+    private function driverPayload(
+        Order $order,
+    ): array {
         return [
             'id' => $order->id,
             'number' => $order->number,
             'status' => $order->status,
 
             'store_id' => $order->store_id,
-            'store' => $order->store,
+
+            'store' => $order->store !== null
+                ? [
+                    'id' => $order->store->id,
+
+                    'name_ar' =>
+                        $order->store->name_ar,
+
+                    'name_en' =>
+                        $order->store->name_en,
+
+                    'pickup_address' =>
+                        $order->store->pickup_address,
+
+                    'pickup_latitude' =>
+                        $order->store->pickup_latitude !== null
+                            ? (float) $order
+                                ->store
+                                ->pickup_latitude
+                            : null,
+
+                    'pickup_longitude' =>
+                        $order->store->pickup_longitude !== null
+                            ? (float) $order
+                                ->store
+                                ->pickup_longitude
+                            : null,
+                ]
+                : null,
 
             'package_size' => $order->package_size,
-            'assigned_vehicle_type' => $order->assigned_vehicle_type,
-            'recommended_vehicle_type' => $order->recommended_vehicle_type,
+
+            'assigned_vehicle_type' =>
+                $order->assigned_vehicle_type,
+
+            'recommended_vehicle_type' =>
+                $order->recommended_vehicle_type,
 
             'delivery_latitude' =>
                 $order->delivery_latitude !== null
@@ -470,35 +603,68 @@ class DriverOrderController extends Controller
                     ? (float) $order->delivery_longitude
                     : null,
 
-            'delivery_address' => $order->delivery_address,
-            'contact_phone' => $order->contact_phone,
-            'driver_notes' => $order->driver_notes,
+            'delivery_address' =>
+                $order->delivery_address,
 
-            'delivery_fee' => $order->delivery_fee !== null
-                ? (float) $order->delivery_fee
-                : 0,
+            'contact_phone' =>
+                $order->contact_phone,
 
-            'picked_up_at' => $order->picked_up_at,
-            'delivered_at' => $order->delivered_at,
-            'created_at' => $order->created_at,
-            'updated_at' => $order->updated_at,
+            'driver_notes' =>
+                $order->driver_notes,
+
+            'delivery_fee' =>
+                $order->delivery_fee !== null
+                    ? (float) $order->delivery_fee
+                    : 0,
+
+            'picked_up_at' =>
+                $order->picked_up_at,
+
+            'delivered_at' =>
+                $order->delivered_at,
+
+            'created_at' =>
+                $order->created_at,
+
+            'updated_at' =>
+                $order->updated_at,
 
             'proofs' => $order->journeyProofs
-                ->map(fn (OrderJourneyProof $proof): array => [
-                    'id' => $proof->id,
-                    'stage' => $proof->stage,
-                    'photo_url' => $proof->photo_path !== null
-                        ? url(Storage::url($proof->photo_path))
-                        : null,
-                    'latitude' => $proof->latitude !== null
-                        ? (float) $proof->latitude
-                        : null,
-                    'longitude' => $proof->longitude !== null
-                        ? (float) $proof->longitude
-                        : null,
-                    'note' => $proof->note,
-                    'created_at' => $proof->created_at,
-                ])
+                ->map(
+                    fn (
+                        OrderJourneyProof $proof,
+                    ): array => [
+                        'id' => $proof->id,
+
+                        'stage' =>
+                            $proof->stage,
+
+                        'photo_url' =>
+                            $proof->photo_path !== null
+                                ? url(
+                                    Storage::url(
+                                        $proof->photo_path,
+                                    ),
+                                )
+                                : null,
+
+                        'latitude' =>
+                            $proof->latitude !== null
+                                ? (float) $proof->latitude
+                                : null,
+
+                        'longitude' =>
+                            $proof->longitude !== null
+                                ? (float) $proof->longitude
+                                : null,
+
+                        'note' =>
+                            $proof->note,
+
+                        'created_at' =>
+                            $proof->created_at,
+                    ],
+                )
                 ->values(),
         ];
     }

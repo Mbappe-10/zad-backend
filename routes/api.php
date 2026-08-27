@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\OrderChatAdminController;
+use App\Http\Controllers\Api\App\OrderChatController;
 use App\Http\Controllers\Api\Admin\DriverProfileFieldController;
 use App\Http\Controllers\Api\Admin\DriverController;
 use App\Http\Controllers\Api\Admin\LiveBroadcastAdminController;
@@ -180,6 +182,16 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             '/products/{product}/availability',
             [FamilyProductController::class, 'availability'],
         );
+        Route::get(
+                    '/orders/{order}/messages',
+                   [OrderChatController::class, 'familyIndex'],
+       );
+
+        Route::post(
+               '/orders/{order}/messages',
+              [OrderChatController::class, 'familyStore'],
+            )->middleware('throttle:30,1');
+
         Route::post(
             '/products/{product}/image',
             [FamilyProductController::class, 'uploadImage'],
@@ -218,6 +230,16 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         '/profile',
         [DriverProfileController::class, 'show'],
     );
+
+    Route::get(
+             '/orders/{order}/messages',
+        [OrderChatController::class, 'driverIndex'],
+    );
+
+    Route::post(
+         '/orders/{order}/messages',
+       [OrderChatController::class, 'driverStore'],
+     )->middleware('throttle:30,1');
 
     Route::post(
         '/profile',
@@ -665,6 +687,20 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             '/platform-settings/meta',
             [PlatformSettingsController::class, 'meta'],
         )->name('api.admin.platform-settings.meta');
+        Route::get(
+            '/order-chat-retention',
+            [OrderChatAdminController::class, 'show'],
+             )->name('api.admin.order-chat-retention.show');
+
+        Route::put(
+            '/order-chat-retention',
+            [OrderChatAdminController::class, 'update'],
+              )->name('api.admin.order-chat-retention.update');
+
+        Route::post(
+            '/order-chat-retention/purge',
+           [OrderChatAdminController::class, 'purge'],
+              )->name('api.admin.order-chat-retention.purge');
 
         Route::get(
             '/platform-settings/audits',

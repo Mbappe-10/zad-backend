@@ -29,22 +29,64 @@ class DeliveryOperationsService
         ?string $note,
         ?int $userId,
     ): Order {
-        $allowed = self::TRANSITIONS[$order->status] ?? [];
-
-        if (! in_array($status, $allowed, true)) {
-            throw ValidationException::withMessages([
-                'status' => ['الانتقال بين حالتي الطلب غير مسموح.'],
-            ]);
-        }
-
         return DB::transaction(function () use (
             $order,
             $status,
             $note,
             $userId,
         ): Order {
+            /*
+             * إعادة قراءة الطلب مع قفله مؤقتًا، لمنع تنفيذ عمليتين
+             * مختلفتين على الطلب في اللحظة نفسها.
+             */
+            $order = Order::query()
+                ->lockForUpdate()
+                ->findOrFail($order->getKey());
+
             $from = $order->status;
-            $updates = ['status' => $status];
+
+            /*
+             * في شاشة الأسرة المنتجة تتم عمليتان في ضغطة واحدة:
+             *
+             * pending → accepted → preparing
+             * أو
+             * pending → accepted → ready
+             *
+             * لذلك ننفذ القبول والحالة المختارة داخل معاملة واحدة.
+             */
+            $acceptAndContinue =
+                $from === 'pending' &&
+                in_array($status, [
+                    Order::STATUS_PREPARING,
+                    Order::STATUS_READY,
+                ], true);
+
+            $allowed = self::TRANSITIONS[$from] ?? [];
+
+            if (
+                ! $acceptAndContinue &&
+                ! in_array($status, $allowed, true)
+            ) {
+                throw ValidationException::withMessages([
+                    'status' => [
+                        'الانتقال بين حالتي الطلب غير مسموح.',
+                    ],
+                ]);
+            }
+
+            $now = now();
+
+            $updates = [
+                'status' => $status,
+            ];
+
+            /*
+             * عند الانتقال من طلب جديد مباشرة إلى التجهيز أو الجاهزية،
+             * نسجل وقت قبول الأسرة المنتجة للطلب.
+             */
+            if ($acceptAndContinue) {
+                $updates['accepted_at'] = $order->accepted_at ?? $now;
+            }
 
             $column = match ($status) {
                 Order::STATUS_ACCEPTED => 'accepted_at',
@@ -57,19 +99,45 @@ class DeliveryOperationsService
             };
 
             if ($column !== null) {
-                $updates[$column] = now();
+                $updates[$column] = $now;
             }
 
             $order->update($updates);
 
-            OrderStatusHistory::query()->create([
-                'order_id' => $order->id,
-                'from_status' => $from,
-                'to_status' => $status,
-                'note' => $note,
-                'changed_by' => $userId,
-            ]);
+            /*
+             * حفظ سجل دقيق للانتقال المركب:
+             * أولًا قبول الطلب، ثم تحديد حالة تنفيذه.
+             */
+            if ($acceptAndContinue) {
+                OrderStatusHistory::query()->create([
+                    'order_id' => $order->id,
+                    'from_status' => $from,
+                    'to_status' => Order::STATUS_ACCEPTED,
+                    'note' => 'تم قبول الطلب من الأسرة المنتجة.',
+                    'changed_by' => $userId,
+                ]);
 
+                OrderStatusHistory::query()->create([
+                    'order_id' => $order->id,
+                    'from_status' => Order::STATUS_ACCEPTED,
+                    'to_status' => $status,
+                    'note' => $note,
+                    'changed_by' => $userId,
+                ]);
+            } else {
+                OrderStatusHistory::query()->create([
+                    'order_id' => $order->id,
+                    'from_status' => $from,
+                    'to_status' => $status,
+                    'note' => $note,
+                    'changed_by' => $userId,
+                ]);
+            }
+
+            /*
+             * تقليل عدد الطلبات النشطة للمندوب عند إنهاء
+             * الطلب أو إلغائه.
+             */
             if (
                 in_array($status, [
                     Order::STATUS_DELIVERED,
@@ -96,10 +164,15 @@ class DeliveryOperationsService
         if (! $force) {
             if (
                 ! $driver->is_online ||
-                ! in_array($driver->status, ['active', 'approved'], true)
+                ! in_array($driver->status, [
+                    'active',
+                    'approved',
+                ], true)
             ) {
                 throw ValidationException::withMessages([
-                    'driver_id' => ['المندوب غير متاح حاليًا.'],
+                    'driver_id' => [
+                        'المندوب غير متاح حاليًا.',
+                    ],
                 ]);
             }
 
@@ -109,7 +182,9 @@ class DeliveryOperationsService
                 $order->city_id !== $driver->city_id
             ) {
                 throw ValidationException::withMessages([
-                    'driver_id' => ['المندوب خارج مدينة الطلب.'],
+                    'driver_id' => [
+                        'المندوب خارج مدينة الطلب.',
+                    ],
                 ]);
             }
         }
@@ -120,9 +195,13 @@ class DeliveryOperationsService
             $userId,
         ): DeliveryAssignment {
             $order->refresh();
+
             $fromStatus = $order->status;
 
-            if ($order->driver_id && $order->driver_id !== $driver->id) {
+            if (
+                $order->driver_id &&
+                $order->driver_id !== $driver->id
+            ) {
                 Driver::query()
                     ->whereKey($order->driver_id)
                     ->where('active_orders_count', '>', 0)
@@ -131,7 +210,10 @@ class DeliveryOperationsService
 
             DeliveryAssignment::query()
                 ->where('order_id', $order->id)
-                ->whereIn('status', ['offered', 'accepted'])
+                ->whereIn('status', [
+                    'offered',
+                    'accepted',
+                ])
                 ->update([
                     'status' => 'reassigned',
                     'responded_at' => now(),
@@ -177,11 +259,17 @@ class DeliveryOperationsService
         ?int $userId,
     ): DeliveryAssignment {
         $driver = Driver::query()
-            ->whereIn('status', ['active', 'approved'])
+            ->whereIn('status', [
+                'active',
+                'approved',
+            ])
             ->where('is_online', true)
             ->when(
                 $order->city_id,
-                fn ($query) => $query->where('city_id', $order->city_id),
+                fn ($query) => $query->where(
+                    'city_id',
+                    $order->city_id,
+                ),
             )
             ->orderBy('active_orders_count')
             ->orderByDesc('rating')
@@ -189,10 +277,16 @@ class DeliveryOperationsService
 
         if ($driver === null) {
             throw ValidationException::withMessages([
-                'driver_id' => ['لا يوجد مندوب متاح حاليًا.'],
+                'driver_id' => [
+                    'لا يوجد مندوب متاح حاليًا.',
+                ],
             ]);
         }
 
-        return $this->assign($order, $driver, $userId);
+        return $this->assign(
+            $order,
+            $driver,
+            $userId,
+        );
     }
 }

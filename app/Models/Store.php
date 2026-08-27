@@ -30,6 +30,9 @@ class Store extends Model
         'rating',
         'rating_count',
         'working_hours',
+        'pickup_address',
+        'pickup_latitude',
+        'pickup_longitude',
     ];
 
     protected function casts(): array
@@ -39,6 +42,8 @@ class Store extends Model
             'rating' => 'decimal:2',
             'rating_count' => 'integer',
             'working_hours' => 'array',
+            'pickup_latitude' => 'decimal:7',
+            'pickup_longitude' => 'decimal:7',
         ];
     }
 

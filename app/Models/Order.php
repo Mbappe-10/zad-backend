@@ -39,6 +39,10 @@ class Order extends Model
 
     public const FULFILLMENT_READY_NOW = 'ready_now';
     public const FULFILLMENT_LIVE_PREPARATION = 'live_preparation';
+    public function messages(): HasMany
+{
+    return $this->hasMany(OrderMessage::class);
+}
 
     protected $fillable = [
         'number',

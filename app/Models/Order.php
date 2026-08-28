@@ -14,11 +14,6 @@ class Order extends Model
     use HasFactory;
     use SoftDeletes;
 
-    public function journeyProofs(): HasMany
-{
-    return $this->hasMany(OrderJourneyProof::class);
-}
-
     public const STATUS_PENDING = 'pending';
     public const STATUS_ACCEPTED = 'accepted';
     public const STATUS_PREPARING = 'preparing';
@@ -39,10 +34,6 @@ class Order extends Model
 
     public const FULFILLMENT_READY_NOW = 'ready_now';
     public const FULFILLMENT_LIVE_PREPARATION = 'live_preparation';
-    public function messages(): HasMany
-{
-    return $this->hasMany(OrderMessage::class);
-}
 
     protected $fillable = [
         'number',
@@ -63,6 +54,10 @@ class Order extends Model
         'delivery_distance_km',
         'delivery_latitude',
         'delivery_longitude',
+        'pickup_address',
+        'pickup_latitude',
+        'pickup_longitude',
+        'sensitive_data_purged_at',
         'notes',
         'driver_notes',
         'guest_session_id',
@@ -98,6 +93,9 @@ class Order extends Model
             'delivery_latitude' => 'decimal:7',
             'delivery_longitude' => 'decimal:7',
             'delivery_address' => 'array',
+            'pickup_latitude' => 'decimal:7',
+            'pickup_longitude' => 'decimal:7',
+            'sensitive_data_purged_at' => 'datetime',
             'vehicle_rule_overridden' => 'boolean',
             'accepted_at' => 'datetime',
             'preparing_at' => 'datetime',
@@ -146,6 +144,16 @@ class Order extends Model
     public function history(): HasMany
     {
         return $this->hasMany(OrderStatusHistory::class);
+    }
+
+    public function journeyProofs(): HasMany
+    {
+        return $this->hasMany(OrderJourneyProof::class);
+    }
+
+    public function messages(): HasMany
+    {
+        return $this->hasMany(OrderMessage::class);
     }
 
     public function scopeRunning(Builder $query): Builder

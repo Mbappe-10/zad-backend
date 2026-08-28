@@ -12,6 +12,8 @@ use App\Models\PlatformAuditLog;
 use App\Models\PlatformRecord;
 use App\Models\Product;
 use App\Models\ProductiveFamily;
+use App\Models\PromotionConversion;
+use App\Models\PromotionInteraction;
 use App\Models\Store;
 use App\Models\Wallet;
 use Illuminate\Database\Eloquent\Builder;
@@ -22,6 +24,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminResourceController extends Controller
@@ -94,6 +97,9 @@ class AdminResourceController extends Controller
         $this->guardResource($resource);
 
         $payload = $this->payloadFromRequest($request);
+        if ($resource === 'ads') {
+            $payload = $this->normalizeAdPayload($payload);
+        }
         $status = $this->statusFromPayload($payload);
 
         if ($resource === 'support' && empty($payload['ticket_number'])) {
@@ -124,7 +130,7 @@ class AdminResourceController extends Controller
         });
 
         return response()->json([
-            'message' => 'تم إنشاء السجل وحفظه بنجاح.',
+            'message' => 'طھظ… ط¥ظ†ط´ط§ط، ط§ظ„ط³ط¬ظ„ ظˆط­ظپط¸ظ‡ ط¨ظ†ط¬ط§ط­.',
             'data' => $this->flatten($record),
         ], 201);
     }
@@ -149,6 +155,9 @@ class AdminResourceController extends Controller
             $item->payload ?? [],
             $this->payloadFromRequest($request),
         );
+        if ($resource === 'ads') {
+            $payload = $this->normalizeAdPayload($payload);
+        }
         $status = $this->statusFromPayload($payload, $item->status);
 
         DB::transaction(function () use ($request, $item, $payload, $status, $before): void {
@@ -169,7 +178,7 @@ class AdminResourceController extends Controller
         });
 
         return response()->json([
-            'message' => 'تم تحديث السجل بنجاح.',
+            'message' => 'طھظ… طھط­ط¯ظٹط« ط§ظ„ط³ط¬ظ„ ط¨ظ†ط¬ط§ط­.',
             'data' => $this->flatten($item->fresh()),
         ]);
     }
@@ -188,7 +197,7 @@ class AdminResourceController extends Controller
         });
 
         return response()->json([
-            'message' => 'تم حذف السجل بنجاح.',
+            'message' => 'طھظ… ط­ط°ظپ ط§ظ„ط³ط¬ظ„ ط¨ظ†ط¬ط§ط­.',
         ]);
     }
 
@@ -223,7 +232,7 @@ class AdminResourceController extends Controller
             $this->audit($request, $copy, 'duplicated', null, $this->flatten($copy));
 
             return response()->json([
-                'message' => 'تم إنشاء نسخة جديدة بنجاح.',
+                'message' => 'طھظ… ط¥ظ†ط´ط§ط، ظ†ط³ط®ط© ط¬ط¯ظٹط¯ط© ط¨ظ†ط¬ط§ط­.',
                 'data' => $this->flatten($copy),
             ], 201);
         }
@@ -236,12 +245,21 @@ class AdminResourceController extends Controller
             'transactions',
             'usage',
         ], true)) {
+            if ($resource === 'ads' && $action === 'analytics') {
+                return response()->json([
+                    'message' => 'تم تحميل تحليلات الإعلان.',
+                    'data' => $this->promotionAnalytics($item),
+                    'analytics' => $this->promotionAnalytics($item),
+                    'record' => $this->flatten($item),
+                ]);
+            }
+
             $relatedRows = $action === 'transactions'
                 ? (array) data_get($item->payload, 'transactions', [])
                 : [];
 
             return response()->json([
-                'message' => 'تم تحميل البيانات المرتبطة.',
+                'message' => 'طھظ… طھط­ظ…ظٹظ„ ط§ظ„ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ…ط±طھط¨ط·ط©.',
                 'data' => $relatedRows,
                 $action => $relatedRows,
                 'record' => $this->flatten($item),
@@ -273,7 +291,7 @@ class AdminResourceController extends Controller
         });
 
         return response()->json([
-            'message' => 'تم تنفيذ الإجراء بنجاح.',
+            'message' => 'طھظ… طھظ†ظپظٹط° ط§ظ„ط¥ط¬ط±ط§ط، ط¨ظ†ط¬ط§ط­.',
             'data' => $this->flatten($item->fresh()),
         ]);
     }
@@ -285,6 +303,39 @@ class AdminResourceController extends Controller
     ): JsonResponse {
         $this->guardResource($resource);
 
+        if ($resource === 'ads' && $action === 'options') {
+            $products = DB::table('products')
+                ->join('stores', 'stores.id', '=', 'products.store_id')
+                ->whereNull('products.deleted_at')
+                ->whereNull('stores.deleted_at')
+                ->where('products.status', 'active')
+                ->where('products.is_available', true)
+                ->where('stores.status', 'active')
+                ->orderByDesc('products.updated_at')
+                ->limit(500)
+                ->get([
+                    'products.id',
+                    'products.store_id',
+                    'products.name_ar',
+                    'products.name_en',
+                    'products.price',
+                    'products.compare_at_price',
+                    'stores.name_ar as store_name_ar',
+                    'stores.name_en as store_name_en',
+                    'stores.logo_path as store_logo_path',
+                ]);
+
+            return response()->json([
+                'data' => [
+                    'products' => $products,
+                    'stores' => Store::query()
+                        ->where('status', 'active')
+                        ->orderBy('name_ar')
+                        ->get(['id', 'name_ar', 'name_en', 'logo_path']),
+                ],
+            ]);
+        }
+
         if ($resource === 'commissions' && $action === 'simulate') {
             $orderValue = max((float) $request->input('order_value', 0), 0);
             $rate = 15.0;
@@ -293,7 +344,7 @@ class AdminResourceController extends Controller
             return response()->json([
                 'data' => [
                     'rule_id' => null,
-                    'rule_name' => 'قاعدة العمولة الافتراضية',
+                    'rule_name' => 'ظ‚ط§ط¹ط¯ط© ط§ظ„ط¹ظ…ظˆظ„ط© ط§ظ„ط§ظپطھط±ط§ط¶ظٹط©',
                     'commission_amount' => $commission,
                     'platform_amount' => $commission,
                     'beneficiary_amount' => round($orderValue - $commission, 2),
@@ -303,7 +354,7 @@ class AdminResourceController extends Controller
         }
 
         return response()->json([
-            'message' => 'تم تنفيذ الإجراء بنجاح.',
+            'message' => 'طھظ… طھظ†ظپظٹط° ط§ظ„ط¥ط¬ط±ط§ط، ط¨ظ†ط¬ط§ط­.',
             'data' => [
                 'resource' => $resource,
                 'action' => $action,
@@ -352,6 +403,17 @@ class AdminResourceController extends Controller
             'busy' => (int) ($statusCounts['busy'] ?? 0),
             'total_orders' => $sum('orders_count', 'total_orders'),
             'orders_count' => $sum('orders_count', 'total_orders'),
+            'impressions' => $sum('impressions'),
+            'clicks' => $sum('clicks'),
+            'conversions' => $sum('conversions'),
+            'coupon_uses' => $sum('coupon_uses'),
+            'revenue' => $sum('revenue'),
+            'ctr' => $sum('impressions') > 0
+                ? round(($sum('clicks') / $sum('impressions')) * 100, 2)
+                : 0,
+            'conversion_rate' => $sum('clicks') > 0
+                ? round(($sum('conversions') / $sum('clicks')) * 100, 2)
+                : 0,
             'deliveries' => $sum('deliveries_count', 'completed_deliveries_count'),
             'total_spent' => $sum('total_spent'),
             'total_wallet_balance' => $sum('wallet_balance'),
@@ -394,7 +456,7 @@ class AdminResourceController extends Controller
     public function saveSettings(Request $request): JsonResponse
     {
         $settings = $request->input('settings', $request->all());
-        abort_unless(is_array($settings), 422, 'صيغة الإعدادات غير صحيحة.');
+        abort_unless(is_array($settings), 422, 'طµظٹط؛ط© ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ ط؛ظٹط± طµط­ظٹط­ط©.');
 
         $record = PlatformRecord::query()->updateOrCreate(
             [
@@ -410,7 +472,7 @@ class AdminResourceController extends Controller
         );
 
         return response()->json([
-            'message' => 'تم حفظ الإعدادات بنجاح في قاعدة البيانات.',
+            'message' => 'طھظ… ط­ظپط¸ ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ ط¨ظ†ط¬ط§ط­ ظپظٹ ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ.',
             'data' => $record->payload,
         ]);
     }
@@ -587,7 +649,7 @@ class AdminResourceController extends Controller
                 ])
                 ->values(),
             'alerts' => [],
-            'ai_summary' => 'جميع الوحدات الأساسية متصلة بقاعدة البيانات، ولا توجد تنبيهات حرجة مسجلة حاليًا.',
+            'ai_summary' => 'ط¬ظ…ظٹط¹ ط§ظ„ظˆط­ط¯ط§طھ ط§ظ„ط£ط³ط§ط³ظٹط© ظ…طھطµظ„ط© ط¨ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھطŒ ظˆظ„ط§ طھظˆط¬ط¯ طھظ†ط¨ظٹظ‡ط§طھ ط­ط±ط¬ط© ظ…ط³ط¬ظ„ط© ط­ط§ظ„ظٹظ‹ط§.',
             'system_health' => [
                 'api' => 'healthy',
                 'database' => 'healthy',
@@ -665,8 +727,8 @@ class AdminResourceController extends Controller
             'file' => [
                 'required',
                 'file',
-                'mimes:jpg,jpeg,png,webp,pdf,doc,docx,xls,xlsx,csv',
-                'max:10240',
+                'mimes:jpg,jpeg,png,webp,gif,mp4,webm,pdf,doc,docx,xls,xlsx,csv',
+                'max:20480',
             ],
         ]);
 
@@ -676,7 +738,7 @@ class AdminResourceController extends Controller
         $url = Storage::disk('public')->url($path);
 
         return response()->json([
-            'message' => 'تم رفع الملف بنجاح.',
+            'message' => 'طھظ… ط±ظپط¹ ط§ظ„ظ…ظ„ظپ ط¨ظ†ط¬ط§ط­.',
             'path' => $path,
             'url' => $url,
             'data' => [
@@ -691,7 +753,7 @@ class AdminResourceController extends Controller
         abort_unless(
             in_array($resource, self::RESOURCES, true),
             404,
-            'المورد المطلوب غير معروف.',
+            'ط§ظ„ظ…ظˆط±ط¯ ط§ظ„ظ…ط·ظ„ظˆط¨ ط؛ظٹط± ظ…ط¹ط±ظˆظپ.',
         );
     }
 
@@ -767,6 +829,89 @@ class AdminResourceController extends Controller
         ]);
     }
 
+    private function normalizeAdPayload(array $payload): array
+    {
+        $titleAr = trim((string) ($payload['titleAr'] ?? ''));
+        $productId = (int) ($payload['productId'] ?? $payload['targetId'] ?? 0);
+
+        if ($titleAr === '') {
+            throw ValidationException::withMessages([
+                'titleAr' => ['عنوان الإعلان بالعربية مطلوب.'],
+            ]);
+        }
+
+        if ($productId <= 0 || ! Product::query()->whereKey($productId)->exists()) {
+            throw ValidationException::withMessages([
+                'productId' => ['اختر منتجًا صحيحًا لفتح صفحته عند الضغط على الإعلان.'],
+            ]);
+        }
+
+        $product = Product::query()->findOrFail($productId);
+        $storeId = (int) ($payload['storeId'] ?? $product->store_id);
+
+        if ($storeId !== (int) $product->store_id) {
+            throw ValidationException::withMessages([
+                'storeId' => ['المنتج لا يتبع المتجر المحدد.'],
+            ]);
+        }
+
+        $duration = min(max((int) ($payload['duration'] ?? 4), 3), 20);
+        $oldPrice = max((float) ($payload['oldPrice'] ?? $product->compare_at_price ?? $product->price), 0);
+        $newPrice = max((float) ($payload['newPrice'] ?? $product->price), 0);
+
+        if ($oldPrice <= 0) {
+            $oldPrice = (float) ($product->compare_at_price ?? $product->price);
+        }
+
+        if ($newPrice <= 0) {
+            $newPrice = (float) $product->price;
+        }
+
+        if ($oldPrice > 0 && $newPrice > $oldPrice) {
+            throw ValidationException::withMessages([
+                'newPrice' => ['سعر العرض يجب ألا يتجاوز السعر السابق.'],
+            ]);
+        }
+
+        foreach ([
+            'cardBackgroundColor' => '#F4E4CC',
+            'cardTextColor' => '#172033',
+            'accentColor' => '#F47B20',
+        ] as $key => $default) {
+            $color = strtoupper(trim((string) ($payload[$key] ?? $default)));
+
+            if (! preg_match('/^#[0-9A-F]{6}$/', $color)) {
+                throw ValidationException::withMessages([
+                    $key => ['استخدم لونًا بصيغة HEX مثل #F4E4CC.'],
+                ]);
+            }
+
+            $payload[$key] = $color;
+        }
+
+        $payload['titleAr'] = $titleAr;
+        $payload['productId'] = $productId;
+        $payload['storeId'] = $storeId;
+        $payload['targetType'] = 'product';
+        $payload['targetId'] = $productId;
+        $payload['duration'] = $duration;
+        $payload['oldPrice'] = $oldPrice;
+        $payload['newPrice'] = $newPrice;
+        $payload['discountPercent'] = $oldPrice > 0 && $newPrice < $oldPrice
+            ? min(max((int) round((($oldPrice - $newPrice) / $oldPrice) * 100), 0), 100)
+            : min(max((int) ($payload['discountPercent'] ?? 0), 0), 100);
+        $payload['sponsored'] = filter_var(
+            $payload['sponsored'] ?? true,
+            FILTER_VALIDATE_BOOLEAN,
+        );
+        $payload['visible'] = filter_var(
+            $payload['visible'] ?? true,
+            FILTER_VALIDATE_BOOLEAN,
+        );
+
+        return $payload;
+    }
+
     private function statusFromPayload(
         array &$payload,
         string $fallback = 'active',
@@ -792,12 +937,91 @@ class AdminResourceController extends Controller
 
     private function flatten(PlatformRecord $record): array
     {
-        return [
+        $row = [
             ...($record->payload ?? []),
             'id' => $record->id,
             'status' => $record->status,
             'created_at' => $record->created_at?->toISOString(),
             'updated_at' => $record->updated_at?->toISOString(),
+        ];
+
+        if ($record->resource !== 'ads') {
+            return $row;
+        }
+
+        $impressions = PromotionInteraction::query()
+            ->where('promotion_id', $record->id)
+            ->where('event_type', 'impression')
+            ->count();
+        $clicks = PromotionInteraction::query()
+            ->where('promotion_id', $record->id)
+            ->where('event_type', 'click')
+            ->count();
+        $conversions = PromotionConversion::query()
+            ->where('promotion_id', $record->id)
+            ->count();
+        $revenue = (float) PromotionConversion::query()
+            ->where('promotion_id', $record->id)
+            ->sum('revenue');
+
+        return [
+            ...$row,
+            'impressions' => $impressions,
+            'clicks' => $clicks,
+            'conversions' => $conversions,
+            'orders_count' => $conversions,
+            'coupon_uses' => PromotionConversion::query()
+                ->where('promotion_id', $record->id)
+                ->whereNotNull('coupon_code')
+                ->count(),
+            'ctr' => $impressions > 0
+                ? round(($clicks / $impressions) * 100, 2)
+                : 0,
+            'conversionRate' => $clicks > 0
+                ? round(($conversions / $clicks) * 100, 2)
+                : 0,
+            'revenue' => $revenue,
+        ];
+    }
+
+    private function promotionAnalytics(PlatformRecord $record): array
+    {
+        $base = $this->flatten($record);
+        $byHour = PromotionInteraction::query()
+            ->where('promotion_id', $record->id)
+            ->selectRaw('HOUR(occurred_at) as hour, event_type, COUNT(*) as total')
+            ->groupByRaw('HOUR(occurred_at), event_type')
+            ->orderBy('hour')
+            ->get();
+        $byCity = PromotionInteraction::query()
+            ->where('promotion_id', $record->id)
+            ->whereNotNull('city_id')
+            ->selectRaw('city_id, event_type, COUNT(*) as total')
+            ->groupBy('city_id', 'event_type')
+            ->orderByDesc('total')
+            ->get();
+        $daily = PromotionInteraction::query()
+            ->where('promotion_id', $record->id)
+            ->where('occurred_at', '>=', now()->subDays(30))
+            ->selectRaw('DATE(occurred_at) as day, event_type, COUNT(*) as total')
+            ->groupByRaw('DATE(occurred_at), event_type')
+            ->orderBy('day')
+            ->get();
+
+        return [
+            'summary' => Arr::only($base, [
+                'impressions',
+                'clicks',
+                'conversions',
+                'orders_count',
+                'coupon_uses',
+                'ctr',
+                'conversionRate',
+                'revenue',
+            ]),
+            'daily' => $daily,
+            'by_hour' => $byHour,
+            'by_city' => $byCity,
         ];
     }
 
@@ -869,7 +1093,7 @@ class AdminResourceController extends Controller
             abort_if(
                 $action === 'debit' && $amount > $currentBalance,
                 422,
-                'الرصيد المتاح لا يكفي لتنفيذ عملية الخصم.',
+                'ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…طھط§ط­ ظ„ط§ ظٹظƒظپظٹ ظ„طھظ†ظپظٹط° ط¹ظ…ظ„ظٹط© ط§ظ„ط®طµظ….',
             );
 
             $direction = $action === 'credit' ? 1 : -1;

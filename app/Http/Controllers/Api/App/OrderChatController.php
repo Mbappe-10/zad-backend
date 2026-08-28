@@ -13,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class OrderChatController extends Controller
 {
+    private const MAXIMUM_MESSAGE_LENGTH = 100;
+
     public function driverIndex(
         Request $request,
         Order $order,
@@ -82,7 +84,7 @@ class OrderChatController extends Controller
             'message' => [
                 'required',
                 'string',
-                'max:500',
+                'max:'.self::MAXIMUM_MESSAGE_LENGTH,
             ],
         ]);
 
@@ -138,7 +140,7 @@ class OrderChatController extends Controller
                 'order_id' => $order->id,
                 'order_number' => $order->number,
                 'chat_open' => $this->chatIsOpen($order),
-                'maximum_message_length' => 500,
+                'maximum_message_length' => self::MAXIMUM_MESSAGE_LENGTH,
             ],
         ]);
     }

@@ -102,9 +102,9 @@ class BootstrapController extends Controller
             ->values();
 
         /*
-         * كل منتج في زاد سينك تابع لمتجر أسرة منتجة حقيقي.
-         * نربط المنتجات بالمتاجر هنا حتى يرجع اسم المتجر مع المنتج،
-         * ولا يضطر تطبيق Flutter إلى عرض اسم افتراضي غير موجود.
+         * ظƒظ„ ظ…ظ†طھط¬ ظپظٹ ط²ط§ط¯ ط³ظٹظ†ظƒ طھط§ط¨ط¹ ظ„ظ…طھط¬ط± ط£ط³ط±ط© ظ…ظ†طھط¬ط© ط­ظ‚ظٹظ‚ظٹ.
+         * ظ†ط±ط¨ط· ط§ظ„ظ…ظ†طھط¬ط§طھ ط¨ط§ظ„ظ…طھط§ط¬ط± ظ‡ظ†ط§ ط­طھظ‰ ظٹط±ط¬ط¹ ط§ط³ظ… ط§ظ„ظ…طھط¬ط± ظ…ط¹ ط§ظ„ظ…ظ†طھط¬طŒ
+         * ظˆظ„ط§ ظٹط¶ط·ط± طھط·ط¨ظٹظ‚ Flutter ط¥ظ„ظ‰ ط¹ط±ط¶ ط§ط³ظ… ط§ظپطھط±ط§ط¶ظٹ ط؛ظٹط± ظ…ظˆط¬ظˆط¯.
          */
         $products = Product::query()
             ->join('stores', 'stores.id', '=', 'products.store_id')
@@ -196,7 +196,7 @@ class BootstrapController extends Controller
                     'ingredients' => $this->decodeJson($product->ingredients),
                     'is_available' => true,
 
-                    // الربط المباشر الذي تستخدمه بطاقة المنتج في Flutter.
+                    // ط§ظ„ط±ط¨ط· ط§ظ„ظ…ط¨ط§ط´ط± ط§ظ„ط°ظٹ طھط³طھط®ط¯ظ…ظ‡ ط¨ط·ط§ظ‚ط© ط§ظ„ظ…ظ†طھط¬ ظپظٹ Flutter.
                     'store_name_ar' => $product->store_name_ar,
                     'store_name_en' => $product->store_name_en,
                     'store' => $store,
@@ -230,7 +230,7 @@ class BootstrapController extends Controller
 
         return response()->json([
             'app' => [
-                'name' => 'زاد سينك',
+                'name' => 'ط²ط§ط¯ ط³ظٹظ†ظƒ',
                 'version' => '1.0.0',
                 'guest_first' => true,
             ],
@@ -244,10 +244,10 @@ class BootstrapController extends Controller
     }
 
     /**
-     * يحول سجلات الداشبورد العامة إلى بانرات آمنة للتطبيق.
+     * ظٹط­ظˆظ„ ط³ط¬ظ„ط§طھ ط§ظ„ط¯ط§ط´ط¨ظˆط±ط¯ ط§ظ„ط¹ط§ظ…ط© ط¥ظ„ظ‰ ط¨ط§ظ†ط±ط§طھ ط¢ظ…ظ†ط© ظ„ظ„طھط·ط¨ظٹظ‚.
      *
-     * الداشبورد يحفظ الإعلانات والكوبونات والعروض داخل platform_records.
-     * لا نرسل الميزانية أو التكلفة أو بيانات التدقيق إلى تطبيق العميل.
+     * ط§ظ„ط¯ط§ط´ط¨ظˆط±ط¯ ظٹط­ظپط¸ ط§ظ„ط¥ط¹ظ„ط§ظ†ط§طھ ظˆط§ظ„ظƒظˆط¨ظˆظ†ط§طھ ظˆط§ظ„ط¹ط±ظˆط¶ ط¯ط§ط®ظ„ platform_records.
+     * ظ„ط§ ظ†ط±ط³ظ„ ط§ظ„ظ…ظٹط²ط§ظ†ظٹط© ط£ظˆ ط§ظ„طھظƒظ„ظپط© ط£ظˆ ط¨ظٹط§ظ†ط§طھ ط§ظ„طھط¯ظ‚ظٹظ‚ ط¥ظ„ظ‰ طھط·ط¨ظٹظ‚ ط§ظ„ط¹ظ…ظٹظ„.
      */
     private function homeBanners(): array
     {
@@ -380,19 +380,36 @@ class BootstrapController extends Controller
             default => 'advertisement',
         };
 
+        $productId = $this->integerFromPayload(
+            $payload,
+            ['productId', 'product_id', 'targetId', 'target_id'],
+            0,
+        );
+        $product = $productId > 0
+            ? Product::query()->find($productId)
+            : null;
+        $storeId = $this->integerFromPayload(
+            $payload,
+            ['storeId', 'store_id'],
+            (int) ($product?->store_id ?? 0),
+        );
+        $store = $storeId > 0
+            ? DB::table('stores')->where('id', $storeId)->first()
+            : null;
+
         $titleAr = $this->stringFromPayload(
             $payload,
             ['titleAr', 'title_ar', 'nameAr', 'name_ar', 'title', 'name'],
             match ($kind) {
                 'coupon' => 'كوبون مميز من زاد سينك',
                 'offer' => 'عرض مميز من زاد سينك',
-                default => 'اكتشف جديد زاد سينك',
+                default => $product?->name_ar ?? 'إعلان مميز من زاد سينك',
             },
         );
         $titleEn = $this->stringFromPayload(
             $payload,
             ['titleEn', 'title_en', 'nameEn', 'name_en'],
-            null,
+            $product?->description_ar,
         );
         $descriptionAr = $this->stringFromPayload(
             $payload,
@@ -403,7 +420,7 @@ class BootstrapController extends Controller
                 'subtitle_ar',
                 'description',
             ],
-            null,
+            $product?->description_en,
         );
         $descriptionEn = $this->stringFromPayload(
             $payload,
@@ -427,11 +444,37 @@ class BootstrapController extends Controller
             ],
             null,
         );
+        $productImages = $product !== null
+            ? $this->normalizeImages($product->images)
+            : [];
         $duration = $this->integerFromPayload(
             $payload,
             ['duration', 'durationSeconds', 'duration_seconds'],
-            8,
+            4,
         );
+        $oldPrice = (float) ($this->firstPayloadValue($payload, [
+            'oldPrice', 'old_price', 'compareAtPrice', 'compare_at_price',
+        ]) ?? $product?->compare_at_price ?? $product?->price ?? 0);
+        $newPrice = (float) ($this->firstPayloadValue($payload, [
+            'newPrice', 'new_price', 'offerPrice', 'offer_price',
+        ]) ?? $product?->price ?? 0);
+        $discount = $this->integerFromPayload(
+            $payload,
+            ['discountPercent', 'discount_percent'],
+            $oldPrice > 0 && $newPrice < $oldPrice
+                ? (int) round((($oldPrice - $newPrice) / $oldPrice) * 100)
+                : 0,
+        );
+        $endsAt = $this->dateFromPayload($payload, [
+            'couponEndsAt',
+            'coupon_ends_at',
+            'endAt',
+            'endsAt',
+            'endDate',
+            'end_at',
+            'ends_at',
+            'end_date',
+        ]);
 
         return [
             'id' => $record->id,
@@ -442,15 +485,102 @@ class BootstrapController extends Controller
             'description_ar' => $descriptionAr,
             'description_en' => $descriptionEn,
             'media_type' => $mediaType,
-            'media_url' => $this->publicUrl($mediaPath),
-            'duration_seconds' => min(max($duration, 5), 20),
+            'media_url' => $this->publicUrl(
+                $mediaPath ?? ($productImages[0] ?? null),
+            ),
+            'duration_seconds' => min(max($duration, 3), 20),
+            'sponsored' => $this->booleanValue(
+                $payload['sponsored'] ?? $payload['isSponsored'] ?? true,
+                true,
+            ),
+            'store_id' => $storeId > 0 ? $storeId : null,
+            'store_name_ar' => $this->stringFromPayload(
+                $payload,
+                ['storeNameAr', 'store_name_ar'],
+                $store?->name_ar,
+            ),
+            'store_name_en' => $this->stringFromPayload(
+                $payload,
+                ['storeNameEn', 'store_name_en'],
+                $store?->name_en,
+            ),
+            'family_name_ar' => $this->stringFromPayload(
+                $payload,
+                ['familyNameAr', 'family_name_ar'],
+                $store?->name_ar,
+            ),
+            'family_logo_url' => $this->publicUrl(
+                $this->stringFromPayload(
+                    $payload,
+                    ['familyLogoUrl', 'family_logo_url'],
+                    $store?->logo_path,
+                ),
+            ),
+            'product_id' => $productId > 0 ? $productId : null,
+            'product_name_ar' => $this->stringFromPayload(
+                $payload,
+                ['productNameAr', 'product_name_ar'],
+                $product?->name_ar,
+            ),
+            'product' => $product === null ? null : [
+                'id' => $product->id,
+                'store_id' => $product->store_id,
+                'category_id' => $product->category_id,
+                'sku' => $product->sku,
+                'name_ar' => $product->name_ar,
+                'name_en' => $product->name_en,
+                'description_ar' => $product->description_ar,
+                'description_en' => $product->description_en,
+                'price' => (float) $product->price,
+                'compare_at_price' => $product->compare_at_price !== null
+                    ? (float) $product->compare_at_price
+                    : null,
+                'preparation_minutes' => (int) $product->preparation_minutes,
+                'package_size' => $product->package_size,
+                'images' => $productImages,
+                'primary_image_url' => $productImages[0] ?? null,
+                'is_available' => (bool) $product->is_available,
+                'store_name_ar' => $store?->name_ar,
+                'store_name_en' => $store?->name_en,
+                'store' => $store === null ? null : [
+                    'id' => $store->id,
+                    'name_ar' => $store->name_ar,
+                    'name_en' => $store->name_en,
+                    'logo_url' => $this->publicUrl($store->logo_path),
+                    'cover_url' => $this->publicUrl($store->cover_path),
+                ],
+            ],
+            'short_description_ar' => $this->stringFromPayload(
+                $payload,
+                ['shortDescriptionAr', 'short_description_ar'],
+                $descriptionAr,
+            ),
+            'old_price' => $oldPrice > 0 ? $oldPrice : null,
+            'new_price' => $newPrice > 0 ? $newPrice : null,
+            'discount_percent' => min(max($discount, 0), 100),
+            'ends_at' => $endsAt?->toISOString(),
+            'card_background_color' => $this->stringFromPayload(
+                $payload,
+                ['cardBackgroundColor', 'card_background_color'],
+                '#F4E4CC',
+            ),
+            'card_text_color' => $this->stringFromPayload(
+                $payload,
+                ['cardTextColor', 'card_text_color'],
+                '#172033',
+            ),
+            'accent_color' => $this->stringFromPayload(
+                $payload,
+                ['accentColor', 'accent_color'],
+                '#F47B20',
+            ),
             'button_text_ar' => $this->stringFromPayload(
                 $payload,
                 ['buttonTextAr', 'button_text_ar', 'buttonText', 'button_text'],
                 match ($kind) {
-                    'coupon' => 'استخدم الكوبون',
-                    'offer' => 'عرض التفاصيل',
-                    default => 'اكتشف الآن',
+                    'coupon' => 'استخدم الكود واطلب العرض',
+                    'offer' => 'اطلب العرض',
+                    default => 'عرض المنتج',
                 },
             ),
             'coupon_code' => $this->stringFromPayload(
@@ -461,9 +591,11 @@ class BootstrapController extends Controller
             'action_type' => $this->stringFromPayload(
                 $payload,
                 ['targetType', 'target_type', 'actionType', 'action_type'],
-                'none',
+                $productId > 0 ? 'product' : ($storeId > 0 ? 'store' : 'none'),
             ),
-            'action_value' => $payload['targetId']
+            'action_value' => $payload['productId']
+                ?? $payload['product_id']
+                ?? $payload['targetId']
                 ?? $payload['target_id']
                 ?? $payload['actionValue']
                 ?? $payload['action_value']

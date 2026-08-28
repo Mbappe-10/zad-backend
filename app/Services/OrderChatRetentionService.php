@@ -44,24 +44,22 @@ class OrderChatRetentionService
     {
         $days = $this->retentionDays();
         $cutoff = now()->subDays($days);
+        $eligibleIds = $this->eligibleOrderIds($days);
 
-        $messages = OrderMessage::query()
-            ->whereIn(
-                'order_id',
-                $this->eligibleOrderIds($days),
-            );
+        $eligibleMessages = OrderMessage::query()
+            ->whereIn('order_id', clone $eligibleIds)
+            ->count();
+
+        $eligibleSensitiveOrders = Order::query()
+            ->whereIn('id', clone $eligibleIds)
+            ->whereNull('sensitive_data_purged_at')
+            ->count();
 
         return [
             'retention_days' => $days,
             'cutoff_at' => $cutoff->toISOString(),
-
-            'eligible_orders' => (clone $messages)
-                ->distinct()
-                ->count('order_id'),
-
-            'eligible_messages' => (clone $messages)
-                ->count(),
-
+            'eligible_orders' => $eligibleSensitiveOrders,
+            'eligible_messages' => $eligibleMessages,
             'last_purge' => OrderChatPurgeLog::query()
                 ->latest('id')
                 ->first(),
@@ -78,25 +76,41 @@ class OrderChatRetentionService
         ): array {
             $startedAt = now();
             $days = $this->retentionDays();
+            $eligibleIds = $this->eligibleOrderIds($days);
 
-            $messages = OrderMessage::query()
-                ->whereIn(
-                    'order_id',
-                    $this->eligibleOrderIds($days),
-                );
+            $deletedMessages = OrderMessage::query()
+                ->whereIn('order_id', clone $eligibleIds)
+                ->delete();
 
-            $eligibleOrders = (clone $messages)
-                ->distinct()
-                ->count('order_id');
-
-            $deletedMessages = (clone $messages)->delete();
+            /*
+             * نحتفظ بسجل الطلب المالي وعناصره، وننظف فقط بيانات التواصل
+             * والمواقع والملاحظات الحساسة. موقع المتجر الأساسي لا يُحذف.
+             */
+            $purgedOrders = Order::query()
+                ->whereIn('id', clone $eligibleIds)
+                ->whereNull('sensitive_data_purged_at')
+                ->update([
+                    'pickup_address' => null,
+                    'pickup_latitude' => null,
+                    'pickup_longitude' => null,
+                    'delivery_address' => json_encode(
+                        [],
+                        JSON_THROW_ON_ERROR,
+                    ),
+                    'delivery_latitude' => null,
+                    'delivery_longitude' => null,
+                    'contact_phone' => null,
+                    'notes' => null,
+                    'driver_notes' => null,
+                    'sensitive_data_purged_at' => now(),
+                ]);
 
             $finishedAt = now();
 
             $log = OrderChatPurgeLog::query()->create([
                 'mode' => $mode,
                 'retention_days' => $days,
-                'eligible_orders' => $eligibleOrders,
+                'eligible_orders' => $purgedOrders,
                 'deleted_messages' => $deletedMessages,
                 'executed_by' => $executedBy,
                 'started_at' => $startedAt,
@@ -105,7 +119,8 @@ class OrderChatRetentionService
 
             return [
                 'retention_days' => $days,
-                'eligible_orders' => $eligibleOrders,
+                'eligible_orders' => $purgedOrders,
+                'purged_orders' => $purgedOrders,
                 'deleted_messages' => $deletedMessages,
                 'started_at' => $startedAt->toISOString(),
                 'finished_at' => $finishedAt->toISOString(),
@@ -124,10 +139,6 @@ class OrderChatRetentionService
                 Order::STATUS_CANCELLED,
                 Order::STATUS_REJECTED,
             ])
-            ->where(
-                'created_at',
-                '<=',
-                now()->subDays($days),
-            );
+            ->where('created_at', '<=', now()->subDays($days));
     }
 }

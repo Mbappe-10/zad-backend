@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\App\FamilyProductController;
 use App\Http\Controllers\Api\App\GuestSessionController;
 use App\Http\Controllers\Api\App\OrderLiveController;
 use App\Http\Controllers\Api\App\PhoneVerificationController;
+use App\Http\Controllers\Api\App\PromotionTrackingController;
 use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
 use App\Http\Controllers\Api\App\RoleDashboardController;
 use App\Http\Controllers\Api\App\RolePortalController;
@@ -47,8 +48,8 @@ use Illuminate\Support\Facades\Route;
 | Public API Routes
 |--------------------------------------------------------------------------
 |
-| مسارات عامة لا تحتاج إلى تسجيل الدخول.
-| صفحة تسجيل الدخول تستخدم هذا المسار لجلب الهوية البصرية.
+| ظ…ط³ط§ط±ط§طھ ط¹ط§ظ…ط© ظ„ط§ طھط­طھط§ط¬ ط¥ظ„ظ‰ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„.
+| طµظپط­ط© طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„ طھط³طھط®ط¯ظ… ظ‡ط°ط§ ط§ظ„ظ…ط³ط§ط± ظ„ط¬ظ„ط¨ ط§ظ„ظ‡ظˆظٹط© ط§ظ„ط¨طµط±ظٹط©.
 |
 */
 
@@ -60,8 +61,8 @@ Route::get('/branding', [BrandingSettingController::class, 'show'])
 | Protected API Routes
 |--------------------------------------------------------------------------
 |
-| جميع المسارات الموجودة داخل هذه المجموعة تحتاج إلى مستخدم
-| مسجل دخوله عن طريق Laravel Sanctum.
+| ط¬ظ…ظٹط¹ ط§ظ„ظ…ط³ط§ط±ط§طھ ط§ظ„ظ…ظˆط¬ظˆط¯ط© ط¯ط§ط®ظ„ ظ‡ط°ظ‡ ط§ظ„ظ…ط¬ظ…ظˆط¹ط© طھط­طھط§ط¬ ط¥ظ„ظ‰ ظ…ط³طھط®ط¯ظ…
+| ظ…ط³ط¬ظ„ ط¯ط®ظˆظ„ظ‡ ط¹ظ† ط·ط±ظٹظ‚ Laravel Sanctum.
 |
 */
 /*
@@ -69,8 +70,8 @@ Route::get('/branding', [BrandingSettingController::class, 'show'])
 | Authentication - Bearer Token
 |--------------------------------------------------------------------------
 |
-| هذا المسار عام ولا يستخدم CSRF أو جلسات المتصفح.
-| الواجهة تستقبل Sanctum Bearer Token وتُرسله في Authorization header.
+| ظ‡ط°ط§ ط§ظ„ظ…ط³ط§ط± ط¹ط§ظ… ظˆظ„ط§ ظٹط³طھط®ط¯ظ… CSRF ط£ظˆ ط¬ظ„ط³ط§طھ ط§ظ„ظ…طھطµظپط­.
+| ط§ظ„ظˆط§ط¬ظ‡ط© طھط³طھظ‚ط¨ظ„ Sanctum Bearer Token ظˆطھظڈط±ط³ظ„ظ‡ ظپظٹ Authorization header.
 |
 */
 
@@ -222,7 +223,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::prefix('v1/app/driver')->group(function (): void {
     /*
     |--------------------------------------------------------------------------
-    | ملف المندوب
+    | ظ…ظ„ظپ ط§ظ„ظ…ظ†ط¯ظˆط¨
     |--------------------------------------------------------------------------
     */
 
@@ -253,7 +254,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | التوفر والموقع
+    | ط§ظ„طھظˆظپط± ظˆط§ظ„ظ…ظˆظ‚ط¹
     |--------------------------------------------------------------------------
     */
 
@@ -269,7 +270,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | مهام المندوب
+    | ظ…ظ‡ط§ظ… ط§ظ„ظ…ظ†ط¯ظˆط¨
     |--------------------------------------------------------------------------
     */
 
@@ -457,8 +458,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Product Field Settings
     |--------------------------------------------------------------------------
     |
-    | إدارة الحقول متاحة فقط للمستخدم المصادق عليه، ويمكن لاحقًا
-    | ربطها بصلاحية products.fields.manage أو products.fields.view.
+    | ط¥ط¯ط§ط±ط© ط§ظ„ط­ظ‚ظˆظ„ ظ…طھط§ط­ط© ظپظ‚ط· ظ„ظ„ظ…ط³طھط®ط¯ظ… ط§ظ„ظ…طµط§ط¯ظ‚ ط¹ظ„ظٹظ‡طŒ ظˆظٹظ…ظƒظ† ظ„ط§ط­ظ‚ظ‹ط§
+    | ط±ط¨ط·ظ‡ط§ ط¨طµظ„ط§ط­ظٹط© products.fields.manage ط£ظˆ products.fields.view.
     |
     */
 
@@ -479,7 +480,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Productive Families Management
     |--------------------------------------------------------------------------
     |
-    | مسارات إدارة الأسر المنتجة المتوافقة مع صفحة React.
+    | ظ…ط³ط§ط±ط§طھ ط¥ط¯ط§ط±ط© ط§ظ„ط£ط³ط± ط§ظ„ظ…ظ†طھط¬ط© ط§ظ„ظ…طھظˆط§ظپظ‚ط© ظ…ط¹ طµظپط­ط© React.
     |
     */
 
@@ -545,7 +546,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Branding Management
     |--------------------------------------------------------------------------
     |
-    | إدارة هوية المنصة وصفحة تسجيل الدخول.
+    | ط¥ط¯ط§ط±ط© ظ‡ظˆظٹط© ط§ظ„ظ…ظ†طµط© ظˆطµظپط­ط© طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„.
     |
     */
 
@@ -618,8 +619,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         | Driver Registration Field Settings
         |--------------------------------------------------------------------------
         |
-        | إدارة الأسئلة الإضافية في نموذج المندوب. يجب أن تبقى هذه المسارات
-        | قبل مسارات /{resource} الديناميكية الموجودة في أسفل المجموعة.
+        | ط¥ط¯ط§ط±ط© ط§ظ„ط£ط³ط¦ظ„ط© ط§ظ„ط¥ط¶ط§ظپظٹط© ظپظٹ ظ†ظ…ظˆط°ط¬ ط§ظ„ظ…ظ†ط¯ظˆط¨. ظٹط¬ط¨ ط£ظ† طھط¨ظ‚ظ‰ ظ‡ط°ظ‡ ط§ظ„ظ…ط³ط§ط±ط§طھ
+        | ظ‚ط¨ظ„ ظ…ط³ط§ط±ط§طھ /{resource} ط§ظ„ط¯ظٹظ†ط§ظ…ظٹظƒظٹط© ط§ظ„ظ…ظˆط¬ظˆط¯ط© ظپظٹ ط£ط³ظپظ„ ط§ظ„ظ…ط¬ظ…ظˆط¹ط©.
         |
         */
 
@@ -651,9 +652,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         | Live Broadcast Owner Control
         |--------------------------------------------------------------------------
         |
-        | هذه المسارات محمية داخل LiveBroadcastAdminController، ولا يسمح
-        | بتنفيذها إلا لمالك المنصة. يجب أن تبقى قبل مسارات {resource}
-        | الديناميكية الموجودة في أسفل هذه المجموعة.
+        | ظ‡ط°ظ‡ ط§ظ„ظ…ط³ط§ط±ط§طھ ظ…ط­ظ…ظٹط© ط¯ط§ط®ظ„ LiveBroadcastAdminControllerطŒ ظˆظ„ط§ ظٹط³ظ…ط­
+        | ط¨طھظ†ظپظٹط°ظ‡ط§ ط¥ظ„ط§ ظ„ظ…ط§ظ„ظƒ ط§ظ„ظ…ظ†طµط©. ظٹط¬ط¨ ط£ظ† طھط¨ظ‚ظ‰ ظ‚ط¨ظ„ ظ…ط³ط§ط±ط§طھ {resource}
+        | ط§ظ„ط¯ظٹظ†ط§ظ…ظٹظƒظٹط© ط§ظ„ظ…ظˆط¬ظˆط¯ط© ظپظٹ ط£ط³ظپظ„ ظ‡ط°ظ‡ ط§ظ„ظ…ط¬ظ…ظˆط¹ط©.
         |
         */
 
@@ -746,6 +747,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             ->whereIn('action', [
                 'forecast',
                 'insights',
+                'options',
                 'refresh',
                 'simulate',
             ]);
@@ -772,6 +774,21 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
 Route::prefix('v1/app')->group(function (): void {
     Route::get('/bootstrap', BootstrapController::class);
+
+    Route::post(
+        '/promotions/{promotion}/impression',
+        [PromotionTrackingController::class, 'impression'],
+    )->whereNumber('promotion')->middleware('throttle:120,1');
+
+    Route::post(
+        '/promotions/{promotion}/click',
+        [PromotionTrackingController::class, 'click'],
+    )->whereNumber('promotion')->middleware('throttle:60,1');
+
+    Route::post(
+        '/promotions/{promotion}/conversion',
+        [PromotionTrackingController::class, 'conversion'],
+    )->whereNumber('promotion')->middleware('throttle:30,1');
 
     Route::post(
         '/auth/google',

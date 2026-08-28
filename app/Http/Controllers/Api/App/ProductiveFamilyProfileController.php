@@ -46,6 +46,14 @@ class ProductiveFamilyProfileController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        /*
+         * نستخدم مسار الملف الحالي نفسه حتى لا يحتاج المشروع إلى تعديل
+         * routes/api.php أو إضافة مسار جديد فقط لحفظ موقع الاستلام.
+         */
+        if ($request->input('action') === 'update_pickup_location') {
+            return $this->updatePickupLocation($request);
+        }
+
         $data = $request->validate([
             'family_name' => [
                 'required',
@@ -106,6 +114,23 @@ class ProductiveFamilyProfileController extends Controller
                 'nullable',
                 'string',
                 'max:500',
+            ],
+            'pickup_address' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'pickup_latitude' => [
+                'nullable',
+                'numeric',
+                'between:-90,90',
+                'required_with:pickup_longitude',
+            ],
+            'pickup_longitude' => [
+                'nullable',
+                'numeric',
+                'between:-180,180',
+                'required_with:pickup_latitude',
             ],
         ]);
 
@@ -189,6 +214,12 @@ class ProductiveFamilyProfileController extends Controller
                                     $data['store_description_ar'] ?? null,
                                 'status' => 'pending',
                                 'is_open' => false,
+                                'pickup_address' =>
+                                    $data['pickup_address'] ?? $existingStore->pickup_address,
+                                'pickup_latitude' =>
+                                    $data['pickup_latitude'] ?? $existingStore->pickup_latitude,
+                                'pickup_longitude' =>
+                                    $data['pickup_longitude'] ?? $existingStore->pickup_longitude,
                             ]);
                         } else {
                             $reactivated = true;
@@ -209,6 +240,9 @@ class ProductiveFamilyProfileController extends Controller
                                 'rating' => 0,
                                 'rating_count' => 0,
                                 'working_hours' => [],
+                                'pickup_address' => $data['pickup_address'] ?? null,
+                                'pickup_latitude' => $data['pickup_latitude'] ?? null,
+                                'pickup_longitude' => $data['pickup_longitude'] ?? null,
                             ]);
                         }
 
@@ -266,6 +300,9 @@ class ProductiveFamilyProfileController extends Controller
                     'rating' => 0,
                     'rating_count' => 0,
                     'working_hours' => [],
+                    'pickup_address' => $data['pickup_address'] ?? null,
+                    'pickup_latitude' => $data['pickup_latitude'] ?? null,
+                    'pickup_longitude' => $data['pickup_longitude'] ?? null,
                 ]);
 
                 $profile->update([
@@ -286,6 +323,60 @@ class ProductiveFamilyProfileController extends Controller
             'data' => $this->transformFamily($family),
             'next_step' => 'dashboard',
         ], $created ? 201 : 200);
+    }
+
+    public function updatePickupLocation(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'pickup_address' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'pickup_latitude' => [
+                'required',
+                'numeric',
+                'between:-90,90',
+            ],
+            'pickup_longitude' => [
+                'required',
+                'numeric',
+                'between:-180,180',
+            ],
+        ]);
+
+        $profile = AppProfile::query()
+            ->where('user_id', $request->user()->id)
+            ->first();
+
+        abort_unless(
+            $profile !== null && $profile->productive_family_id !== null,
+            403,
+            'هذا الحساب غير مرتبط بأسرة منتجة.',
+        );
+
+        $family = ProductiveFamily::query()
+            ->with('store')
+            ->find($profile->productive_family_id);
+
+        abort_unless(
+            $family !== null && $family->store !== null,
+            404,
+            'تعذر العثور على متجر الأسرة المنتجة.',
+        );
+
+        $family->store->update([
+            'pickup_address' => $data['pickup_address'] ?? 'موقع استلام متجر الأسرة المنتجة',
+            'pickup_latitude' => (float) $data['pickup_latitude'],
+            'pickup_longitude' => (float) $data['pickup_longitude'],
+        ]);
+
+        $family->refresh()->load('store');
+
+        return response()->json([
+            'message' => 'تم حفظ موقع استلام الطلبات بنجاح.',
+            'data' => $this->transformFamily($family),
+        ]);
     }
 
     private function transformFamily(
@@ -320,6 +411,13 @@ class ProductiveFamilyProfileController extends Controller
                 'is_open' => (bool) (
                     $family->store?->is_open ?? false
                 ),
+                'pickup_address' => $family->store?->pickup_address,
+                'pickup_latitude' => $family->store?->pickup_latitude !== null
+                    ? (float) $family->store->pickup_latitude
+                    : null,
+                'pickup_longitude' => $family->store?->pickup_longitude !== null
+                    ? (float) $family->store->pickup_longitude
+                    : null,
             ],
         ];
     }

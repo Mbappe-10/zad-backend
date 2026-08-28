@@ -233,10 +233,33 @@ class DeliveryOperationsService
                 ? Order::STATUS_ASSIGNED
                 : $fromStatus;
 
-            $order->update([
+            $orderUpdates = [
                 'driver_id' => $driver->id,
                 'status' => $nextStatus,
-            ]);
+            ];
+
+            /*
+             * نحفظ نسخة موقع الأسرة داخل الطلب وقت الإسناد. تغيير موقع
+             * المتجر لاحقًا لا يغيّر موقع استلام طلب جارٍ بالفعل.
+             */
+            if (
+                $order->pickup_latitude === null ||
+                $order->pickup_longitude === null
+            ) {
+                $store = $order->store()->first();
+
+                if (
+                    $store !== null &&
+                    $store->pickup_latitude !== null &&
+                    $store->pickup_longitude !== null
+                ) {
+                    $orderUpdates['pickup_address'] = $store->pickup_address;
+                    $orderUpdates['pickup_latitude'] = $store->pickup_latitude;
+                    $orderUpdates['pickup_longitude'] = $store->pickup_longitude;
+                }
+            }
+
+            $order->update($orderUpdates);
 
             if ($order->wasChanged('driver_id')) {
                 $driver->increment('active_orders_count');

@@ -35,6 +35,16 @@ class Store extends Model
         'pickup_longitude',
     ];
 
+    /**
+     * موقع الاستلام تشغيلي وسري، ولا يُرسل تلقائيًا في واجهات العملاء.
+     * واجهة المندوب تعيده يدويًا بعد التحقق من إسناد الطلب إليه.
+     */
+    protected $hidden = [
+        'pickup_address',
+        'pickup_latitude',
+        'pickup_longitude',
+    ];
+
     protected function casts(): array
     {
         return [

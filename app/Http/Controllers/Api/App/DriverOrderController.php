@@ -549,6 +549,15 @@ class DriverOrderController extends Controller
     private function driverPayload(
         Order $order,
     ): array {
+        $pickupAddress = $order->pickup_address
+            ?? $order->store?->pickup_address;
+
+        $pickupLatitude = $order->pickup_latitude
+            ?? $order->store?->pickup_latitude;
+
+        $pickupLongitude = $order->pickup_longitude
+            ?? $order->store?->pickup_longitude;
+
         return [
             'id' => $order->id,
             'number' => $order->number,
@@ -567,22 +576,28 @@ class DriverOrderController extends Controller
                         $order->store->name_en,
 
                     'pickup_address' =>
-                        $order->store->pickup_address,
+                        $pickupAddress,
 
                     'pickup_latitude' =>
-                        $order->store->pickup_latitude !== null
-                            ? (float) $order
-                                ->store
-                                ->pickup_latitude
+                        $pickupLatitude !== null
+                            ? (float) $pickupLatitude
                             : null,
 
                     'pickup_longitude' =>
-                        $order->store->pickup_longitude !== null
-                            ? (float) $order
-                                ->store
-                                ->pickup_longitude
+                        $pickupLongitude !== null
+                            ? (float) $pickupLongitude
                             : null,
                 ]
+                : null,
+
+            'pickup_address' => $pickupAddress,
+
+            'pickup_latitude' => $pickupLatitude !== null
+                ? (float) $pickupLatitude
+                : null,
+
+            'pickup_longitude' => $pickupLongitude !== null
+                ? (float) $pickupLongitude
                 : null,
 
             'package_size' => $order->package_size,
@@ -641,10 +656,8 @@ class DriverOrderController extends Controller
 
                         'photo_url' =>
                             $proof->photo_path !== null
-                                ? url(
-                                    Storage::url(
+                                ? Storage::disk('public')->url(
                                         $proof->photo_path,
-                                    ),
                                 )
                                 : null,
 

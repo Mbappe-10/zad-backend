@@ -69,7 +69,6 @@ class BootstrapController extends Controller
             ->get([
                 'id',
                 'productive_family_id',
-                'city_id',
                 'name_ar',
                 'name_en',
                 'slug',
@@ -85,7 +84,6 @@ class BootstrapController extends Controller
                 return [
                     'id' => $store->id,
                     'productive_family_id' => $store->productive_family_id,
-                    'city_id' => $store->city_id,
                     'name_ar' => $store->name_ar,
                     'name_en' => $store->name_en,
                     'slug' => $store->slug,
@@ -102,9 +100,9 @@ class BootstrapController extends Controller
             ->values();
 
         /*
-         * ظƒظ„ ظ…ظ†طھط¬ ظپظٹ ط²ط§ط¯ ط³ظٹظ†ظƒ طھط§ط¨ط¹ ظ„ظ…طھط¬ط± ط£ط³ط±ط© ظ…ظ†طھط¬ط© ط­ظ‚ظٹظ‚ظٹ.
-         * ظ†ط±ط¨ط· ط§ظ„ظ…ظ†طھط¬ط§طھ ط¨ط§ظ„ظ…طھط§ط¬ط± ظ‡ظ†ط§ ط­طھظ‰ ظٹط±ط¬ط¹ ط§ط³ظ… ط§ظ„ظ…طھط¬ط± ظ…ط¹ ط§ظ„ظ…ظ†طھط¬طŒ
-         * ظˆظ„ط§ ظٹط¶ط·ط± طھط·ط¨ظٹظ‚ Flutter ط¥ظ„ظ‰ ط¹ط±ط¶ ط§ط³ظ… ط§ظپطھط±ط§ط¶ظٹ ط؛ظٹط± ظ…ظˆط¬ظˆط¯.
+         * كل منتج في زاد سينك تابع لمتجر أسرة منتجة حقيقي.
+         * نربط المنتجات بالمتاجر هنا حتى يرجع اسم المتجر مع المنتج،
+         * ولا يضطر تطبيق Flutter إلى عرض اسم افتراضي غير موجود.
          */
         $products = Product::query()
             ->join('stores', 'stores.id', '=', 'products.store_id')
@@ -135,7 +133,6 @@ class BootstrapController extends Controller
                 'products.ingredients',
                 'products.package_size',
                 'stores.productive_family_id as store_productive_family_id',
-                'stores.city_id as store_city_id',
                 'stores.name_ar as store_name_ar',
                 'stores.name_en as store_name_en',
                 'stores.slug as store_slug',
@@ -155,7 +152,6 @@ class BootstrapController extends Controller
                     'id' => (int) $product->store_id,
                     'productive_family_id' =>
                         (int) $product->store_productive_family_id,
-                    'city_id' => (int) $product->store_city_id,
                     'name_ar' => $product->store_name_ar,
                     'name_en' => $product->store_name_en,
                     'slug' => $product->store_slug,
@@ -196,7 +192,7 @@ class BootstrapController extends Controller
                     'ingredients' => $this->decodeJson($product->ingredients),
                     'is_available' => true,
 
-                    // ط§ظ„ط±ط¨ط· ط§ظ„ظ…ط¨ط§ط´ط± ط§ظ„ط°ظٹ طھط³طھط®ط¯ظ…ظ‡ ط¨ط·ط§ظ‚ط© ط§ظ„ظ…ظ†طھط¬ ظپظٹ Flutter.
+                    // الربط المباشر الذي تستخدمه بطاقة المنتج في Flutter.
                     'store_name_ar' => $product->store_name_ar,
                     'store_name_en' => $product->store_name_en,
                     'store' => $store,
@@ -230,7 +226,7 @@ class BootstrapController extends Controller
 
         return response()->json([
             'app' => [
-                'name' => 'ط²ط§ط¯ ط³ظٹظ†ظƒ',
+                'name' => 'زاد سينك',
                 'version' => '1.0.0',
                 'guest_first' => true,
             ],
@@ -244,10 +240,10 @@ class BootstrapController extends Controller
     }
 
     /**
-     * ظٹط­ظˆظ„ ط³ط¬ظ„ط§طھ ط§ظ„ط¯ط§ط´ط¨ظˆط±ط¯ ط§ظ„ط¹ط§ظ…ط© ط¥ظ„ظ‰ ط¨ط§ظ†ط±ط§طھ ط¢ظ…ظ†ط© ظ„ظ„طھط·ط¨ظٹظ‚.
+     * يحول سجلات الداشبورد العامة إلى بانرات آمنة للتطبيق.
      *
-     * ط§ظ„ط¯ط§ط´ط¨ظˆط±ط¯ ظٹط­ظپط¸ ط§ظ„ط¥ط¹ظ„ط§ظ†ط§طھ ظˆط§ظ„ظƒظˆط¨ظˆظ†ط§طھ ظˆط§ظ„ط¹ط±ظˆط¶ ط¯ط§ط®ظ„ platform_records.
-     * ظ„ط§ ظ†ط±ط³ظ„ ط§ظ„ظ…ظٹط²ط§ظ†ظٹط© ط£ظˆ ط§ظ„طھظƒظ„ظپط© ط£ظˆ ط¨ظٹط§ظ†ط§طھ ط§ظ„طھط¯ظ‚ظٹظ‚ ط¥ظ„ظ‰ طھط·ط¨ظٹظ‚ ط§ظ„ط¹ظ…ظٹظ„.
+     * الداشبورد يحفظ الإعلانات والكوبونات والعروض داخل platform_records.
+     * لا نرسل الميزانية أو التكلفة أو بيانات التدقيق إلى تطبيق العميل.
      */
     private function homeBanners(): array
     {

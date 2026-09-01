@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\City;
 use App\Models\Driver;
+use App\Models\DriverDocument;
+use App\Models\Wallet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -15,9 +18,39 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverController extends Controller
 {
+    private const VEHICLE_TYPES = ['scooter', 'motorcycle', 'car'];
+
+    private const REQUIRED_DOCUMENTS = [
+        'scooter' => [
+            'identity_photo',
+            'scooter_front',
+            'scooter_rear_box',
+            'scooter_right',
+            'scooter_left',
+        ],
+        'motorcycle' => [
+            'identity_photo',
+            'motorcycle_license',
+            'vehicle_registration',
+            'motorcycle_front',
+            'motorcycle_rear_box',
+            'motorcycle_right',
+            'motorcycle_left',
+        ],
+        'car' => [
+            'identity_photo',
+            'driving_license',
+            'vehicle_registration',
+            'car_exterior',
+            'cargo_interior',
+        ],
+    ];
+
     public function index(Request $request): JsonResponse
     {
-        $query = Driver::query()->with(['city', 'vehicle']);
+        $query = Driver::query()
+            ->with(['city', 'vehicle', 'documents'])
+            ->withCount('documents');
 
         if ($request->filled('search')) {
             $search = trim((string) $request->input('search'));
@@ -27,7 +60,7 @@ class DriverController extends Controller
                     ->orWhere('code', 'like', "%{$search}%")
                     ->orWhere('identity_number', 'like', "%{$search}%")
                     ->orWhere('plate_number', 'like', "%{$search}%")
-                    ->orWhere('metadata->email', 'like', "%{$search}%");
+                    ->orWhere('metadata->city', 'like', "%{$search}%");
             });
         }
 
@@ -37,10 +70,6 @@ class DriverController extends Controller
 
         if ($request->filled('vehicle_type') && $request->input('vehicle_type') !== 'all') {
             $query->where('vehicle_type', $request->input('vehicle_type'));
-        }
-
-        if ($request->filled('level') && $request->input('level') !== 'all') {
-            $query->where('metadata->level', $request->input('level'));
         }
 
         if ($request->filled('city')) {
@@ -54,24 +83,9 @@ class DriverController extends Controller
             });
         }
 
-        if ($request->filled('rating_from')) {
-            $query->where('rating', '>=', (float) $request->input('rating_from'));
-        }
-
-        if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->input('date_from'));
-        }
-
-        if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->input('date_to'));
-        }
-
-        $direction = strtolower((string) $request->input('direction', 'desc')) === 'asc' ? 'asc' : 'desc';
-        $query->orderBy('created_at', $direction);
-
-        $perPage = min(max((int) $request->input('per_page', 15), 1), 100);
-        $drivers = $query->paginate($perPage);
-
+        $drivers = $query->latest()->paginate(
+            min(max((int) $request->input('per_page', 15), 1), 100),
+        );
         $drivers->getCollection()->transform(
             fn (Driver $driver): array => $this->transformDriver($driver),
         );
@@ -81,31 +95,32 @@ class DriverController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), $this->rules());
+        $validated = $this->validated($request);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'بيانات المندوب غير صحيحة.',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $driver = DB::transaction(function () use ($request): Driver {
-            return Driver::query()->create([
+        $driver = DB::transaction(function () use ($validated): Driver {
+            $status = $validated['status'] ?? 'pending';
+            $driver = Driver::query()->create([
                 'code' => $this->generateCode(),
-                'name' => trim((string) $request->input('name')),
-                'phone' => trim((string) $request->input('phone')),
-                'city_id' => $this->resolveCityId($request),
-                'identity_number' => $request->input('national_id'),
-                'license_number' => $request->input('license_number'),
-                'vehicle_type' => $request->input('vehicle_type', 'scooter'),
-                'plate_number' => $request->input('vehicle_plate'),
-                'status' => $request->input('status', 'active'),
+                'name' => trim($validated['name']),
+                'phone' => trim($validated['phone']),
+                'city_id' => $this->resolveCityId($validated['city']),
+                'identity_number' => trim($validated['national_id']),
+                'license_number' => null,
+                'vehicle_type' => $validated['vehicle_type'],
+                'plate_number' => $validated['vehicle_plate'] ?? null,
+                'status' => $status,
+                'application_status' => $this->applicationStatus($status),
                 'is_online' => false,
                 'active_orders_count' => 0,
                 'rating' => 0,
-                'metadata' => $this->metadataFromRequest($request),
-            ])->fresh(['city', 'vehicle']);
+                'metadata' => $this->metadata($validated),
+                'submitted_at' => now(),
+                'reviewed_at' => $status === 'active' ? now() : null,
+            ]);
+
+            $this->syncDocuments($driver, $validated['vehicle_type'], $validated['documents']);
+
+            return $driver->fresh(['city', 'vehicle', 'documents']);
         });
 
         return response()->json([
@@ -116,181 +131,72 @@ class DriverController extends Controller
 
     public function update(Request $request, Driver $driver): JsonResponse
     {
-        $validator = Validator::make($request->all(), $this->rules(true, $driver));
+        $validated = $this->validated($request, $driver);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'بيانات المندوب غير صحيحة.',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
+        DB::transaction(function () use ($driver, $validated): void {
+            $status = $validated['status'] ?? $driver->status;
+            $metadata = array_merge(
+                is_array($driver->metadata) ? $driver->metadata : [],
+                $this->metadata($validated),
+            );
 
-        $metadata = array_merge(
-            is_array($driver->metadata) ? $driver->metadata : [],
-            $this->metadataFromRequest($request, true),
-        );
+            $driver->update([
+                'name' => trim($validated['name']),
+                'phone' => trim($validated['phone']),
+                'city_id' => $this->resolveCityId($validated['city']),
+                'identity_number' => trim($validated['national_id']),
+                'license_number' => null,
+                'vehicle_type' => $validated['vehicle_type'],
+                'plate_number' => $validated['vehicle_plate'] ?? null,
+                'status' => $status,
+                'application_status' => $this->applicationStatus($status),
+                'metadata' => $metadata,
+                'reviewed_at' => $status === 'active' ? ($driver->reviewed_at ?? now()) : $driver->reviewed_at,
+            ]);
 
-        $updates = [
-            'name' => $request->input('name', $driver->name),
-            'phone' => $request->input('phone', $driver->phone),
-            'identity_number' => $request->exists('national_id') ? $request->input('national_id') : $driver->identity_number,
-            'license_number' => $request->exists('license_number') ? $request->input('license_number') : $driver->license_number,
-            'vehicle_type' => $request->input('vehicle_type', $driver->vehicle_type),
-            'plate_number' => $request->exists('vehicle_plate') ? $request->input('vehicle_plate') : $driver->plate_number,
-            'status' => $request->input('status', $driver->status),
-            'metadata' => $metadata,
-        ];
-
-        if ($request->exists('city')) {
-            $updates['city_id'] = $this->resolveCityId($request);
-        }
-
-        $driver->update($updates);
+            $this->syncDocuments($driver, $validated['vehicle_type'], $validated['documents']);
+        });
 
         return response()->json([
             'message' => 'تم تحديث بيانات المندوب بنجاح.',
-            'data' => $this->transformDriver($driver->fresh(['city', 'vehicle'])),
+            'data' => $this->transformDriver($driver->fresh(['city', 'vehicle', 'documents'])),
         ]);
     }
 
-    public function changeStatus(
-    Request $request,
-    Driver $driver,
-): JsonResponse {
-    $validated = $request->validate([
-        'status' => [
-            'required',
-            'string',
-            Rule::in([
-                'pending',
-                'approved',
-                'active',
-                'offline',
-                'busy',
-                'suspended',
-                'rejected',
-            ]),
-        ],
-        'rejection_reason' => [
-            'nullable',
-            'string',
-            'max:2000',
-        ],
-    ]);
+    public function show(Driver $driver): JsonResponse
+    {
+        return response()->json([
+            'data' => $this->transformDriver($driver->load(['city', 'vehicle', 'documents'])),
+        ]);
+    }
 
-    $requestedStatus = $validated['status'];
+    public function changeStatus(Request $request, Driver $driver): JsonResponse
+    {
+        $validated = $request->validate([
+            'status' => ['required', Rule::in(['pending', 'approved', 'active', 'offline', 'busy', 'suspended', 'rejected'])],
+            'rejection_reason' => ['nullable', 'string', 'max:2000'],
+        ]);
 
-    /*
-    |--------------------------------------------------------------------------
-    | اعتماد طلب المندوب
-    |--------------------------------------------------------------------------
-    */
+        $requested = $validated['status'];
+        $status = $requested === 'approved' ? 'active' : $requested;
+        $approved = in_array($status, ['active', 'offline', 'busy'], true);
 
-    if (in_array(
-        $requestedStatus,
-        ['approved', 'active', 'offline', 'busy'],
-        true,
-    )) {
         $driver->forceFill([
-            'status' => $requestedStatus === 'approved'
-                ? 'active'
-                : $requestedStatus,
-
-            'application_status' => 'approved',
-
-            'is_online' => $requestedStatus === 'busy'
-                ? $driver->is_online
-                : false,
-
+            'status' => $status,
+            'application_status' => $approved ? 'approved' : ($status === 'rejected' ? 'rejected' : 'pending'),
+            'is_online' => $status === 'busy' ? $driver->is_online : false,
             'reviewed_by' => $request->user()?->id,
             'reviewed_at' => now(),
-            'rejection_reason' => null,
+            'rejection_reason' => $status === 'rejected'
+                ? ($validated['rejection_reason'] ?? 'يرجى مراجعة بيانات طلب الانضمام.')
+                : null,
         ])->save();
 
         return response()->json([
-            'message' => 'تم اعتماد حساب المندوب بنجاح.',
-            'data' => $driver->fresh([
-                'city',
-                'vehicle',
-                'documents',
-            ]),
+            'message' => 'تم تحديث حالة المندوب.',
+            'data' => $this->transformDriver($driver->fresh(['city', 'vehicle', 'documents'])),
         ]);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | رفض طلب المندوب
-    |--------------------------------------------------------------------------
-    */
-
-    if ($requestedStatus === 'rejected') {
-        $driver->forceFill([
-            'status' => 'rejected',
-            'application_status' => 'rejected',
-            'is_online' => false,
-            'reviewed_by' => $request->user()?->id,
-            'reviewed_at' => now(),
-            'rejection_reason' =>
-                $validated['rejection_reason']
-                ?? 'يرجى مراجعة بيانات طلب الانضمام.',
-        ])->save();
-
-        return response()->json([
-            'message' => 'تم رفض طلب المندوب.',
-            'data' => $driver->fresh([
-                'city',
-                'vehicle',
-                'documents',
-            ]),
-        ]);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | إعادة الطلب للمراجعة
-    |--------------------------------------------------------------------------
-    */
-
-    if ($requestedStatus === 'pending') {
-        $driver->forceFill([
-            'status' => 'pending',
-            'application_status' => 'pending',
-            'is_online' => false,
-            'reviewed_by' => null,
-            'reviewed_at' => null,
-            'rejection_reason' => null,
-        ])->save();
-
-        return response()->json([
-            'message' => 'تمت إعادة طلب المندوب للمراجعة.',
-            'data' => $driver->fresh([
-                'city',
-                'vehicle',
-                'documents',
-            ]),
-        ]);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | الإيقاف المؤقت
-    |--------------------------------------------------------------------------
-    */
-
-    $driver->forceFill([
-        'status' => 'suspended',
-        'is_online' => false,
-    ])->save();
-
-    return response()->json([
-        'message' => 'تم إيقاف حساب المندوب مؤقتًا.',
-        'data' => $driver->fresh([
-            'city',
-            'vehicle',
-            'documents',
-        ]),
-    ]);
-}
 
     public function destroy(Driver $driver): JsonResponse
     {
@@ -310,148 +216,201 @@ class DriverController extends Controller
     {
         $drivers = Driver::query();
         $all = Driver::query()->get();
+        $driverIds = $all->pluck('id');
+        $walletBalance = Wallet::query()
+            ->where('owner_type', Driver::class)
+            ->whereIn('owner_id', $driverIds)
+            ->get(['available_balance', 'pending_balance'])
+            ->sum(fn (Wallet $wallet): float =>
+                (float) $wallet->available_balance + (float) $wallet->pending_balance
+            );
 
         return response()->json([
             'total' => (clone $drivers)->count(),
             'active' => (clone $drivers)->whereIn('status', ['active', 'busy', 'offline'])->count(),
             'online' => (clone $drivers)->where('is_online', true)->count(),
-            'busy' => (clone $drivers)->where(function ($query): void {
-                $query->where('status', 'busy')->orWhere('active_orders_count', '>', 0);
-            })->count(),
+            'busy' => (clone $drivers)->where(fn ($query) => $query->where('status', 'busy')->orWhere('active_orders_count', '>', 0))->count(),
             'pending' => (clone $drivers)->where('status', 'pending')->count(),
             'suspended' => (clone $drivers)->whereIn('status', ['suspended', 'rejected'])->count(),
             'deliveries' => (int) $all->sum(fn (Driver $driver): int => (int) data_get($driver->metadata, 'deliveries_count', 0)),
-            'wallet_balance' => (float) $all->sum(fn (Driver $driver): float => (float) data_get($driver->metadata, 'wallet_balance', 0)),
+            'wallet_balance' => round((float) $walletBalance, 2),
             'average_rating' => round((float) ((clone $drivers)->avg('rating') ?? 0), 2),
         ]);
     }
 
     public function export(Request $request): StreamedResponse
     {
-        $drivers = Driver::query()->with(['city', 'vehicle'])->latest()->get();
+        $drivers = Driver::query()->with(['city', 'vehicle', 'documents'])->latest()->get();
 
         return response()->streamDownload(function () use ($drivers): void {
             $handle = fopen('php://output', 'wb');
             fwrite($handle, "\xEF\xBB\xBF");
-            fputcsv($handle, ['ID', 'Code', 'Name', 'Phone', 'Email', 'City', 'Vehicle Type', 'Plate', 'Status']);
+            fputcsv($handle, ['ID', 'Code', 'Name', 'Phone', 'National ID', 'City', 'Vehicle Type', 'Model', 'Plate', 'Status']);
 
             foreach ($drivers as $driver) {
                 $item = $this->transformDriver($driver);
                 fputcsv($handle, [
                     $item['id'], $item['code'], $item['name'], $item['phone'],
-                    $item['email'], $item['city'], $item['vehicle_type'],
-                    $item['vehicle_plate'], $item['status'],
+                    $item['national_id'], $item['city'], $item['vehicle_type'],
+                    $item['vehicle_model'], $item['vehicle_plate'], $item['status'],
                 ]);
             }
-
             fclose($handle);
         }, 'delivery-drivers.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
-    private function rules(bool $updating = false, ?Driver $driver = null): array
+    private function validated(Request $request, ?Driver $driver = null): array
     {
-        $required = $updating ? 'sometimes' : 'required';
-
-        return [
-            'name' => [$required, 'string', 'max:180'],
-            'phone' => [$required, 'string', 'max:30', Rule::unique('drivers', 'phone')->ignore($driver?->id)],
-            'email' => ['nullable', 'email', 'max:180'],
-            'city' => ['nullable', 'string', 'max:120'],
-            'district' => ['nullable', 'string', 'max:120'],
+        $validator = Validator::make($request->all(), [
+            'name' => ['required', 'string', 'max:180'],
+            'phone' => ['required', 'string', 'max:30', Rule::unique('drivers', 'phone')->ignore($driver?->id)],
+            'national_id' => ['required', 'string', 'max:30', Rule::unique('drivers', 'identity_number')->ignore($driver?->id)],
+            'city' => ['required', 'string', 'max:120'],
             'status' => ['nullable', Rule::in(['pending', 'active', 'offline', 'busy', 'suspended', 'rejected'])],
-            'level' => ['nullable', Rule::in(['bronze', 'silver', 'gold', 'platinum'])],
-            'vehicle_type' => ['nullable', Rule::in(['scooter', 'motorcycle', 'car'])],
+            'vehicle_type' => ['required', Rule::in(self::VEHICLE_TYPES)],
             'vehicle_model' => ['nullable', 'string', 'max:120'],
             'vehicle_plate' => ['nullable', 'string', 'max:30'],
-            'national_id' => ['nullable', 'string', 'max:30', Rule::unique('drivers', 'identity_number')->ignore($driver?->id)],
-            'license_number' => ['nullable', 'string', 'max:100'],
-            'license_expires_at' => ['nullable', 'date'],
-            'vehicle_registration_expires_at' => ['nullable', 'date'],
+            'has_delivery_box' => ['required', 'boolean'],
+            'documents' => ['required', 'array'],
+            'documents.*.path' => ['required', 'string', 'max:500'],
+            'documents.*.url' => ['nullable', 'string', 'max:1000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $validator->after(function ($validator) use ($request): void {
+            $type = (string) $request->input('vehicle_type');
+            $model = trim((string) $request->input('vehicle_model'));
+            $plate = trim((string) $request->input('vehicle_plate'));
+
+            if (in_array($type, ['scooter', 'car'], true) && $model === '') {
+                $validator->errors()->add('vehicle_model', 'موديل المركبة مطلوب لهذا النوع.');
+            }
+            if (in_array($type, ['motorcycle', 'car'], true) && $plate === '') {
+                $validator->errors()->add('vehicle_plate', 'رقم اللوحة مطلوب لهذا النوع.');
+            }
+            if (in_array($type, ['scooter', 'motorcycle'], true) && ! $request->boolean('has_delivery_box')) {
+                $validator->errors()->add('has_delivery_box', 'صندوق التوصيل إلزامي للسكوتر والدباب.');
+            }
+
+            $documents = (array) $request->input('documents', []);
+            foreach (self::REQUIRED_DOCUMENTS[$type] ?? [] as $key) {
+                if (blank(data_get($documents, "{$key}.path"))) {
+                    $validator->errors()->add("documents.{$key}", "الصورة المطلوبة غير مرفوعة: {$key}.");
+                }
+            }
+        });
+
+        return $validator->validate();
+    }
+
+    private function metadata(array $validated): array
+    {
+        return [
+            'city' => trim($validated['city']),
+            'vehicle_model' => $validated['vehicle_model'] ?? null,
+            'has_delivery_box' => (bool) ($validated['has_delivery_box'] ?? false),
+            'notes' => $validated['notes'] ?? null,
         ];
     }
 
-    private function metadataFromRequest(Request $request, bool $onlyProvided = false): array
+    private function syncDocuments(Driver $driver, string $vehicleType, array $documents): void
     {
-        $fields = [
-            'email', 'city', 'district', 'level', 'vehicle_model',
-            'license_expires_at', 'vehicle_registration_expires_at', 'notes',
-        ];
+        $allowed = self::REQUIRED_DOCUMENTS[$vehicleType] ?? [];
 
-        $metadata = [];
+        DriverDocument::query()
+            ->where('driver_id', $driver->id)
+            ->whereNotIn('type', $allowed)
+            ->delete();
 
-        foreach ($fields as $field) {
-            if (! $onlyProvided || $request->exists($field)) {
-                $metadata[$field] = $request->input($field);
+        foreach ($allowed as $type) {
+            $payload = $documents[$type] ?? [];
+            $path = is_array($payload) ? ($payload['path'] ?? null) : $payload;
+
+            if (blank($path)) {
+                continue;
             }
+
+            DriverDocument::query()->updateOrCreate(
+                ['driver_id' => $driver->id, 'type' => $type],
+                [
+                    'path' => $path,
+                    'status' => 'pending',
+                    'rejection_reason' => null,
+                    'reviewed_by' => null,
+                    'reviewed_at' => null,
+                ],
+            );
         }
 
-        return $metadata;
+        $metadata = is_array($driver->metadata) ? $driver->metadata : [];
+        $metadata['documents_count'] = count($allowed);
+        $driver->update(['metadata' => $metadata]);
     }
 
-    private function resolveCityId(Request $request): ?int
+    private function resolveCityId(string $cityName): ?int
     {
-        $cityName = trim((string) $request->input('city', ''));
-
+        $cityName = trim($cityName);
         if ($cityName === '') {
             return null;
         }
 
-        $city = City::query()
+        return City::query()
             ->where('name_ar', $cityName)
             ->orWhere('name_en', $cityName)
-            ->first();
-
-        return $city?->id;
+            ->value('id');
     }
 
     private function transformDriver(Driver $driver): array
     {
-        $driver->loadMissing(['city', 'vehicle']);
+        $driver->loadMissing(['city', 'vehicle', 'documents']);
         $metadata = is_array($driver->metadata) ? $driver->metadata : [];
-
-        $deliveries = (int) ($metadata['deliveries_count'] ?? 0);
-        $completed = (int) ($metadata['completed_deliveries_count'] ?? 0);
-        $cancelled = (int) ($metadata['cancelled_deliveries_count'] ?? 0);
+        $wallet = Wallet::query()
+            ->where('owner_type', Driver::class)
+            ->where('owner_id', $driver->id)
+            ->where('currency', 'SAR')
+            ->first();
 
         return [
             'id' => $driver->id,
             'code' => $driver->code,
             'name' => $driver->name,
-            'email' => $metadata['email'] ?? null,
             'phone' => $driver->phone,
-            'city' => $driver->city?->name_ar ?? ($metadata['city'] ?? null),
-            'district' => $metadata['district'] ?? null,
+            'city' => $metadata['city'] ?? $driver->city?->name_ar,
             'status' => $driver->status,
-            'level' => $metadata['level'] ?? 'bronze',
             'vehicle_type' => $driver->vehicle_type ?? 'scooter',
-            'vehicle_model' => $metadata['vehicle_model'] ?? $driver->vehicle?->name ?? null,
+            'vehicle_model' => $metadata['vehicle_model'] ?? $driver->vehicle?->name,
             'vehicle_plate' => $driver->plate_number,
             'national_id' => $driver->identity_number,
-            'license_number' => $driver->license_number,
-            'license_expires_at' => $metadata['license_expires_at'] ?? null,
-            'vehicle_registration_expires_at' => $metadata['vehicle_registration_expires_at'] ?? null,
-            'documents_count' => (int) ($metadata['documents_count'] ?? 0),
-            'wallet_balance' => (float) ($metadata['wallet_balance'] ?? 0),
-            'total_earnings' => (float) ($metadata['total_earnings'] ?? 0),
-            'deliveries_count' => $deliveries,
-            'completed_deliveries_count' => $completed,
-            'cancelled_deliveries_count' => $cancelled,
+            'has_delivery_box' => (bool) ($metadata['has_delivery_box'] ?? false),
+            'documents_count' => $driver->documents->count(),
+            'documents' => $driver->documents->map(fn (DriverDocument $document): array => [
+                'id' => $document->id,
+                'type' => $document->type,
+                'path' => $document->path,
+                'url' => $document->url ?: Storage::disk('public')->url($document->path),
+                'status' => $document->status,
+                'rejection_reason' => $document->rejection_reason,
+            ])->values(),
+            'wallet_balance' => round((float) ($wallet?->available_balance ?? 0) + (float) ($wallet?->pending_balance ?? 0), 2),
+            'available_balance' => round((float) ($wallet?->available_balance ?? 0), 2),
+            'pending_balance' => round((float) ($wallet?->pending_balance ?? 0), 2),
+            'deliveries_count' => (int) ($metadata['deliveries_count'] ?? 0),
             'average_rating' => (float) ($driver->rating ?? 0),
-            'acceptance_rate' => (float) ($metadata['acceptance_rate'] ?? 0),
-            'completion_rate' => $deliveries > 0 ? round(($completed / $deliveries) * 100, 1) : 0,
-            'online_minutes_today' => (int) ($metadata['online_minutes_today'] ?? 0),
-            'last_latitude' => $driver->current_latitude !== null ? (float) $driver->current_latitude : null,
-            'last_longitude' => $driver->current_longitude !== null ? (float) $driver->current_longitude : null,
-            'last_seen_at' => $driver->location_updated_at?->toISOString(),
-            'ai_score' => null,
-            'ai_summary' => null,
             'notes' => $metadata['notes'] ?? null,
             'is_online' => (bool) $driver->is_online,
             'active_orders_count' => (int) ($driver->active_orders_count ?? 0),
             'created_at' => $driver->created_at?->toISOString(),
             'updated_at' => $driver->updated_at?->toISOString(),
         ];
+    }
+
+    private function applicationStatus(string $status): string
+    {
+        if (in_array($status, ['active', 'offline', 'busy'], true)) {
+            return 'approved';
+        }
+
+        return $status === 'rejected' ? 'rejected' : 'pending';
     }
 
     private function generateCode(): string
@@ -461,64 +420,5 @@ class DriverController extends Controller
         } while (Driver::withTrashed()->where('code', $code)->exists());
 
         return $code;
-    }
-    public function show(Driver $driver): JsonResponse
-    {
-        $driver->load([
-            'city',
-            'vehicle',
-            'documents',
-        ]);
-
-        $metadata = is_array($driver->metadata)
-            ? $driver->metadata
-            : [];
-
-        return response()->json([
-            'data' => [
-                'id' => $driver->id,
-                'code' => $driver->code,
-                'name' => $driver->name,
-                'phone' => $driver->phone,
-                'emergency_phone' => $driver->emergency_phone,
-                'identity_number' => $driver->identity_number,
-                'city' => $driver->city?->name_ar
-                    ?? ($metadata['city'] ?? null),
-                'vehicle_type' => $driver->vehicle_type,
-                'plate_number' => $driver->plate_number,
-                'license_number' => $driver->license_number,
-                'status' => $driver->status,
-                'application_status' => $driver->application_status,
-                'rejection_reason' => $driver->rejection_reason,
-                'submitted_at' => $driver->submitted_at?->toISOString(),
-                'reviewed_at' => $driver->reviewed_at?->toISOString(),
-                'custom_fields' => $metadata['custom_fields'] ?? [],
-                'documents' => $driver->documents
-                    ->map(function ($document): array {
-                        return [
-                            'id' => $document->id,
-                            'type' => $document->type,
-                            'label' => match ($document->type) {
-                                'identity_photo' => 'صورة الهوية',
-                                'profile_photo' => 'الصورة الشخصية',
-                                'helmet_photo' => 'صورة المندوب بالخوذة',
-                                'scooter_front' => 'صورة السكوتر من الأمام',
-                                'scooter_rear' => 'صورة السكوتر من الخلف',
-                                'delivery_box' => 'صورة صندوق التوصيل',
-                                'motorcycle_license' => 'رخصة الدباب',
-                                'motorcycle_photo' => 'صورة الدباب',
-                                'driving_license' => 'رخصة القيادة',
-                                'vehicle_registration' => 'استمارة المركبة',
-                                'cargo_interior' => 'مكان حفظ الطلب',
-                                default => $document->type,
-                            },
-                            'url' => $document->url,
-                            'status' => $document->status,
-                            'rejection_reason' => $document->rejection_reason,
-                        ];
-                    })
-                    ->values(),
-            ],
-        ]);
     }
 }

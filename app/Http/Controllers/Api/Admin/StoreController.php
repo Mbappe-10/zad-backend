@@ -28,6 +28,7 @@ class StoreController extends Controller
                 $query->where('name_ar', 'like', "%{$search}%")
                     ->orWhere('name_en', 'like', "%{$search}%")
                     ->orWhere('slug', 'like', "%{$search}%")
+                    ->orWhere('admin_location_text', 'like', "%{$search}%")
                     ->orWhereHas('productiveFamily', function ($familyQuery) use ($search): void {
                         $familyQuery->where('owner_name', 'like', "%{$search}%")
                             ->orWhere('metadata->family_name', 'like', "%{$search}%");
@@ -85,6 +86,37 @@ class StoreController extends Controller
         return response()->json([
             'message' => 'تم إنشاء المتجر وربطه بالأسرة بنجاح.',
             'data' => $this->transformStore($store->fresh(['productiveFamily', 'city'])),
+        ], 201);
+    }
+
+    public function uploadLogo(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'logo' => [
+                'required',
+                'file',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
+        ], [
+            'logo.required' => 'اختر صورة شعار لرفعها.',
+            'logo.image' => 'الملف المختار يجب أن يكون صورة.',
+            'logo.mimes' => 'صيغة الشعار يجب أن تكون JPG أو PNG أو WEBP.',
+            'logo.max' => 'حجم الشعار يجب ألا يتجاوز 5 ميجابايت.',
+        ]);
+
+        $path = $data['logo']->store('stores/logos', 'public');
+        $url = Storage::disk('public')->url($path);
+
+        return response()->json([
+            'message' => 'تم رفع شعار المتجر بنجاح.',
+            'path' => $path,
+            'url' => $url,
+            'data' => [
+                'path' => $path,
+                'url' => $url,
+            ],
         ], 201);
     }
 
@@ -223,12 +255,14 @@ class StoreController extends Controller
         return [
             'productive_family_id' => [$required, 'integer', 'exists:productive_families,id'],
             'city_id' => ['nullable', 'integer'],
+            'admin_location_text' => [$required, 'string', 'max:160'],
             'name_ar' => [$required, 'string', 'max:255'],
             'name_en' => ['nullable', 'string', 'max:255'],
             'slug' => [$required, 'string', 'max:255'],
             'description_ar' => ['nullable', 'string', 'max:5000'],
             'description_en' => ['nullable', 'string', 'max:5000'],
             'logo_url' => ['nullable', 'string', 'max:2048'],
+            'logo_path' => ['nullable', 'string', 'max:2048'],
             'cover_url' => ['nullable', 'string', 'max:2048'],
             'status' => ['nullable', 'string', 'in:active,inactive,pending,approved,rejected,suspended,archived'],
             'is_open' => ['nullable', 'boolean'],
@@ -255,6 +289,10 @@ class StoreController extends Controller
         return [
             'productive_family_id' => $family?->id,
             'city_id' => $request->input('city_id', $store?->city_id ?? $family?->city_id),
+            'admin_location_text' => $request->input(
+                'admin_location_text',
+                $store?->admin_location_text,
+            ),
             'name_ar' => $nameAr,
             'name_en' => $request->input('name_en', $store?->name_en),
             'slug' => $slug,
@@ -299,12 +337,14 @@ class StoreController extends Controller
             'id' => $store->id,
             'productive_family_id' => $store->productive_family_id,
             'city_id' => $store->city_id,
+            'admin_location_text' => $store->admin_location_text,
             'name_ar' => $store->name_ar,
             'name_en' => $store->name_en,
             'slug' => $store->slug,
             'description_ar' => $store->description_ar,
             'description_en' => $store->description_en,
             'logo_url' => $this->fileUrl($store->logo_path),
+            'logo_path' => $store->logo_path,
             'cover_url' => $this->fileUrl($store->cover_path),
             'status' => $store->status,
             'plan' => $metadata['subscription_plan'] ?? 'free',
@@ -338,3 +378,5 @@ class StoreController extends Controller
         return Storage::disk('public')->url($path);
     }
 }
+
+

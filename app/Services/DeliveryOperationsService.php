@@ -11,6 +11,14 @@ use Illuminate\Validation\ValidationException;
 
 class DeliveryOperationsService
 {
+    public function __construct(
+        private readonly OrderSettlementService $settlements,
+        private readonly DeliveryVerificationService $verifications,
+    ) {
+    }
+
+    // ZAD_DELIVERY_OTP_V1
+
     private const TRANSITIONS = [
         'pending' => ['accepted', 'cancelled'],
         'accepted' => ['preparing', 'ready', 'cancelled'],
@@ -149,6 +157,13 @@ class DeliveryOperationsService
                     ->whereKey($order->driver_id)
                     ->where('active_orders_count', '>', 0)
                     ->decrement('active_orders_count');
+            }
+
+            if ($status === Order::STATUS_DELIVERING) {
+                $this->verifications->issue($order);
+            }
+            if ($status === Order::STATUS_DELIVERED) {
+                $this->settlements->prepare($order, $userId);
             }
 
             return $order->fresh();

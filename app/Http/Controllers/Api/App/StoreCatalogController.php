@@ -86,7 +86,6 @@ class StoreCatalogController extends Controller
                 'id' => $storeRecord->id,
                 'productive_family_id' =>
                     $storeRecord->productive_family_id,
-                'city_id' => $storeRecord->city_id,
                 'name_ar' => $storeRecord->name_ar,
                 'name_en' => $storeRecord->name_en,
                 'slug' => $storeRecord->slug,

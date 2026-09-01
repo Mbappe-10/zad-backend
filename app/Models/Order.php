@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Order extends Model
@@ -156,6 +157,27 @@ class Order extends Model
         return $this->hasMany(OrderMessage::class);
     }
 
+    public function settlement(): HasOne
+    {
+        return $this->hasOne(OrderSettlement::class);
+    }
+
+    // ZAD_DELIVERY_OTP_V1
+    public function deliveryVerification(): HasOne
+    {
+        return $this->hasOne(OrderDeliveryVerification::class);
+    }
+
+    public function rating(): HasOne
+    {
+        return $this->hasOne(OrderRating::class);
+    }
+
+    public function feedbackItems(): HasMany
+    {
+        return $this->hasMany(OrderFeedbackItem::class);
+    }
+
     public function scopeRunning(Builder $query): Builder
     {
         return $query->whereIn('status', self::runningStatuses());
@@ -268,7 +290,8 @@ class Order extends Model
 
     public function isAssignable(): bool
     {
-        return in_array($this->status, [
+        // ZAD_PAYMENT_ASSIGNMENT_GUARD
+        return $this->isPaid() && in_array($this->status, [
             self::STATUS_PENDING,
             self::STATUS_ACCEPTED,
             self::STATUS_PREPARING,

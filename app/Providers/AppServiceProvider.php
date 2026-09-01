@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -16,6 +17,20 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // ZAD_SQLITE_LOCAL_PRAGMAS
+        if (
+            app()->environment('local') &&
+            config('database.default') === 'sqlite'
+        ) {
+            $pdo = DB::connection('sqlite')->getPdo();
+
+            $pdo->exec('PRAGMA journal_mode=MEMORY');
+            $pdo->exec('PRAGMA temp_store=MEMORY');
+            $pdo->exec('PRAGMA synchronous=NORMAL');
+            $pdo->exec('PRAGMA busy_timeout=15000');
+            $pdo->exec('PRAGMA foreign_keys=ON');
+        }
+
         RateLimiter::for('api', function (Request $request): array {
             $identity = $request->user()?->getAuthIdentifier() ?: $request->ip();
 

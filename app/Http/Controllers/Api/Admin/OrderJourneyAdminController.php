@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\JourneyRetentionSetting;
 use App\Models\Order;
+use App\Models\OrderFeedbackItem;
 use App\Models\OrderJourneyProof;
 use App\Models\OrderLiveSession;
 use App\Services\OrderJourneyRetentionService;
@@ -90,13 +91,67 @@ class OrderJourneyAdminController extends Controller
             ])
             ->values();
 
+        $feedbackItems = OrderFeedbackItem::query()
+            ->where('order_id', $order->id)
+            ->with('resolvedBy:id,name')
+            ->latest()
+            ->get()
+            ->map(fn (OrderFeedbackItem $item): array => [
+                'id' => $item->id,
+                'subject_type' => $item->subject_type,
+                'subject_id' => $item->subject_id,
+                'category' => $item->category,
+                'details' => $item->details,
+                'status' => $item->status,
+                'visible_to_subject' => $item->visible_to_subject,
+                'acknowledged_at' => $item->acknowledged_at,
+                'resolved_at' => $item->resolved_at,
+                'resolved_by' => $item->resolvedBy,
+                'resolution_note' => $item->resolution_note,
+                'created_at' => $item->created_at,
+            ])
+            ->values();
+
         return response()->json([
             'data' => [
                 'order' => $order,
                 'proofs' => $proofs,
                 'live_sessions' => $liveSessions,
+                'rating' => $order->rating()->first(),
+                'feedback_items' => $feedbackItems,
                 'retention' => $this->retentionPayload($order->fresh()),
             ],
+        ]);
+    }
+
+    public function updateFeedback(
+        Request $request,
+        Order $order,
+        OrderFeedbackItem $feedback,
+    ): JsonResponse {
+        $this->ensurePlatformOwner($request);
+        abort_unless((int) $feedback->order_id === (int) $order->id, 404);
+
+        $data = $request->validate([
+            'status' => ['required', 'in:new,acknowledged,resolved,dismissed'],
+            'resolution_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $feedback->update([
+            'status' => $data['status'],
+            'acknowledged_at' => in_array($data['status'], ['acknowledged', 'resolved'], true)
+                ? ($feedback->acknowledged_at ?? now())
+                : null,
+            'resolved_at' => $data['status'] === 'resolved' ? now() : null,
+            'resolved_by_user_id' => $data['status'] === 'resolved'
+                ? $request->user()->id
+                : null,
+            'resolution_note' => $data['resolution_note'] ?? null,
+        ]);
+
+        return response()->json([
+            'message' => 'تم تحديث حالة الملاحظة.',
+            'data' => $feedback->fresh('resolvedBy:id,name'),
         ]);
     }
 

@@ -1036,6 +1036,7 @@ class AdminResourceController extends Controller
             'deactivate' => 'inactive',
             'pause' => 'paused',
             'publish', 'send' => 'sent',
+            'reply' => 'waiting_customer',
             'reject' => 'rejected',
             'resolve' => 'resolved',
             'submit' => 'pending',

@@ -18,6 +18,7 @@ class Store extends Model
     protected $fillable = [
         'productive_family_id',
         'city_id',
+        'admin_location_text',
         'name_ar',
         'name_en',
         'slug',
@@ -40,6 +41,7 @@ class Store extends Model
      * واجهة المندوب تعيده يدويًا بعد التحقق من إسناد الطلب إليه.
      */
     protected $hidden = [
+        'admin_location_text',
         'pickup_address',
         'pickup_latitude',
         'pickup_longitude',
@@ -77,3 +79,5 @@ class Store extends Model
         return $this->hasMany(Order::class);
     }
 }
+
+

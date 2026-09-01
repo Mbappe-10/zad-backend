@@ -3,24 +3,41 @@
 namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
+use App\Models\City;
+use App\Models\DeliveryPricingRule;
 use App\Models\Order;
+use App\Models\OrderFeedbackItem;
 use App\Models\OrderItem;
+use App\Models\OrderJourneyProof;
+use App\Models\OrderRating;
+use App\Models\OrderStatusHistory;
 use App\Models\PhoneVerification;
 use App\Models\Product;
 use App\Models\Store;
 use App\Services\App\VehicleRecommendationService;
+use App\Services\VehiclePricingService;
+use App\Services\OrderSettlementService;
+use App\Services\DeliveryVerificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AppOrderController extends Controller
 {
     public function __construct(
         private readonly VehicleRecommendationService $vehicles,
+        private readonly VehiclePricingService $pricing,
+        private readonly OrderSettlementService $settlements,
+        private readonly DeliveryVerificationService $deliveryVerification,
     ) {
     }
+
+    // ZAD_DELIVERY_OTP_V1
 
     public function store(Request $request): JsonResponse
     {
@@ -59,6 +76,14 @@ class AppOrderController extends Controller
             ]);
         }
 
+        // ZAD_PAYMENT_DISTANCE_INSTALLED: delivery distance is authoritative on Laravel.
+        $distanceKm = $this->distanceKm(
+            $store->pickup_latitude !== null ? (float) $store->pickup_latitude : null,
+            $store->pickup_longitude !== null ? (float) $store->pickup_longitude : null,
+            (float) $data['latitude'],
+            (float) $data['longitude'],
+            (float) $data['distance_km'],
+        );
         $requestedProductIds = collect($data['items'])
             ->pluck('product_id')
             ->map(fn (mixed $id): int => (int) $id)
@@ -114,7 +139,15 @@ class AppOrderController extends Controller
 
         $vehicleRecommendation = $this->vehicles->recommend(
             $packageSize,
-            (float) $data['distance_km'],
+            $distanceKm,
+        );
+
+        $cityId = $data['city_id'] ?? $store->city_id;
+        // ZAD_VEHICLE_PRICING_SERVICE
+        $deliveryFee = $this->pricing->quote(
+            $cityId !== null ? (int) $cityId : null,
+            $vehicleRecommendation,
+            $distanceKm,
         );
 
         $order = DB::transaction(function () use (
@@ -126,6 +159,8 @@ class AppOrderController extends Controller
             $packageSize,
             $vehicleRecommendation,
             $fulfillmentMode,
+            $deliveryFee,
+            $distanceKm,
         ): Order {
             $order = Order::query()->create([
                 'number' => $this->generateOrderNumber(),
@@ -138,12 +173,12 @@ class AppOrderController extends Controller
                 'payment_status' => Order::PAYMENT_UNPAID,
                 'fulfillment_mode' => $fulfillmentMode,
                 'subtotal' => round($subtotal, 2),
-                'delivery_fee' => 0,
+                'delivery_fee' => $deliveryFee,
                 'discount' => 0,
                 'tax' => 0,
-                'total' => round($subtotal, 2),
+                'total' => round($subtotal + $deliveryFee, 2),
                 'delivery_address' => $data['address'],
-                'delivery_distance_km' => (float) $data['distance_km'],
+                'delivery_distance_km' => $distanceKm,
                 'delivery_latitude' => (float) $data['latitude'],
                 'delivery_longitude' => (float) $data['longitude'],
                 'pickup_address' => $store->pickup_address,
@@ -193,7 +228,7 @@ class AppOrderController extends Controller
         $orders = Order::query()
             ->where('guest_session_id', $guestSessionId)
             ->latest()
-            ->with(['items', 'store', 'driver'])
+            ->with(['items', 'store', 'driver', 'settlement'])
             ->get();
 
         return response()->json(['data' => $orders]);
@@ -214,10 +249,351 @@ class AppOrderController extends Controller
                 $request->user()->appProfile?->customer_id;
 
         abort_unless($allowedByGuest || $allowedByCustomer, 403);
+        abort_unless(
+            $order->isPaid(),
+            402,
+            'ظٹط¬ط¨ ط¥طھظ…ط§ظ… ط§ظ„ط¯ظپط¹ ظ‚ط¨ظ„ ظپطھط­ طھطھط¨ط¹ ط§ظ„ط·ظ„ط¨.',
+        );
+
+        $order->load([
+            'items',
+            'store',
+            'driver',
+            'history',
+            'settlement',
+            'deliveryVerification',
+            'rating',
+            'journeyProofs',
+        ]);
+
+        $payload = $order->toArray();
+        $payload['delivery_receipt_available'] =
+            $order->status === Order::STATUS_DELIVERING ||
+            $order->deliveryVerification !== null;
+        $payload['delivery_feedback_submitted'] = $order->rating !== null;
+
+        // ZAD_CUSTOMER_TRACKING_PROOFS_V1
+        $familyReadyProof = $order->journeyProofs
+            ->first(fn (OrderJourneyProof $proof): bool =>
+                $proof->stage === 'family_ready' && filled($proof->photo_path));
+
+        $deliveryVerified =
+            $order->deliveryVerification?->verified_at !== null &&
+            in_array($order->status, [
+                Order::STATUS_DELIVERED,
+                Order::STATUS_COMPLETED,
+            ], true);
+
+        $deliveryProof = $deliveryVerified
+            ? ($order->journeyProofs
+                ->first(fn (OrderJourneyProof $proof): bool =>
+                    $proof->stage === 'driver_delivery' && filled($proof->photo_path))
+                ?? $order->journeyProofs
+                    ->first(fn (OrderJourneyProof $proof): bool =>
+                        $proof->stage === 'customer_arrival' && filled($proof->photo_path)))
+            : null;
+
+        $payload['tracking_proofs'] = collect([
+            $familyReadyProof !== null
+                ? $this->customerTrackingProof(
+                    $familyReadyProof,
+                    'family_ready',
+                    'اعتماد جاهزية الطلب',
+                    'هذا هو طلبك بعد التجهيز والتغليف من الأسرة المنتجة.',
+                )
+                : null,
+            $deliveryProof !== null
+                ? $this->customerTrackingProof(
+                    $deliveryProof,
+                    'customer_delivery',
+                    'تم تسليم الطلب لك',
+                    'اكتمل التسليم بعد التحقق من رمز الاستلام الخاص بطلبك.',
+                )
+                : null,
+        ])->filter()->values()->all();
+
+        return response()->json(['data' => $payload]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function customerTrackingProof(
+        OrderJourneyProof $proof,
+        string $stage,
+        string $title,
+        string $description,
+    ): array {
+        return [
+            'id' => $proof->id,
+            'stage' => $stage,
+            'title' => $title,
+            'description' => $description,
+            // ZAD_TRACKING_MEDIA_STREAM_V1
+            'photo_url' => URL::temporarySignedRoute(
+                'api.app.order-tracking.proof-media',
+                now()->addHours(12),
+                ['proof' => $proof->id],
+                absolute: false,
+            ),
+            'documented_at' => $proof->created_at,
+        ];
+    }
+
+    /**
+     * Serve customer tracking media through Laravel instead of relying on
+     * the Windows public/storage link.
+     */
+    public function trackingProofMedia(
+        OrderJourneyProof $proof,
+    ): StreamedResponse {
+        abort_if(
+            blank($proof->photo_path) ||
+                ! Storage::disk('public')->exists($proof->photo_path),
+            404,
+        );
+
+        return Storage::disk('public')->response(
+            $proof->photo_path,
+            null,
+            [
+                'Cache-Control' => 'private, max-age=300',
+                'X-Content-Type-Options' => 'nosniff',
+            ],
+        );
+    }
+
+    public function deliveryReceipt(Request $request, Order $order): JsonResponse
+    {
+        $this->ensureCustomerOwnsOrder($request, $order);
+        abort_unless($order->isPaid(), 402, 'يجب إتمام الدفع أولًا.');
+        abort_unless(
+            in_array($order->status, [
+                Order::STATUS_DELIVERING,
+                Order::STATUS_DELIVERED,
+                Order::STATUS_COMPLETED,
+            ], true),
+            422,
+            'رمز التسليم يظهر عندما يبدأ المندوب رحلة التوصيل.',
+        );
+
+        $payload = $this->deliveryVerification->customerPayload($order);
+        $payload['rating_submitted'] = $order->rating()->exists();
+
+        return response()->json(['data' => $payload]);
+    }
+
+    public function rateDelivery(Request $request, Order $order): JsonResponse
+    {
+        $this->ensureCustomerOwnsOrder($request, $order);
+        abort_unless(
+            in_array($order->status, Order::completedStatuses(), true),
+            422,
+            'لا يمكن إرسال التقييم قبل إثبات استلام الطلب.',
+        );
+        abort_unless(
+            $order->deliveryVerification?->verified_at !== null,
+            422,
+            'يجب التحقق من رمز التسليم أولًا.',
+        );
+
+        $data = $request->validate([
+            'arrival_condition' => ['required', 'in:perfect,good,issue'],
+            'driver_score' => ['required', 'integer', 'between:1,5'],
+            'driver_tags' => ['nullable', 'array', 'max:4'],
+            'driver_tags.*' => ['string', 'in:on_time,protected_order,polite,smooth_delivery'],
+            'food_quality_score' => ['required', 'integer', 'between:1,5'],
+            'cleanliness_packaging_score' => ['required', 'integer', 'between:1,5'],
+            'order_accuracy_score' => ['required', 'integer', 'between:1,5'],
+            'comment' => ['nullable', 'string', 'max:500'],
+            'feedback_items' => ['nullable', 'array', 'max:6'],
+            'feedback_items.*.subject_type' => ['required', 'string', 'in:driver,family,order'],
+            'feedback_items.*.category' => [
+                'required',
+                'string',
+                'in:arrival_condition,driver_service,food_quality,cleanliness_packaging,order_accuracy,other',
+            ],
+            'feedback_items.*.details' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        $rating = DB::transaction(function () use ($request, $order, $data): OrderRating {
+            $rating = OrderRating::query()->updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'customer_id' => $request->user()?->appProfile?->customer_id,
+                    'guest_session_id' => $order->guest_session_id,
+                    'driver_id' => $order->driver_id,
+                    'store_id' => $order->store_id,
+                    'arrival_condition' => $data['arrival_condition'],
+                    'driver_score' => $data['driver_score'],
+                    'driver_tags' => $data['driver_tags'] ?? [],
+                    'food_quality_score' => $data['food_quality_score'],
+                    'cleanliness_packaging_score' => $data['cleanliness_packaging_score'],
+                    'order_accuracy_score' => $data['order_accuracy_score'],
+                    'comment' => $data['comment'] ?? null,
+                    'submitted_at' => now(),
+                ],
+            );
+
+            if ($order->driver_id !== null) {
+                $driverAverage = OrderRating::query()
+                    ->where('driver_id', $order->driver_id)
+                    ->avg('driver_score');
+                DB::table('drivers')->where('id', $order->driver_id)->update([
+                    'rating' => round((float) $driverAverage, 2),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            $storeAverage = OrderRating::query()
+                ->where('store_id', $order->store_id)
+                ->get()
+                ->avg(fn (OrderRating $item): float => (
+                    $item->food_quality_score
+                    + $item->cleanliness_packaging_score
+                    + $item->order_accuracy_score
+                ) / 3);
+            DB::table('stores')->where('id', $order->store_id)->update([
+                'rating' => round((float) $storeAverage, 2),
+                'updated_at' => now(),
+            ]);
+
+            OrderStatusHistory::query()->create([
+                'order_id' => $order->id,
+                'from_status' => $order->status,
+                'to_status' => $order->status,
+                'note' => 'أرسل العميل تقييم المندوب والأسرة المنتجة.',
+                'changed_by' => $request->user()?->id,
+            ]);
+
+            OrderFeedbackItem::query()
+                ->where('order_id', $order->id)
+                ->where('order_rating_id', $rating->id)
+                ->delete();
+
+            foreach ($data['feedback_items'] ?? [] as $item) {
+                $subjectId = match ($item['subject_type']) {
+                    'driver' => $order->driver_id,
+                    'family' => $order->store?->productive_family_id,
+                    default => $order->id,
+                };
+
+                OrderFeedbackItem::query()->create([
+                    'order_id' => $order->id,
+                    'order_rating_id' => $rating->id,
+                    'subject_type' => $item['subject_type'],
+                    'subject_id' => $subjectId,
+                    'category' => $item['category'],
+                    'details' => trim($item['details']),
+                    'status' => 'new',
+                    'visible_to_subject' => true,
+                ]);
+            }
+
+            return $rating;
+        });
 
         return response()->json([
-            'data' => $order->load(['items', 'store', 'driver', 'history']),
+            'message' => 'شكرًا لك، تم حفظ تقييمك.',
+            'data' => $rating,
         ]);
+    }
+    public function confirmDelivery(Request $request, Order $order): JsonResponse
+    {
+        $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
+
+        $allowedByGuest =
+            $guestSessionId !== '' &&
+            $order->guest_session_id === $guestSessionId;
+
+        $allowedByCustomer =
+            $request->user() !== null &&
+            $order->customer_id !== null &&
+            $order->customer_id === $request->user()->appProfile?->customer_id;
+
+        abort_unless($allowedByGuest || $allowedByCustomer, 403);
+        abort_unless(
+            in_array($order->status, Order::completedStatuses(), true),
+            422,
+            'لا يمكن تأكيد الاستلام قبل أن يسلم المندوب الطلب.',
+        );
+
+        $settlement = $order->settlement
+            ?? $this->settlements->prepare($order, $request->user()?->id);
+
+        abort_if(
+            $settlement->status === 'held',
+            422,
+            'التسوية موقوفة بقرار من الإدارة ولا يمكن تحريرها قبل المراجعة.',
+        );
+
+        return response()->json([
+            'message' => 'تم تأكيد استلام الطلب، وسيتم تحرير المستحقات آليًا حسب دورة التسوية.',
+            'data' => [
+                'order' => $order->fresh(),
+                'settlement' => $settlement,
+            ],
+        ]);
+    }
+
+    private function ensureCustomerOwnsOrder(Request $request, Order $order): void
+    {
+        $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
+        $allowedByGuest =
+            $guestSessionId !== '' &&
+            $order->guest_session_id === $guestSessionId;
+        $allowedByCustomer =
+            $request->user() !== null &&
+            $order->customer_id !== null &&
+            $order->customer_id === $request->user()->appProfile?->customer_id;
+
+        abort_unless($allowedByGuest || $allowedByCustomer, 403);
+    }
+    private function distanceKm(
+        ?float $pickupLatitude,
+        ?float $pickupLongitude,
+        float $deliveryLatitude,
+        float $deliveryLongitude,
+        float $fallback,
+    ): float {
+        if ($pickupLatitude === null || $pickupLongitude === null) {
+            return round(max($fallback, 0), 2);
+        }
+
+        $earthRadiusKm = 6371.0088;
+        $latitudeDelta = deg2rad($deliveryLatitude - $pickupLatitude);
+        $longitudeDelta = deg2rad($deliveryLongitude - $pickupLongitude);
+        $a = sin($latitudeDelta / 2) ** 2
+            + cos(deg2rad($pickupLatitude))
+            * cos(deg2rad($deliveryLatitude))
+            * sin($longitudeDelta / 2) ** 2;
+
+        return round($earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a)), 2);
+    }
+    private function deliveryFee(?int $cityId, float $distanceKm): float
+    {
+        $rule = DeliveryPricingRule::query()
+            ->where('is_active', true)
+            ->whereNull('vehicle_id')
+            ->where(fn ($query) => $query
+                ->whereNull('city_id')
+                ->orWhere('city_id', $cityId))
+            ->orderBy('priority')
+            ->first();
+
+        $cityBaseFee = $cityId !== null
+            ? (float) (City::query()->whereKey($cityId)->value('delivery_base_fee') ?? 0)
+            : 0;
+
+        $base = (float) ($rule?->base_fee ?? $cityBaseFee);
+        $perKm = (float) ($rule?->per_km_fee ?? 0);
+        $minimum = (float) ($rule?->minimum_fee ?? 0);
+        $multiplier = max((float) ($rule?->surge_multiplier ?? 1), 0);
+
+        return round(
+            max($minimum, ($base + ($perKm * max($distanceKm, 0))) * $multiplier),
+            2,
+        );
     }
 
     private function productPreparationMode(Product $product): string

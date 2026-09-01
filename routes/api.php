@@ -13,6 +13,8 @@ use App\Http\Controllers\Api\Admin\RolePortalAdminController;
 use App\Http\Controllers\Api\Admin\ControlCenterController;
 use App\Http\Controllers\Api\Admin\PayoutAdminController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
+use App\Http\Controllers\Api\Admin\PolicyCenterController;
+use App\Http\Controllers\Api\App\PublicPolicyController;
 use App\Http\Controllers\Api\Admin\StoreController;
 use App\Http\Controllers\Api\AdminResourceController;
 use App\Http\Controllers\Api\App\AppOrderController;
@@ -79,6 +81,21 @@ Route::post('/auth/login', [AuthController::class, 'login'])
     ->middleware('throttle:5,1')
     ->name('api.auth.login');
 
+Route::get('/v1/app/policies', [PublicPolicyController::class, 'index'])
+    ->name('api.app.policies.index');
+
+Route::get('/v1/app/policies/{key}', [PublicPolicyController::class, 'show'])
+    ->where('key', '[a-z_]+')
+    ->name('api.app.policies.show');
+
+// ZAD_TRACKING_MEDIA_STREAM_V1
+Route::get(
+    '/v1/app/order-tracking/proofs/{proof}/media',
+    [AppOrderController::class, 'trackingProofMedia'],
+)
+    ->middleware(['signed:relative', 'throttle:120,1'])
+    ->name('api.app.order-tracking.proof-media');
+
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
@@ -134,6 +151,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         [OrderJourneyAdminController::class, 'journey'],
     );
 
+    /* ZAD_FINAL_DELIVERY_V2 */
+    Route::patch(
+        '/delivery/orders/{order}/feedback/{feedback}',
+        [OrderJourneyAdminController::class, 'updateFeedback'],
+    )->middleware('throttle:30,1');
+
     Route::get(
         '/admin/journey-retention-settings',
         [OrderJourneyAdminController::class, 'settings'],
@@ -174,6 +197,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::get('/orders', [FamilyOrderController::class, 'index']);
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
+        Route::post(
+            '/orders/{order}/ready-proof',
+            [FamilyOrderController::class, 'readyProof'],
+        )->middleware('throttle:10,1');
 
         Route::get('/products', [FamilyProductController::class, 'index']);
         Route::post('/products', [FamilyProductController::class, 'store'])
@@ -295,9 +322,15 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     )->middleware('throttle:20,1');
 
     Route::post(
-        '/orders/{order}/deliver',
-        [DriverOrderController::class, 'deliver'],
+        '/orders/{order}/arrive-customer',
+        [DriverOrderController::class, 'arriveAtCustomer'],
     )->middleware('throttle:10,1');
+
+    /* ZAD_DELIVERY_OTP_DRIVER_ROUTE_V1 */
+    Route::post(
+        '/orders/{order}/verify-delivery-code',
+        [DriverOrderController::class, 'verifyDeliveryCode'],
+    )->middleware('throttle:5,1');
     });
 
 
@@ -377,6 +410,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/wallets/{wallet}/payouts', [FinanceController::class, 'requestPayout']);
         Route::post('/payouts/{payout}/decision', [FinanceController::class, 'decidePayout']);
         Route::get('/ledger', [FinanceController::class, 'ledger']);
+        Route::get('/settlements/settings', [FinanceController::class, 'settlementSettings']);
+        Route::put('/settlements/settings', [FinanceController::class, 'updateSettlementSettings']);
+        Route::get('/settlements/export', [FinanceController::class, 'exportSettlements']);
+        Route::get('/settlements', [FinanceController::class, 'settlements']);
+        Route::post('/settlements/{settlement}/release', [FinanceController::class, 'releaseSettlement']);
+        Route::post('/settlements/{settlement}/hold', [FinanceController::class, 'holdSettlement']);
     });
      
     Route::prefix('admin/drivers')->group(function (): void {
@@ -516,6 +555,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::prefix('admin/stores')->group(function () {
         Route::get('/', [StoreController::class, 'index']);
         Route::post('/', [StoreController::class, 'store']);
+
+        Route::post('/logo', [StoreController::class, 'uploadLogo']);
 
         Route::get('/{store}', [StoreController::class, 'show']);
 
@@ -684,6 +725,21 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         |--------------------------------------------------------------------------
         */
 
+        Route::get('/policy-center', [PolicyCenterController::class, 'index'])
+            ->name('api.admin.policy-center.index');
+
+        Route::put('/policy-center/contact', [PolicyCenterController::class, 'updateContact'])
+            ->name('api.admin.policy-center.contact.update');
+
+        Route::put('/policy-center/{document}/draft', [PolicyCenterController::class, 'saveDraft'])
+            ->whereNumber('document')
+            ->name('api.admin.policy-center.draft');
+
+        Route::post('/policy-center/{document}/versions/{version}/publish', [PolicyCenterController::class, 'publish'])
+            ->whereNumber('document')
+            ->whereNumber('version')
+            ->name('api.admin.policy-center.publish');
+
         Route::get(
             '/platform-settings/meta',
             [PlatformSettingsController::class, 'meta'],
@@ -820,6 +876,22 @@ Route::prefix('v1/app')->group(function (): void {
         [AppOrderController::class, 'show'],
     );
 
+    Route::post(
+        '/orders/{order}/confirm-delivery',
+        [AppOrderController::class, 'confirmDelivery'],
+    )->middleware('throttle:10,1');
+
+    /* ZAD_DELIVERY_OTP_CUSTOMER_ROUTES_V1 */
+    Route::get(
+        '/orders/{order}/delivery-receipt',
+        [AppOrderController::class, 'deliveryReceipt'],
+    )->middleware('throttle:30,1');
+
+    Route::post(
+        '/orders/{order}/rating',
+        [AppOrderController::class, 'rateDelivery'],
+    )->middleware('throttle:10,1');
+
     Route::get(
         '/product-fields',
         [ProductFieldSettingController::class, 'familyFields'],
@@ -862,3 +934,16 @@ Route::prefix('v1/app')->group(function (): void {
         )->middleware('throttle:10,1');
     });
 });
+/* ZAD_ACCOUNT_SUPPORT_LANGUAGE_V2 */
+Route::post('/v1/app/support/tickets/guest', [\App\Http\Controllers\Api\App\AppSupportTicketController::class, 'guestStore'])
+    ->middleware('throttle:10,1')
+    ->name('api.app.support.guest.store');
+
+Route::middleware('auth:sanctum')->prefix('v1/app/support')->group(function (): void {
+    Route::get('/tickets', [\App\Http\Controllers\Api\App\AppSupportTicketController::class, 'index']);
+    Route::post('/tickets', [\App\Http\Controllers\Api\App\AppSupportTicketController::class, 'store']);
+    Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\App\AppSupportTicketController::class, 'show'])->whereNumber('ticket');
+    Route::post('/tickets/{ticket}/reply', [\App\Http\Controllers\Api\App\AppSupportTicketController::class, 'reply'])->whereNumber('ticket');
+});
+
+require __DIR__.'/zad_payments.php';

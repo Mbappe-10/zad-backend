@@ -2,17 +2,36 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Vehicle extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected $guarded = ['id'];
 
     protected function casts(): array
     {
-        return ['max_distance_km' => 'decimal:2', 'base_fee' => 'decimal:2', 'per_km_fee' => 'decimal:2', 'requires_box' => 'boolean', 'is_active' => 'boolean'];
+        return [
+            'max_distance_km' => 'decimal:2',
+            'base_fee' => 'decimal:2',
+            'per_km_fee' => 'decimal:2',
+            'commission_value' => 'decimal:2',
+            'requires_box' => 'boolean',
+            'is_active' => 'boolean',
+        ];
+    }
+
+    public function drivers(): HasMany
+    {
+        return $this->hasMany(Driver::class);
+    }
+
+    public function pricingRules(): HasMany
+    {
+        return $this->hasMany(DeliveryPricingRule::class);
     }
 }

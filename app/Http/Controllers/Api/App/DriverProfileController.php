@@ -17,74 +17,36 @@ use Illuminate\Validation\ValidationException;
 
 class DriverProfileController extends Controller
 {
-    /*
-    |--------------------------------------------------------------------------
-    | أنواع المركبات
-    |--------------------------------------------------------------------------
-    */
+    private const TYPES = ['scooter', 'motorcycle', 'car'];
 
-    private const TYPES = [
-        'scooter',
-        'motorcycle',
-        'car',
-    ];
-
-    /*
-    |--------------------------------------------------------------------------
-    | المستندات المطلوبة لكل مركبة
-    |--------------------------------------------------------------------------
-    |
-    | السكوتر:
-    | - الهوية
-    | - صورة المندوب بالخوذة
-    | - السكوتر من الأمام والخلف
-    | - صندوق التوصيل
-    |
-    | الدباب:
-    | - الهوية
-    | - صورة المندوب بالخوذة
-    | - رخصة الدباب
-    | - صورة الدباب
-    | - صندوق التوصيل
-    |
-    | السيارة:
-    | - الهوية
-    | - صورة شخصية واضحة
-    | - رخصة القيادة
-    | - مكان حفظ الطلب داخل السيارة
-    |
-    */
-
+    /**
+     * أربع صور للمركبة. في السكوتر والدباب يجب أن تُظهر صورة الخلف الصندوق.
+     */
     private const DOCUMENTS = [
         'scooter' => [
             'identity_photo',
-            'helmet_photo',
             'scooter_front',
-            'scooter_rear',
-            'delivery_box',
+            'scooter_rear_box',
+            'scooter_right',
+            'scooter_left',
         ],
-
         'motorcycle' => [
             'identity_photo',
-            'helmet_photo',
             'motorcycle_license',
-            'motorcycle_photo',
-            'delivery_box',
+            'vehicle_registration',
+            'motorcycle_front',
+            'motorcycle_rear_box',
+            'motorcycle_right',
+            'motorcycle_left',
         ],
-
         'car' => [
             'identity_photo',
-            'profile_photo',
             'driving_license',
+            'vehicle_registration',
+            'car_exterior',
             'cargo_interior',
         ],
     ];
-
-    /*
-    |--------------------------------------------------------------------------
-    | الحقول والمستندات المطلوبة
-    |--------------------------------------------------------------------------
-    */
 
     public function fields(): JsonResponse
     {
@@ -96,23 +58,12 @@ class DriverProfileController extends Controller
         return response()->json([
             'data' => [
                 'vehicle_types' => self::TYPES,
-
                 'required_documents' => self::DOCUMENTS,
-
-                // الاسم الذي يستخدمه تطبيق Flutter الجديد.
                 'fields' => $fields,
-
-                // للتوافق مع أي واجهة قديمة.
                 'extra_fields' => $fields,
             ],
         ]);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | عرض ملف المندوب الحالي
-    |--------------------------------------------------------------------------
-    */
 
     public function show(Request $request): JsonResponse
     {
@@ -128,12 +79,7 @@ class DriverProfileController extends Controller
         }
 
         $driver = Driver::query()
-            ->with([
-                'documents' => function ($query): void {
-                    $query->latest();
-                },
-                'city',
-            ])
+            ->with(['documents' => fn ($query) => $query->latest(), 'city'])
             ->find($profile->driver_id);
 
         if ($driver === null) {
@@ -149,110 +95,42 @@ class DriverProfileController extends Controller
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | إنشاء ملف المندوب أو إعادة إرساله
-    |--------------------------------------------------------------------------
-    */
-
     public function store(Request $request): JsonResponse
     {
-        /*
-         * تطبيق Flutter الجديد قد يرسل الحقول الإضافية باسم
-         * extra_answers، بينما بعض الواجهات القديمة تستخدم answers.
-         * نوحّد الاسمين قبل التحقق.
-         */
-        if (
-            ! $request->has('answers')
-            && $request->has('extra_answers')
-        ) {
-            $request->merge([
-                'answers' => $request->input(
-                    'extra_answers',
-                    [],
-                ),
-            ]);
+        if (! $request->has('answers') && $request->has('extra_answers')) {
+            $request->merge(['answers' => $request->input('extra_answers', [])]);
         }
 
-        $vehicleType = trim(
-            (string) $request->input('vehicle_type'),
-        );
+        $vehicleType = trim((string) $request->input('vehicle_type'));
+        $boxRequired = in_array($vehicleType, ['scooter', 'motorcycle'], true);
 
         $rules = [
-            'name' => [
-                'required',
-                'string',
-                'max:180',
-            ],
-
-            'identity_number' => [
-                'required',
-                'string',
-                'max:30',
-            ],
-
-            'phone' => [
-                'required',
-                'string',
-                'max:30',
-            ],
-
-            'emergency_phone' => [
-                'nullable',
-                'string',
-                'max:30',
-            ],
-
+            'name' => ['required', 'string', 'max:180'],
+            'identity_number' => ['required', 'string', 'max:30'],
+            'phone' => ['required', 'string', 'max:30'],
             'city' => ['required', 'string', 'max:120'],
-
-            'vehicle_type' => [
-                'required',
-                Rule::in(self::TYPES),
+            'vehicle_type' => ['required', Rule::in(self::TYPES)],
+            'vehicle_model' => [
+                Rule::requiredIf(in_array($vehicleType, ['scooter', 'car'], true)),
+                'nullable',
+                'string',
+                'max:120',
             ],
-
-            /*
-             * رقم اللوحة مطلوب للدباب والسيارة فقط.
-             * السكوتر لا يحتاج رقم لوحة.
-             */
             'plate_number' => [
-                Rule::requiredIf(
-                    in_array(
-                        $vehicleType,
-                        ['motorcycle', 'car'],
-                        true,
-                    ),
-                ),
+                Rule::requiredIf(in_array($vehicleType, ['motorcycle', 'car'], true)),
                 'nullable',
                 'string',
                 'max:30',
             ],
-
-            /*
-             * رقم الرخصة الكتابي اختياري.
-             * صورة الرخصة إلزامية حسب نوع المركبة.
-             */
-            'license_number' => [
+            'has_delivery_box' => [
+                Rule::requiredIf($boxRequired),
                 'nullable',
-                'string',
-                'max:100',
+                'boolean',
             ],
-
-            'answers' => [
-                'nullable',
-                'array',
-            ],
+            'answers' => ['nullable', 'array'],
         ];
 
-        /*
-        |--------------------------------------------------------------------------
-        | التحقق من الصور المطلوبة حسب المركبة
-        |--------------------------------------------------------------------------
-        */
-
-        foreach (
-            $this->requiredDocuments($vehicleType)
-            as $documentType
-        ) {
+        foreach ($this->requiredDocuments($vehicleType) as $documentType) {
             $rules["documents.$documentType"] = [
                 'required',
                 'file',
@@ -264,388 +142,182 @@ class DriverProfileController extends Controller
 
         $data = $request->validate($rules);
 
-        $this->validateDynamicAnswers(
-            $request,
-            $vehicleType,
-        );
+        if ($boxRequired && ! (bool) ($data['has_delivery_box'] ?? false)) {
+            throw ValidationException::withMessages([
+                'has_delivery_box' => ['وجود صندوق توصيل مثبت شرط لقبول السكوتر أو الدباب.'],
+            ]);
+        }
+
+        $this->validateDynamicAnswers($request, $vehicleType);
 
         $profile = AppProfile::query()->firstOrCreate(
-            [
-                'user_id' => $request->user()->id,
-            ],
-            [
-                'roles' => ['driver'],
-                'active_mode' => 'driver',
-            ],
+            ['user_id' => $request->user()->id],
+            ['roles' => ['driver'], 'active_mode' => 'driver'],
         );
 
-        $driver = DB::transaction(
-            function () use (
-                $request,
-                $data,
-                $profile,
-                $vehicleType
-            ): Driver {
-                $existingDriver = Driver::query()
-                    ->where(
-                        'user_id',
-                        $request->user()->id,
-                    )
+        $driver = DB::transaction(function () use (
+            $request,
+            $data,
+            $profile,
+            $vehicleType,
+            $boxRequired,
+        ): Driver {
+            $existingDriver = Driver::query()
+                ->where('user_id', $request->user()->id)
+                ->first();
+
+            $metadata = is_array($existingDriver?->metadata)
+                ? $existingDriver->metadata
+                : [];
+
+            $metadata = array_merge($metadata, [
+                'city' => trim($data['city']),
+                'vehicle_model' => isset($data['vehicle_model'])
+                    ? trim((string) $data['vehicle_model'])
+                    : null,
+                'has_delivery_box' => $boxRequired,
+                'custom_fields' => $data['answers'] ?? [],
+            ]);
+
+            $driver = Driver::query()->updateOrCreate(
+                ['user_id' => $request->user()->id],
+                [
+                    'code' => $existingDriver?->code ?? 'DRV-'.Str::upper(Str::random(8)),
+                    'name' => trim($data['name']),
+                    'phone' => trim($data['phone']),
+                    'identity_number' => trim($data['identity_number']),
+                    'vehicle_type' => $vehicleType,
+                    'plate_number' => isset($data['plate_number'])
+                        ? trim((string) $data['plate_number'])
+                        : null,
+                    'license_number' => null,
+                    'status' => 'pending',
+                    'application_status' => 'pending',
+                    'is_online' => false,
+                    'submitted_at' => now(),
+                    'reviewed_at' => null,
+                    'reviewed_by' => null,
+                    'rejection_reason' => null,
+                    'metadata' => $metadata,
+                ],
+            );
+
+            $requiredDocuments = $this->requiredDocuments($vehicleType);
+
+            foreach ($requiredDocuments as $documentType) {
+                $file = $request->file("documents.$documentType");
+
+                if ($file === null) {
+                    continue;
+                }
+
+                $oldDocument = DriverDocument::query()
+                    ->where('driver_id', $driver->id)
+                    ->where('type', $documentType)
                     ->first();
 
-                $existingMetadata = is_array(
-                    $existingDriver?->metadata,
-                )
-                    ? $existingDriver->metadata
-                    : [];
+                $path = $file->store("drivers/{$driver->id}/documents", 'public');
 
-                $driver = Driver::query()->updateOrCreate(
-                    [
-                        'user_id' => $request->user()->id,
-                    ],
-                    [
-                        'code' => $existingDriver?->code
-                            ?? 'DRV-'.Str::upper(
-                                Str::random(8),
-                            ),
+                if ($oldDocument?->path && Storage::disk('public')->exists($oldDocument->path)) {
+                    Storage::disk('public')->delete($oldDocument->path);
+                }
 
-                        'name' => trim($data['name']),
-
-                        'phone' => trim($data['phone']),
-
-                        'emergency_phone' => isset(
-                            $data['emergency_phone'],
-                        )
-                            ? trim(
-                                (string) $data[
-                                    'emergency_phone'
-                                ],
-                            )
-                            : null,
-
-                        'identity_number' => trim(
-                            $data['identity_number'],
-                        ),
-
-                        'vehicle_type' => $vehicleType,
-
-                        'plate_number' => isset(
-                            $data['plate_number'],
-                        )
-                            ? trim(
-                                (string) $data[
-                                    'plate_number'
-                                ],
-                            )
-                            : null,
-
-                        'license_number' => isset(
-                            $data['license_number'],
-                        )
-                            ? trim(
-                                (string) $data[
-                                    'license_number'
-                                ],
-                            )
-                            : null,
-
-                        /*
-                         * بعد إرسال أو تعديل البيانات تعود الحالة
-                         * للمراجعة ولا يصبح المندوب متاحًا مباشرة.
-                         */
-                        'status' => 'pending',
-
-                        'application_status' => 'pending',
-
-                        'is_online' => false,
-
-                        'submitted_at' => now(),
-
-                        'reviewed_at' => null,
-
-                        'reviewed_by' => null,
-
-                        'rejection_reason' => null,
-
-                        'metadata' => array_merge(
-                            (array) ($profile->driver?->metadata ?? []),
-                            [
-                                'city' => trim($data['city']),
-
-                                  'custom_fields' => $data['answers'] ?? [],
-                            ],
-                        ),
-                    ],
+                DriverDocument::query()->updateOrCreate(
+                    ['driver_id' => $driver->id, 'type' => $documentType],
+                    ['path' => $path, 'status' => 'pending', 'rejection_reason' => null],
                 );
+            }
 
-                /*
-                |--------------------------------------------------------------------------
-                | حفظ مستندات المندوب
-                |--------------------------------------------------------------------------
-                */
+            $obsoleteDocuments = DriverDocument::query()
+                ->where('driver_id', $driver->id)
+                ->whereNotIn('type', $requiredDocuments)
+                ->get();
 
-                foreach (
-                    $this->requiredDocuments($vehicleType)
-                    as $documentType
+            foreach ($obsoleteDocuments as $obsoleteDocument) {
+                if (
+                    $obsoleteDocument->path
+                    && Storage::disk('public')->exists($obsoleteDocument->path)
                 ) {
-                    $file = $request->file(
-                        "documents.$documentType",
-                    );
-
-                    if ($file === null) {
-                        continue;
-                    }
-
-                    $oldDocument = DriverDocument::query()
-                        ->where(
-                            'driver_id',
-                            $driver->id,
-                        )
-                        ->where(
-                            'type',
-                            $documentType,
-                        )
-                        ->first();
-
-                    $path = $file->store(
-                        "drivers/{$driver->id}/documents",
-                        'public',
-                    );
-
-                    if (
-                        $oldDocument?->path
-                        && Storage::disk('public')->exists(
-                            $oldDocument->path,
-                        )
-                    ) {
-                        Storage::disk('public')->delete(
-                            $oldDocument->path,
-                        );
-                    }
-
-                    DriverDocument::query()->updateOrCreate(
-                        [
-                            'driver_id' => $driver->id,
-                            'type' => $documentType,
-                        ],
-                        [
-                            'path' => $path,
-                            'status' => 'pending',
-                            'rejection_reason' => null,
-                        ],
-                    );
+                    Storage::disk('public')->delete($obsoleteDocument->path);
                 }
 
-                /*
-                 * حذف المستندات التي تخص مركبة سابقة ولم تعد
-                 * مطلوبة بعد تغيير نوع المركبة.
-                 */
-                $requiredDocuments = $this
-                    ->requiredDocuments($vehicleType);
+                $obsoleteDocument->delete();
+            }
 
-                $obsoleteDocuments = DriverDocument::query()
-                    ->where('driver_id', $driver->id)
-                    ->whereNotIn(
-                        'type',
-                        $requiredDocuments,
-                    )
-                    ->get();
+            $roles = is_array($profile->roles) ? $profile->roles : [];
+            $roles[] = 'driver';
 
-                foreach (
-                    $obsoleteDocuments
-                    as $obsoleteDocument
-                ) {
-                    if (
-                        $obsoleteDocument->path
-                        && Storage::disk('public')->exists(
-                            $obsoleteDocument->path,
-                        )
-                    ) {
-                        Storage::disk('public')->delete(
-                            $obsoleteDocument->path,
-                        );
-                    }
+            $profile->update([
+                'driver_id' => $driver->id,
+                'active_mode' => 'driver',
+                'roles' => array_values(array_unique($roles)),
+            ]);
 
-                    $obsoleteDocument->delete();
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | ربط AppProfile بالمندوب
-                |--------------------------------------------------------------------------
-                */
-
-                $roles = is_array($profile->roles)
-                    ? $profile->roles
-                    : [];
-
-                if (! in_array('driver', $roles, true)) {
-                    $roles[] = 'driver';
-                }
-
-                $profile->update([
-                    'driver_id' => $driver->id,
-                    'active_mode' => 'driver',
-                    'roles' => array_values(
-                        array_unique($roles),
-                    ),
-                ]);
-
-                return $driver->load([
-                    'documents',
-                    'city',
-                ]);
-            },
-        );
+            return $driver->load(['documents', 'city']);
+        });
 
         return response()->json([
-            'message' =>
-                'تم إرسال بيانات المندوب للمراجعة.',
-
+            'message' => 'تم إرسال بيانات المندوب للمراجعة.',
             'data' => $driver,
-
             'next_step' => 'driver_pending_review',
         ], 201);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | المستندات المطلوبة
-    |--------------------------------------------------------------------------
-    */
-
-    private function requiredDocuments(
-        string $vehicleType,
-    ): array {
+    private function requiredDocuments(string $vehicleType): array
+    {
         return self::DOCUMENTS[$vehicleType] ?? [];
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | التحقق من الأسئلة التي يضيفها المدير
-    |--------------------------------------------------------------------------
-    */
-
-    private function validateDynamicAnswers(
-        Request $request,
-        string $vehicleType,
-    ): void {
-        $answers = (array) $request->input(
-            'answers',
-            [],
-        );
-
+    private function validateDynamicAnswers(Request $request, string $vehicleType): void
+    {
+        $answers = (array) $request->input('answers', []);
         $fields = DriverProfileFieldSetting::query()
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->get();
-
         $errors = [];
 
         foreach ($fields as $field) {
-            $vehicles = is_array($field->vehicle_types)
-                ? $field->vehicle_types
-                : [];
+            $vehicles = is_array($field->vehicle_types) ? $field->vehicle_types : [];
 
-            if (
-                $vehicles !== []
-                && ! in_array(
-                    $vehicleType,
-                    $vehicles,
-                    true,
-                )
-            ) {
+            if ($vehicles !== [] && ! in_array($vehicleType, $vehicles, true)) {
                 continue;
             }
 
             $value = $answers[$field->key] ?? null;
 
-            if (
-                $field->is_required
-                && (
-                    $value === null
-                    || (
-                        is_string($value)
-                        && trim($value) === ''
-                    )
-                )
-            ) {
-                $errors["answers.{$field->key}"] = [
-                    "حقل {$field->label_ar} مطلوب.",
-                ];
-
+            if ($field->is_required && ($value === null || (is_string($value) && trim($value) === ''))) {
+                $errors["answers.{$field->key}"] = ["حقل {$field->label_ar} مطلوب."];
                 continue;
             }
 
-            if (
-                $value !== null
-                && $value !== ''
-                && $field->field_type === 'number'
-                && ! is_numeric($value)
-            ) {
-                $errors["answers.{$field->key}"] = [
-                    "حقل {$field->label_ar} يجب أن يكون رقمًا.",
-                ];
+            if ($value !== null && $value !== '' && $field->field_type === 'number' && ! is_numeric($value)) {
+                $errors["answers.{$field->key}"] = ["حقل {$field->label_ar} يجب أن يكون رقمًا."];
             }
 
-            if (
-                $value !== null
-                && $value !== ''
-                && $field->field_type === 'date'
-                && strtotime((string) $value) === false
-            ) {
-                $errors["answers.{$field->key}"] = [
-                    "حقل {$field->label_ar} يجب أن يكون تاريخًا صحيحًا.",
-                ];
+            if ($value !== null && $value !== '' && $field->field_type === 'date' && strtotime((string) $value) === false) {
+                $errors["answers.{$field->key}"] = ["حقل {$field->label_ar} يجب أن يكون تاريخًا صحيحًا."];
             }
 
-            if (
-                $value !== null
-                && $value !== ''
-                && $field->field_type === 'select'
-            ) {
-                $options = is_array($field->options)
-                    ? $field->options
-                    : [];
+            if ($value !== null && $value !== '' && $field->field_type === 'select') {
+                $options = is_array($field->options) ? $field->options : [];
 
-                if (
-                    $options !== []
-                    && ! in_array(
-                        $value,
-                        $options,
-                        true,
-                    )
-                ) {
-                    $errors["answers.{$field->key}"] = [
-                        "القيمة المختارة لحقل {$field->label_ar} غير صحيحة.",
-                    ];
+                if ($options !== [] && ! in_array($value, $options, true)) {
+                    $errors["answers.{$field->key}"] = ["القيمة المختارة لحقل {$field->label_ar} غير صحيحة."];
                 }
             }
         }
 
         if ($errors !== []) {
-            throw ValidationException::withMessages(
-                $errors,
-            );
+            throw ValidationException::withMessages($errors);
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | تحديد الخطوة التالية
-    |--------------------------------------------------------------------------
-    */
-
-    private function nextStep(
-        Driver $driver,
-    ): string {
+    private function nextStep(Driver $driver): string
+    {
         return match ($driver->application_status) {
             'approved' => 'dashboard',
-
-            'rejected',
-            'needs_correction' =>
-                'driver_profile_rejected',
-
+            'rejected', 'needs_correction' => 'driver_profile_rejected',
             default => 'driver_pending_review',
         };
     }

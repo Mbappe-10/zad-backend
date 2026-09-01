@@ -77,9 +77,20 @@ class DeliveryOperationsController extends Controller
         return response()->json(['message' => 'تم الإسناد الذكي لأفضل مندوب متاح.', 'data' => $assignment], 201);
     }
 
+    // ZAD_DELIVERY_OTP_V1
     public function timeline(Order $order): JsonResponse
     {
-        return response()->json(['data' => OrderStatusHistory::where('order_id', $order->id)->with('changedBy:id,name')->latest()->get()]);
+        $order->load(['deliveryVerification', 'rating', 'settlement']);
+
+        return response()->json([
+            'data' => OrderStatusHistory::where('order_id', $order->id)
+                ->with('changedBy:id,name')
+                ->latest()
+                ->get(),
+            'delivery_verification' => $order->deliveryVerification,
+            'rating' => $order->rating,
+            'settlement' => $order->settlement,
+        ]);
     }
 
     public function assignments(Order $order): JsonResponse

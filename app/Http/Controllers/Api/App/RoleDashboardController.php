@@ -210,7 +210,7 @@ class RoleDashboardController extends Controller
 
         return (float) WalletTransaction::query()
             ->where('wallet_id', $wallet->id)
-            ->where('status', 'completed')
+            ->whereIn('status', ['pending', 'completed'])
             ->where('amount', '>', 0)
             ->whereDate('created_at', today())
             ->sum('amount');
@@ -229,7 +229,7 @@ class RoleDashboardController extends Controller
 
         $transactions = WalletTransaction::query()
             ->where('wallet_id', $wallet->id)
-            ->where('status', 'completed')
+            ->whereIn('status', ['pending', 'completed'])
             ->where('amount', '>', 0)
             ->where('created_at', '>=', now()->subDays(6)->startOfDay())
             ->get(['amount', 'created_at']);

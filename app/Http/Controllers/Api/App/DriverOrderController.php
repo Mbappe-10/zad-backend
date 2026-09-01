@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\OrderFeedbackItem;
 use App\Models\OrderJourneyProof;
 use App\Services\DeliveryOperationsService;
+use App\Services\DeliveryVerificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -17,8 +19,11 @@ class DriverOrderController extends Controller
 {
     public function __construct(
         private readonly DeliveryOperationsService $deliveryService,
+        private readonly DeliveryVerificationService $deliveryVerification,
     ) {
     }
+
+    // ZAD_DELIVERY_OTP_V1
 
     /**
      * المهام الحالية للمندوب.
@@ -27,16 +32,37 @@ class DriverOrderController extends Controller
     {
         $driver = $this->driver($request);
 
-        $orders = Order::query()
-            ->where('driver_id', $driver->id)
-            ->whereIn('status', [
+        $scope = $request->validate([
+            'scope' => ['nullable', 'in:current,completed,cancelled,all'],
+        ])['scope'] ?? 'current';
+
+        $query = Order::query()
+            ->where('driver_id', $driver->id);
+
+        match ($scope) {
+            'completed' => $query->whereIn('status', Order::completedStatuses()),
+            'cancelled' => $query->whereIn('status', Order::cancelledStatuses()),
+            'all' => $query->whereIn('status', [
                 Order::STATUS_ASSIGNED,
                 Order::STATUS_PICKED_UP,
                 Order::STATUS_DELIVERING,
-            ])
+                ...Order::completedStatuses(),
+                ...Order::cancelledStatuses(),
+            ]),
+            default => $query->whereIn('status', [
+                Order::STATUS_ASSIGNED,
+                Order::STATUS_PICKED_UP,
+                Order::STATUS_DELIVERING,
+            ]),
+        };
+
+        $orders = $query
             ->with([
                 'store:id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
                 'journeyProofs',
+                'feedbackItems',
+                'settlement',
+                'deliveryVerification',
             ])
             ->latest('updated_at')
             ->get()
@@ -68,6 +94,8 @@ class DriverOrderController extends Controller
         $order->load([
             'store:id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
             'journeyProofs',
+            'feedbackItems',
+            'settlement',
         ]);
 
         return response()->json([
@@ -303,6 +331,83 @@ class DriverOrderController extends Controller
     }
 
     /**
+     * إثبات استلام العميل عبر الرمز السري الخاص بالطلب.
+     */
+    public function verifyDeliveryCode(Request $request, Order $order): JsonResponse
+    {
+        $driver = $this->driver($request);
+        $this->ensureDriverApproved($driver);
+        $this->ensureOrderBelongsToDriver($order, $driver);
+        $this->ensureOrderStatus(
+            $order,
+            [Order::STATUS_DELIVERING],
+            'لا يمكن إثبات التسليم في حالة الطلب الحالية.',
+        );
+
+        $data = $request->validate([
+            'code' => ['required', 'digits:4'],
+        ]);
+
+        if (! $order->journeyProofs()
+            ->where('stage', 'customer_arrival')
+            ->whereNotNull('photo_path')
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'photo' => [
+                    'يجب تصوير الطلب عند الوصول إلى العميل قبل إدخال رمز التسليم.',
+                ],
+            ]);
+        }
+
+        $this->deliveryVerification->verify(
+            $order,
+            $driver,
+            (string) $data['code'],
+        );
+
+        $order = $this->deliveryService->transition(
+            order: $order,
+            status: Order::STATUS_DELIVERED,
+            note: 'تم التحقق من رمز استلام العميل وإثبات التسليم إلكترونيًا.',
+            userId: $request->user()->id,
+        );
+
+        return response()->json([
+            'message' => 'تم التحقق من الرمز وتسليم الطلب وإنشاء التسوية تلقائيًا.',
+            'data' => $this->freshOrderPayload($order),
+        ]);
+    }
+
+    /**
+     * توثيق وصول المندوب إلى العميل قبل فتح إدخال رمز التسليم.
+     */
+    public function arriveAtCustomer(Request $request, Order $order): JsonResponse
+    {
+        $driver = $this->driver($request);
+        $this->ensureDriverApproved($driver);
+        $this->ensureOrderBelongsToDriver($order, $driver);
+        $this->ensureOrderStatus(
+            $order,
+            [Order::STATUS_DELIVERING],
+            'يجب بدء رحلة التوصيل قبل توثيق الوصول إلى العميل.',
+        );
+
+        $data = $this->validateProofRequest($request);
+
+        $this->storeProof(
+            request: $request,
+            order: $order,
+            driver: $driver,
+            stage: 'customer_arrival',
+            data: $data,
+        );
+
+        return response()->json([
+            'message' => 'تم توثيق وصول الطلب. اطلب رمز الاستلام من العميل.',
+            'data' => $this->freshOrderPayload($order),
+        ]);
+    }
+    /**
      * جلب المندوب المرتبط بالمستخدم الحالي.
      */
     private function driver(
@@ -537,6 +642,9 @@ class DriverOrderController extends Controller
             ->with([
                 'store:id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
                 'journeyProofs',
+                'feedbackItems',
+                'settlement',
+                'deliveryVerification',
             ])
             ->findOrFail($order->id);
 
@@ -643,6 +751,52 @@ class DriverOrderController extends Controller
 
             'updated_at' =>
                 $order->updated_at,
+
+            'delivery_verification' => $order->deliveryVerification !== null
+                ? [
+                    'required' => true,
+                    'status' => $order->deliveryVerification->verified_at !== null
+                        ? 'verified'
+                        : 'waiting',
+                    'attempts_remaining' => max(
+                        DeliveryVerificationService::MAX_ATTEMPTS
+                            - $order->deliveryVerification->failed_attempts,
+                        0,
+                    ),
+                    'expires_at' => $order->deliveryVerification->expires_at,
+                    'verified_at' => $order->deliveryVerification->verified_at,
+                ]
+                : null,
+
+            'customer_arrival_documented' => $order->journeyProofs
+                ->contains(fn (OrderJourneyProof $proof): bool =>
+                    $proof->stage === 'customer_arrival' && filled($proof->photo_path)),
+
+            'feedback_items' => $order->feedbackItems
+                ->where('subject_type', 'driver')
+                ->where('visible_to_subject', true)
+                ->sortByDesc('created_at')
+                ->values()
+                ->map(fn (OrderFeedbackItem $item): array => [
+                    'id' => $item->id,
+                    'category' => $item->category,
+                    'details' => $item->details,
+                    'status' => $item->status,
+                    'created_at' => $item->created_at,
+                ]),
+
+            'settlement' => $order->settlement !== null
+                ? [
+                    'id' => $order->settlement->id,
+                    'status' => $order->settlement->status,
+                    'gross' => (float) $order->settlement->driver_gross,
+                    'commission' => (float) $order->settlement->driver_commission,
+                    'net' => (float) $order->settlement->driver_net,
+                    'release_due_at' => $order->settlement->release_due_at,
+                    'released_at' => $order->settlement->released_at,
+                    'hold_reason' => $order->settlement->hold_reason,
+                ]
+                : null,
 
             'proofs' => $order->journeyProofs
                 ->map(

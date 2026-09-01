@@ -9,15 +9,24 @@ use App\Models\Payment;
 use App\Models\PaymentProvider;
 use App\Models\Payout;
 use App\Models\Refund;
+use App\Models\OrderSettlement;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\FinancialService;
+use App\Services\OrderSettlementService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FinanceController extends Controller
 {
-    public function __construct(private readonly FinancialService $service) {}
+    public function __construct(
+        private readonly FinancialService $service,
+        private readonly OrderSettlementService $settlementsService,
+    ) {
+    }
 
     public function summary(): JsonResponse
     {
@@ -186,5 +195,234 @@ return response()->json($q->latest()->paginate(min((int) $request->input('per_pa
         }
 
 return response()->json($q->latest('entry_date')->latest('id')->paginate(min((int) $request->input('per_page',50),200)));
+    }
+
+    public function settlements(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'status' => ['nullable', 'in:pending,released,held,reversed'],
+            'driver_id' => ['nullable', 'integer', 'exists:drivers,id'],
+            'productive_family_id' => ['nullable', 'integer', 'exists:productive_families,id'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'search' => ['nullable', 'string', 'max:120'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $query = $this->settlementQuery($data);
+        $result = $query
+            ->with([
+                'order:id,number,status,delivered_at',
+                'store:id,name_ar,name_en',
+                'productiveFamily:id,owner_name,phone',
+                'driver:id,name,phone',
+            ])
+            ->latest('id')
+            ->paginate((int) ($data['per_page'] ?? 25));
+
+        $summaryQuery = $this->settlementQuery($data);
+
+        return response()->json([
+            ...$result->toArray(),
+            'summary' => [
+                'count' => (clone $summaryQuery)->count(),
+                'pending_count' => (clone $summaryQuery)
+                    ->where('status', OrderSettlement::STATUS_PENDING)
+                    ->count(),
+                'held_count' => (clone $summaryQuery)
+                    ->where('status', OrderSettlement::STATUS_HELD)
+                    ->count(),
+                'released_count' => (clone $summaryQuery)
+                    ->where('status', OrderSettlement::STATUS_RELEASED)
+                    ->count(),
+                'family_net' => (float) (clone $summaryQuery)->sum('family_net'),
+                'driver_net' => (float) (clone $summaryQuery)->sum('driver_net'),
+                'platform_total' => (float) (clone $summaryQuery)->sum('platform_total'),
+            ],
+        ]);
+    }
+
+    public function settlementSettings(): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'release_delay_hours' => (int) $this->settlementSetting(
+                    'settlements.release_delay_hours',
+                    24,
+                ),
+                'family_commission_percentage' => (float) $this->settlementSetting(
+                    'settlements.family_commission_percentage',
+                    0,
+                ),
+                'driver_commission_percentage' => (float) $this->settlementSetting(
+                    'settlements.driver_commission_percentage',
+                    0,
+                ),
+                'automatic_release_enabled' => (bool) $this->settlementSetting(
+                    'settlements.automatic_release_enabled',
+                    true,
+                ),
+            ],
+        ]);
+    }
+
+    public function updateSettlementSettings(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'release_delay_hours' => ['required', 'integer', 'min:0', 'max:720'],
+            'family_commission_percentage' => ['required', 'numeric', 'min:0', 'max:100'],
+            'driver_commission_percentage' => ['required', 'numeric', 'min:0', 'max:100'],
+            'automatic_release_enabled' => ['required', 'boolean'],
+        ]);
+
+        $mapping = [
+            'release_delay_hours' => ['settlements.release_delay_hours', 'integer'],
+            'family_commission_percentage' => ['settlements.family_commission_percentage', 'decimal'],
+            'driver_commission_percentage' => ['settlements.driver_commission_percentage', 'decimal'],
+            'automatic_release_enabled' => ['settlements.automatic_release_enabled', 'boolean'],
+        ];
+
+        foreach ($mapping as $field => [$key, $type]) {
+            DB::table('app_settings')->updateOrInsert(
+                ['key' => $key],
+                [
+                    'value' => json_encode($data[$field]),
+                    'type' => $type,
+                    'group' => 'settlements',
+                    'is_public' => false,
+                    'updated_by' => $request->user()?->id,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ],
+            );
+        }
+
+        return $this->settlementSettings();
+    }
+
+    public function releaseSettlement(
+        Request $request,
+        OrderSettlement $settlement,
+    ): JsonResponse {
+        $settlement = $this->settlementsService->release(
+            $settlement,
+            $request->user()?->id,
+            true,
+        );
+
+        return response()->json([
+            'message' => 'تم تحرير مستحقات الطلب.',
+            'data' => $settlement,
+        ]);
+    }
+
+    public function holdSettlement(
+        Request $request,
+        OrderSettlement $settlement,
+    ): JsonResponse {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $settlement = $this->settlementsService->hold(
+            $settlement,
+            $data['reason'],
+        );
+
+        return response()->json([
+            'message' => 'تم إيقاف التسوية للمراجعة.',
+            'data' => $settlement,
+        ]);
+    }
+
+    public function exportSettlements(Request $request): StreamedResponse
+    {
+        $data = $request->validate([
+            'status' => ['nullable', 'in:pending,released,held,reversed'],
+            'driver_id' => ['nullable', 'integer'],
+            'productive_family_id' => ['nullable', 'integer'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'search' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $rows = $this->settlementQuery($data)
+            ->with(['order:id,number', 'productiveFamily:id,owner_name', 'driver:id,name'])
+            ->latest('id')
+            ->limit(20000)
+            ->get();
+
+        return response()->streamDownload(function () use ($rows): void {
+            $handle = fopen('php://output', 'w');
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, [
+                'رقم الطلب',
+                'الأسرة المنتجة',
+                'المندوب',
+                'إجمالي الطلب',
+                'إجمالي الأسرة',
+                'عمولة الأسرة',
+                'صافي الأسرة',
+                'أجرة التوصيل',
+                'عمولة المندوب',
+                'صافي المندوب',
+                'دخل المنصة',
+                'الحالة',
+                'موعد التحرير',
+                'تاريخ التحرير',
+            ]);
+
+            foreach ($rows as $row) {
+                fputcsv($handle, [
+                    $row->order?->number,
+                    $row->productiveFamily?->owner_name,
+                    $row->driver?->name,
+                    $row->order_total,
+                    $row->family_gross,
+                    $row->family_commission,
+                    $row->family_net,
+                    $row->driver_gross,
+                    $row->driver_commission,
+                    $row->driver_net,
+                    $row->platform_total,
+                    $row->status,
+                    $row->release_due_at?->toDateTimeString(),
+                    $row->released_at?->toDateTimeString(),
+                ]);
+            }
+
+            fclose($handle);
+        }, 'zad-order-settlements-'.now()->format('Y-m-d-His').'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    private function settlementQuery(array $filters): Builder
+    {
+        return OrderSettlement::query()
+            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
+            ->when($filters['driver_id'] ?? null, fn (Builder $query, int $id) => $query->where('driver_id', $id))
+            ->when($filters['productive_family_id'] ?? null, fn (Builder $query, int $id) => $query->where('productive_family_id', $id))
+            ->when($filters['from'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '>=', $date))
+            ->when($filters['to'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '<=', $date))
+            ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
+                $query->whereHas('order', fn (Builder $order) => $order->where('number', 'like', '%'.trim($search).'%'));
+            });
+    }
+
+    private function settlementSetting(string $key, mixed $fallback): mixed
+    {
+        $raw = DB::table('app_settings')->where('key', $key)->value('value');
+
+        if ($raw === null) {
+            return $fallback;
+        }
+
+        $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+
+        return is_string($raw) && json_last_error() !== JSON_ERROR_NONE
+            ? $raw
+            : $decoded;
     }
 }

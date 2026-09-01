@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Api\App;
 use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
 use App\Models\Order;
+use App\Models\OrderFeedbackItem;
+use App\Models\OrderJourneyProof;
 use App\Models\Product;
 use App\Models\Store;
 use App\Services\DeliveryOperationsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class FamilyOrderController extends Controller
@@ -29,7 +32,8 @@ class FamilyOrderController extends Controller
             ->pluck('id');
 
         $orders = Order::query()
-            ->whereIn('store_id', $storeIds);
+            ->whereIn('store_id', $storeIds)
+            ->where('payment_status', Order::PAYMENT_PAID);
 
         return response()->json([
             'data' => [
@@ -45,6 +49,7 @@ class FamilyOrderController extends Controller
 
                 'products_count' => Product::query()
                     ->whereIn('store_id', $storeIds)
+            ->where('payment_status', Order::PAYMENT_PAID)
                     ->count(),
 
                 'sales_total' => (float) (clone $orders)
@@ -68,6 +73,7 @@ class FamilyOrderController extends Controller
 
         $orders = Order::query()
             ->whereIn('store_id', $storeIds)
+            ->where('payment_status', Order::PAYMENT_PAID)
             ->whereIn('status', [
                 Order::STATUS_PENDING,
                 Order::STATUS_ACCEPTED,
@@ -76,10 +82,17 @@ class FamilyOrderController extends Controller
                 Order::STATUS_ASSIGNED,
                 Order::STATUS_PICKED_UP,
                 Order::STATUS_DELIVERING,
+                Order::STATUS_DELIVERED,
+                Order::STATUS_COMPLETED,
+                Order::STATUS_CANCELLED,
+                Order::STATUS_REJECTED,
             ])
             ->with([
                 'items:id,order_id,product_id,product_name,quantity,unit_price,total,options',
                 'store:id,productive_family_id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
+                'journeyProofs',
+                'feedbackItems',
+                'settlement',
             ])
             ->latest()
             ->get()
@@ -98,6 +111,12 @@ class FamilyOrderController extends Controller
         Order $order,
     ): JsonResponse {
         $this->ensureBelongsToFamily($request, $order);
+        // ZAD_PAYMENT_FAMILY_GUARD
+        abort_unless(
+            $order->isPaid(),
+            402,
+            'لا يظهر الطلب للأسرة قبل اكتمال الدفع.',
+        );
 
         $this->loadOrderRelations($order);
 
@@ -111,6 +130,12 @@ class FamilyOrderController extends Controller
         Order $order,
     ): JsonResponse {
         $this->ensureBelongsToFamily($request, $order);
+        // ZAD_PAYMENT_FAMILY_GUARD
+        abort_unless(
+            $order->isPaid(),
+            402,
+            'لا يظهر الطلب للأسرة قبل اكتمال الدفع.',
+        );
 
         $data = $request->validate([
             'status' => [
@@ -129,6 +154,19 @@ class FamilyOrderController extends Controller
                 'max:1000',
             ],
         ]);
+
+        if (
+            $data['status'] === Order::STATUS_READY &&
+            ! $order->journeyProofs()
+                ->where('stage', 'family_ready')
+                ->exists()
+        ) {
+            throw ValidationException::withMessages([
+                'photo' => [
+                    'يجب تصوير الطلب واعتماد جاهزيته قبل إسناده إلى المندوب.',
+                ],
+            ]);
+        }
 
         if (
             $order->status === Order::STATUS_PENDING &&
@@ -206,6 +244,109 @@ class FamilyOrderController extends Controller
         ]);
     }
 
+    /**
+     * توثيق جاهزية الطلب بالصورة، ثم بدء الإسناد الآلي.
+     */
+    public function readyProof(Request $request, Order $order): JsonResponse
+    {
+        $this->ensureBelongsToFamily($request, $order);
+        abort_unless($order->isPaid(), 402, 'يجب إتمام الدفع أولًا.');
+
+        if (! in_array($order->status, [
+            Order::STATUS_PENDING,
+            Order::STATUS_ACCEPTED,
+            Order::STATUS_PREPARING,
+        ], true)) {
+            throw ValidationException::withMessages([
+                'status' => ['لا يمكن توثيق الجاهزية في حالة الطلب الحالية.'],
+            ]);
+        }
+
+        $data = $request->validate([
+            'photo' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $file = $request->file('photo');
+        $path = $file->store("orders/{$order->id}/journey", 'public');
+        $existing = $order->journeyProofs()
+            ->where('stage', 'family_ready')
+            ->first();
+
+        try {
+            $order = DB::transaction(function () use (
+                $request,
+                $order,
+                $data,
+                $file,
+                $path,
+                $existing,
+            ): Order {
+                $realPath = $file->getRealPath();
+
+                OrderJourneyProof::query()->updateOrCreate(
+                    ['order_id' => $order->id, 'stage' => 'family_ready'],
+                    [
+                        'photo_path' => $path,
+                        'latitude' => $data['latitude'] ?? null,
+                        'longitude' => $data['longitude'] ?? null,
+                        'note' => $data['note'] ?? 'اعتمدت الأسرة جاهزية الطلب بالصورة.',
+                        'uploaded_by' => $request->user()?->id,
+                        'photo_checksum' => $realPath !== false
+                            ? hash_file('sha256', $realPath)
+                            : null,
+                        'photo_size_bytes' => $file->getSize(),
+                        'photo_mime_type' => $file->getMimeType(),
+                        'photo_purged_at' => null,
+                    ],
+                );
+
+                $order->update(['fulfillment_mode' => Order::FULFILLMENT_READY_NOW]);
+
+                return $this->delivery->transition(
+                    $order,
+                    Order::STATUS_READY,
+                    $data['note'] ?? 'تم توثيق جاهزية الطلب بالصورة واعتماده للإسناد.',
+                    $request->user()?->id,
+                );
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('public')->delete($path);
+            throw $exception;
+        }
+
+        if (
+            $existing !== null &&
+            filled($existing->photo_path) &&
+            $existing->photo_path !== $path
+        ) {
+            Storage::disk('public')->delete($existing->photo_path);
+        }
+
+        $dispatchStatus = 'searching';
+        $dispatchMessage = 'تم توثيق الجاهزية، وجارٍ البحث عن أقرب مندوب.';
+
+        try {
+            $this->delivery->autoAssign($order, $request->user()?->id);
+            $order = $order->fresh();
+            $dispatchStatus = 'assigned';
+            $dispatchMessage = 'تم توثيق الجاهزية وإسناد الطلب إلى مندوب مناسب.';
+        } catch (ValidationException $exception) {
+            $dispatchMessage = collect($exception->errors())->flatten()->first()
+                ?? $dispatchMessage;
+        }
+
+        $this->loadOrderRelations($order);
+
+        return response()->json([
+            'message' => $dispatchMessage,
+            'dispatch_status' => $dispatchStatus,
+            'data' => $this->familyPayload($order),
+        ]);
+    }
+
     private function familyId(Request $request): int
     {
         $user = $request->user();
@@ -253,6 +394,9 @@ class FamilyOrderController extends Controller
         $order->load([
             'items:id,order_id,product_id,product_name,quantity,unit_price,total,options',
             'store:id,productive_family_id,name_ar,name_en,pickup_address,pickup_latitude,pickup_longitude',
+            'journeyProofs',
+            'feedbackItems',
+            'settlement',
         ]);
     }
 
@@ -305,6 +449,36 @@ class FamilyOrderController extends Controller
                 ]
                 : null,
             'items' => $order->items,
+
+            'ready_proof_uploaded' => $order->journeyProofs
+                ->contains(fn (OrderJourneyProof $proof): bool =>
+                    $proof->stage === 'family_ready' && filled($proof->photo_path)),
+
+            'feedback_items' => $order->feedbackItems
+                ->where('subject_type', 'family')
+                ->where('visible_to_subject', true)
+                ->sortByDesc('created_at')
+                ->values()
+                ->map(fn (OrderFeedbackItem $item): array => [
+                    'id' => $item->id,
+                    'category' => $item->category,
+                    'details' => $item->details,
+                    'status' => $item->status,
+                    'created_at' => $item->created_at,
+                ]),
+
+            'settlement' => $order->settlement !== null
+                ? [
+                    'id' => $order->settlement->id,
+                    'status' => $order->settlement->status,
+                    'gross' => (float) $order->settlement->family_gross,
+                    'commission' => (float) $order->settlement->family_commission,
+                    'net' => (float) $order->settlement->family_net,
+                    'release_due_at' => $order->settlement->release_due_at,
+                    'released_at' => $order->settlement->released_at,
+                    'hold_reason' => $order->settlement->hold_reason,
+                ]
+                : null,
         ];
     }
 }

@@ -22,3 +22,16 @@ Schedule::command('order-chat:purge-expired')
     ->appendOutputTo(
         storage_path('logs/order-chat-retention.log'),
     );
+
+Schedule::command('order-settlement:release-due')
+    ->everyTenMinutes()
+    ->withoutOverlapping(30)
+    ->appendOutputTo(
+        storage_path('logs/order-settlements.log'),
+    );
+
+
+/* ZAD_AUTOMATIC_SETTLEMENT_RELEASE_V1 */
+Schedule::command('order-settlement:release-due')
+    ->everyMinute()
+    ->withoutOverlapping();

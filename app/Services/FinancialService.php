@@ -30,6 +30,114 @@ class FinancialService
         });
     }
 
+    public function holdCredit(
+        Wallet $wallet,
+        float $amount,
+        string $reference,
+        string $type,
+        string $description,
+        ?object $source,
+        ?int $userId,
+    ): WalletTransaction {
+        if ($amount <= 0) {
+            throw ValidationException::withMessages([
+                'amount' => ['قيمة الرصيد المعلق يجب أن تكون أكبر من صفر.'],
+            ]);
+        }
+
+        return DB::transaction(function () use (
+            $wallet,
+            $amount,
+            $reference,
+            $type,
+            $description,
+            $source,
+            $userId,
+        ): WalletTransaction {
+            $existing = WalletTransaction::query()
+                ->where('reference', $reference)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            $wallet = Wallet::query()->lockForUpdate()->findOrFail($wallet->id);
+            $wallet->pending_balance = round(
+                (float) $wallet->pending_balance + $amount,
+                2,
+            );
+            $wallet->save();
+
+            return WalletTransaction::query()->create([
+                'wallet_id' => $wallet->id,
+                'reference' => $reference,
+                'type' => $type,
+                'amount' => round($amount, 2),
+                'balance_after' => (float) $wallet->available_balance,
+                'status' => 'pending',
+                'related_type' => $source?->getMorphClass(),
+                'related_id' => $source?->getKey(),
+                'description' => $description,
+                'created_by' => $userId,
+            ]);
+        });
+    }
+
+    public function releaseHeldCredit(
+        int $transactionId,
+        ?int $userId,
+    ): WalletTransaction {
+        return DB::transaction(function () use ($transactionId, $userId): WalletTransaction {
+            $transaction = WalletTransaction::query()
+                ->lockForUpdate()
+                ->findOrFail($transactionId);
+
+            if ($transaction->status === 'completed') {
+                return $transaction;
+            }
+
+            if ($transaction->status !== 'pending') {
+                throw ValidationException::withMessages([
+                    'transaction' => ['الحركة المالية ليست في حالة تسمح بتحريرها.'],
+                ]);
+            }
+
+            $wallet = Wallet::query()
+                ->lockForUpdate()
+                ->findOrFail($transaction->wallet_id);
+
+            $amount = (float) $transaction->amount;
+            $wallet->pending_balance = max(
+                round((float) $wallet->pending_balance - $amount, 2),
+                0,
+            );
+            $wallet->available_balance = round(
+                (float) $wallet->available_balance + $amount,
+                2,
+            );
+            $wallet->save();
+
+            $transaction->update([
+                'status' => 'completed',
+                'balance_after' => $wallet->available_balance,
+                'created_by' => $transaction->created_by ?? $userId,
+            ]);
+
+            $this->ledger(
+                'wallet_liability',
+                'credit',
+                $amount,
+                $transaction->description ?? 'تحرير مستحقات طلب',
+                $transaction,
+                $userId,
+            );
+
+            return $transaction->fresh();
+        });
+    }
+
     public function requestPayout(Wallet $wallet, array $data, ?int $userId): Payout
     {
         return DB::transaction(function () use ($wallet, $data, $userId) {

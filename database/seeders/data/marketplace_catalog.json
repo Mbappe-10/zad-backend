@@ -1,0 +1,243 @@
+{
+    "version":  1,
+    "categories":  [
+                       {
+                           "name_ar":  "الوجبات",
+                           "name_en":  "Meals",
+                           "slug":  "meals",
+                           "image_path":  "icon:meals",
+                           "sort_order":  1,
+                           "is_active":  true
+                       },
+                       {
+                           "name_ar":  "الأكلات الجاهزة",
+                           "name_en":  "Ready-made Food",
+                           "slug":  "ready-made-food",
+                           "image_path":  "icon:ready_food",
+                           "sort_order":  2,
+                           "is_active":  true
+                       },
+                       {
+                           "name_ar":  "المخبوزات",
+                           "name_en":  "Bakery",
+                           "slug":  "bakery",
+                           "image_path":  "icon:bakery",
+                           "sort_order":  3,
+                           "is_active":  true
+                       },
+                       {
+                           "name_ar":  "الحلويات",
+                           "name_en":  "Desserts",
+                           "slug":  "desserts",
+                           "image_path":  "icon:desserts",
+                           "sort_order":  4,
+                           "is_active":  true
+                       },
+                       {
+                           "name_ar":  "المشروبات",
+                           "name_en":  "Beverages",
+                           "slug":  "beverages",
+                           "image_path":  "icon:beverages",
+                           "sort_order":  5,
+                           "is_active":  true
+                       }
+                   ],
+    "families":  [
+                     {
+                         "source_key":  "catalog-family-1"
+                     },
+                     {
+                         "source_key":  "catalog-family-2"
+                     },
+                     {
+                         "source_key":  "catalog-family-3"
+                     },
+                     {
+                         "source_key":  "catalog-family-4"
+                     }
+                 ],
+    "stores":  [
+                   {
+                       "family_key":  "catalog-family-1",
+                       "name_ar":  "ام مؤيد للماكولات",
+                       "name_en":  null,
+                       "slug":  "am-moyd-llmakolat",
+                       "description_ar":  null,
+                       "description_en":  null,
+                       "logo_path":  null,
+                       "cover_path":  null,
+                       "rating":  0,
+                       "rating_count":  0,
+                       "working_hours":  [
+
+                                         ]
+                   },
+                   {
+                       "family_key":  "catalog-family-2",
+                       "name_ar":  "ام عبدالله للمأكولات الشعبية",
+                       "name_en":  null,
+                       "slug":  "am-aabdallh-llmakolat-alshaaby",
+                       "description_ar":  null,
+                       "description_en":  null,
+                       "logo_path":  null,
+                       "cover_path":  null,
+                       "rating":  0,
+                       "rating_count":  0,
+                       "working_hours":  [
+
+                                         ]
+                   },
+                   {
+                       "family_key":  "catalog-family-3",
+                       "name_ar":  "مذاق مكة",
+                       "name_en":  null,
+                       "slug":  "mthak-mk",
+                       "description_ar":  null,
+                       "description_en":  null,
+                       "logo_path":  null,
+                       "cover_path":  null,
+                       "rating":  0,
+                       "rating_count":  0,
+                       "working_hours":  [
+
+                                         ]
+                   },
+                   {
+                       "family_key":  "catalog-family-4",
+                       "name_ar":  "ام رعد للمأكولات الشعبية",
+                       "name_en":  null,
+                       "slug":  "am-mhmd-llmaagnat",
+                       "description_ar":  null,
+                       "description_en":  null,
+                       "logo_path":  null,
+                       "cover_path":  null,
+                       "rating":  4.44,
+                       "rating_count":  0,
+                       "working_hours":  [
+
+                                         ]
+                   }
+               ],
+    "products":  [
+                     {
+                         "source_id":  1,
+                         "store_slug":  "am-moyd-llmakolat",
+                         "category_slug":  "ready-made-food",
+                         "sku":  "3562555",
+                         "name_ar":  "كبسة لحم",
+                         "name_en":  "كبسة لحم",
+                         "description_ar":  "كبسة لحم",
+                         "description_en":  "كسبة لحم",
+                         "price":  4.6,
+                         "compare_at_price":  4.01,
+                         "preparation_minutes":  30,
+                         "preparation_mode":  "made_to_order",
+                         "package_size":  "small",
+                         "images":  [
+
+                                    ],
+                         "variants":  null,
+                         "ingredients":  null
+                     },
+                     {
+                         "source_id":  7,
+                         "store_slug":  "am-aabdallh-llmakolat-alshaaby",
+                         "category_slug":  "ready-made-food",
+                         "sku":  null,
+                         "name_ar":  "كفتة لحم",
+                         "name_en":  null,
+                         "description_ar":  null,
+                         "description_en":  null,
+                         "price":  12,
+                         "compare_at_price":  25,
+                         "preparation_minutes":  20,
+                         "preparation_mode":  "made_to_order",
+                         "package_size":  "small",
+                         "images":  [
+
+                                    ],
+                         "variants":  null,
+                         "ingredients":  null
+                     },
+                     {
+                         "source_id":  8,
+                         "store_slug":  "am-aabdallh-llmakolat-alshaaby",
+                         "category_slug":  "meals",
+                         "sku":  null,
+                         "name_ar":  "لحم مفروم",
+                         "name_en":  null,
+                         "description_ar":  "لحم مفروم",
+                         "description_en":  null,
+                         "price":  13,
+                         "compare_at_price":  18,
+                         "preparation_minutes":  10,
+                         "preparation_mode":  "made_to_order",
+                         "package_size":  "small",
+                         "images":  [
+
+                                    ],
+                         "variants":  null,
+                         "ingredients":  null
+                     },
+                     {
+                         "source_id":  16,
+                         "store_slug":  "am-aabdallh-llmakolat-alshaaby",
+                         "category_slug":  "desserts",
+                         "sku":  null,
+                         "name_ar":  "كيكة الفستق والورد",
+                         "name_en":  null,
+                         "description_ar":  "كيكة فاخرة بطبقات إسفنجية هشة وكريمة ناعمة، محشوة بالفستق ومزيّنة ببتلات الورد ولمسات الزعفران. اختيار أنيق للمناسبات والجمعات واللحظات التي تستحق الاحتفال",
+                         "description_en":  null,
+                         "price":  19,
+                         "compare_at_price":  27,
+                         "preparation_minutes":  15,
+                         "preparation_mode":  "made_to_order",
+                         "package_size":  "small",
+                         "images":  [
+
+                                    ],
+                         "variants":  null,
+                         "ingredients":  null
+                     },
+                     {
+                         "source_id":  17,
+                         "store_slug":  "am-moyd-llmakolat",
+                         "category_slug":  "desserts",
+                         "sku":  null,
+                         "name_ar":  "بوكس كاسات السعادة",
+                         "name_en":  null,
+                         "description_ar":  "تشكيلة فاخرة من كاسات الحلى بنكهات متنوعة ترضي جميع الأذواق: اللوتس، الشوكولاتة، الفستق والمانجو. طبقات كريمية ناعمة مع إضافات مقرمشة في كل ملعقة.",
+                         "description_en":  null,
+                         "price":  22,
+                         "compare_at_price":  35,
+                         "preparation_minutes":  15,
+                         "preparation_mode":  "made_to_order",
+                         "package_size":  "small",
+                         "images":  [
+
+                                    ],
+                         "variants":  null,
+                         "ingredients":  null
+                     },
+                     {
+                         "source_id":  18,
+                         "store_slug":  "am-mhmd-llmaagnat",
+                         "category_slug":  "ready-made-food",
+                         "sku":  null,
+                         "name_ar":  "كبسة دجاج (نصف حبة )",
+                         "name_en":  null,
+                         "description_ar":  "كبسة سعودية بالدجاج والأرز البسمتي تكفي 2 أشخاص",
+                         "description_en":  null,
+                         "price":  13,
+                         "compare_at_price":  22,
+                         "preparation_minutes":  20,
+                         "preparation_mode":  "made_to_order",
+                         "package_size":  "small",
+                         "images":  [
+
+                                    ],
+                         "variants":  null,
+                         "ingredients":  null
+                     }
+                 ]
+}

@@ -5,11 +5,24 @@ RUN apt-get update && apt-get install -y \
     unzip \
     libpq-dev \
     libzip-dev \
-    && docker-php-ext-install \
+    libonig-dev \
+    libxml2-dev \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
         pdo \
         pdo_mysql \
         pdo_pgsql \
         zip \
+        mbstring \
+        dom \
+        simplexml \
+        xml \
+        xmlreader \
+        xmlwriter \
+        gd \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -34,7 +47,7 @@ RUN mkdir -p \
         storage/logs \
         bootstrap/cache \
     && composer dump-autoload --optimize \
-    && php artisan storage:link || true \
+    && (php artisan storage:link || true) \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 

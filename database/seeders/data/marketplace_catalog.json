@@ -109,7 +109,7 @@
                        "slug":  "am-mhmd-llmaagnat",
                        "description_ar":  null,
                        "description_en":  null,
-                       "logo_path":  null,
+                       "logo_path":  "https://zad-backend-w2a2.onrender.com/catalog/stores/tfuYfTVm5sNJgSK2ydCWFGRMxaL4W1A2zt7SIYTb.png",
                        "cover_path":  null,
                        "rating":  4.44,
                        "rating_count":  0,
@@ -134,7 +134,7 @@
                          "preparation_mode":  "made_to_order",
                          "package_size":  "small",
                          "images":  [
-
+                                        "https://zad-backend-w2a2.onrender.com/catalog/products/efa9ff1e-e8f6-4ca6-ba27-f9c2139281e9.webp"
                                     ],
                          "variants":  null,
                          "ingredients":  null
@@ -154,7 +154,7 @@
                          "preparation_mode":  "made_to_order",
                          "package_size":  "small",
                          "images":  [
-
+                                        "https://zad-backend-w2a2.onrender.com/catalog/products/a494ff6c-a79d-4157-9199-ae0b85422ab0.png"
                                     ],
                          "variants":  null,
                          "ingredients":  null
@@ -174,7 +174,7 @@
                          "preparation_mode":  "made_to_order",
                          "package_size":  "small",
                          "images":  [
-
+                                        "https://zad-backend-w2a2.onrender.com/catalog/products/47173387-5607-4098-a0f6-a2e0ddaf1794.jpg"
                                     ],
                          "variants":  null,
                          "ingredients":  null
@@ -194,7 +194,7 @@
                          "preparation_mode":  "made_to_order",
                          "package_size":  "small",
                          "images":  [
-
+                                        "https://zad-backend-w2a2.onrender.com/catalog/products/a02a8497-6012-4ad2-9e0e-888a1e1123a1.png"
                                     ],
                          "variants":  null,
                          "ingredients":  null
@@ -214,7 +214,7 @@
                          "preparation_mode":  "made_to_order",
                          "package_size":  "small",
                          "images":  [
-
+                                        "https://zad-backend-w2a2.onrender.com/catalog/products/f1980c6b-575d-4458-8a67-e14d77e0bb88.png"
                                     ],
                          "variants":  null,
                          "ingredients":  null
@@ -234,7 +234,7 @@
                          "preparation_mode":  "made_to_order",
                          "package_size":  "small",
                          "images":  [
-
+                                        "https://zad-backend-w2a2.onrender.com/catalog/products/c9168de9-efb2-42c3-8244-9a4120de4e36.png"
                                     ],
                          "variants":  null,
                          "ingredients":  null

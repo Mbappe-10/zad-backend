@@ -406,75 +406,48 @@ class AuthController extends Controller
     /**
      * رفع الصورة الشخصية.
      */
-    public function uploadProfilePhoto(
-        Request $request,
-    ): JsonResponse {
-        $request->validate([
-            'photo' => [
-                'required',
-                'image',
-                'mimes:jpg,jpeg,png,webp',
-                'max:2048',
-            ],
-        ]);
-
-        /** @var User $user */
-        $user = $request->user();
-
-        $this->deleteStoredProfilePhoto(
-            $user->profile_photo,
-        );
-
-        $path = $request
-            ->file('photo')
-            ->store(
-                'profile-photos',
-                'public',
-            );
-
-        $user->update([
-            'profile_photo' => Storage::disk('public')
-                ->url($path),
-        ]);
-
-        return response()->json([
-            'message' => 'تم تحديث الصورة الشخصية بنجاح.',
-            'user' => $this->serializeUser(
-                $user->fresh(),
-            ),
-        ], 201);
+    public function uploadProfilePhoto(Request $request): JsonResponse
+    {
+        $request->validate(['photo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048', 'dimensions:max_width=6000,max_height=6000']]);
+        $path = $request->file('photo')->store('profile-photos', 'public');
+        abort_unless(is_string($path) && $path !== '', 500, 'تعذر حفظ الصورة.');
+        try {
+            $old = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $path) {
+                $user = User::query()->lockForUpdate()->findOrFail($request->user()->id);
+                $old = $user->profile_photo;
+                $user->update(['profile_photo' => '/storage/'.$path]);
+                return $old;
+            });
+        } catch (\Throwable $e) {
+            Storage::disk('public')->delete($path);
+            throw $e;
+        }
+        try { $this->deleteStoredProfilePhoto($old); } catch (\Throwable $e) { report($e); }
+        return response()->json(['message' => 'تم حفظ الصورة الشخصية.', 'user' => $this->serializeUser($request->user()->fresh())]);
     }
 
-    /**
-     * حذف الصورة الشخصية.
-     */
-    public function removeProfilePhoto(
-        Request $request,
-    ): JsonResponse {
-        /** @var User $user */
-        $user = $request->user();
+    public function removeProfilePhoto(Request $request): JsonResponse
+    {
+        $old = \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            $user = User::query()->lockForUpdate()->findOrFail($request->user()->id);
+            $old = $user->profile_photo;
+            $user->update(['profile_photo' => null]);
+            return $old;
+        });
+        try { $this->deleteStoredProfilePhoto($old); } catch (\Throwable $e) { report($e); }
+        return response()->json(['message' => 'تم حذف الصورة الشخصية.', 'user' => $this->serializeUser($request->user()->fresh())]);
+    }
 
-        $this->deleteStoredProfilePhoto(
-            $user->profile_photo,
-        );
-
-        $user->update([
-            'profile_photo' => null,
-        ]);
-
-        return response()->json([
-            'message' => 'تم حذف الصورة الشخصية.',
-            'user' => $this->serializeUser(
-                $user->fresh(),
-            ),
+    public function profilePhotoContent(Request $request)
+    {
+        $path = $this->storedPhotoPath($request->user()->profile_photo);
+        abort_unless($path && Storage::disk('public')->exists($path), 404, 'الصورة غير موجودة؛ أعد رفعها.');
+        return Storage::disk('public')->response($path, null, [
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
-    /**
-     * تجهيز بيانات المستخدم للواجهة.
-     *
-     * @return array<string, mixed>
-     */
     private function serializeUser(User $user): array
     {
         $user->loadMissing([
@@ -490,89 +463,11 @@ class AuthController extends Controller
          |--------------------------------------------------------------------------
          */
 
-        if ($user->isPlatformOwner()) {
-            $permissions = collect(
-                $user->effectivePermissions(),
-            );
-        } else {
-            /*
-             |--------------------------------------------------------------------------
-             | صلاحيات الأدوار
-             |--------------------------------------------------------------------------
-             */
+        $permissions = collect($user->effectivePermissions())
+            ->merge(['profile.view', 'profile.edit'])->unique()->values();
 
-            $rolePermissions = $user
-                ->roles
-                ->flatMap(
-                    fn ($role) => $role->permissions,
-                )
-                ->map(
-                    fn ($permission) => $permission->key
-                        ?? $permission->slug
-                        ?? $permission->code
-                        ?? $permission->name,
-                )
-                ->filter();
-
-            /*
-             |--------------------------------------------------------------------------
-             | الصلاحيات المباشرة المسموحة
-             |--------------------------------------------------------------------------
-             */
-
-            $allowedDirectPermissions = $user
-                ->directPermissions
-                ->filter(
-                    fn ($permission) => $permission->pivot?->effect === 'allow'
-                        && (
-                            $permission->pivot?->expires_at === null
-                            || now()->lessThan(
-                                $permission->pivot->expires_at,
-                            )
-                        ),
-                )
-                ->map(
-                    fn ($permission) => $permission->key
-                        ?? $permission->slug
-                        ?? $permission->code
-                        ?? $permission->name,
-                )
-                ->filter();
-
-            /*
-             |--------------------------------------------------------------------------
-             | الصلاحيات المباشرة الممنوعة
-             |--------------------------------------------------------------------------
-             */
-
-            $deniedDirectPermissions = $user
-                ->directPermissions
-                ->filter(
-                    fn ($permission) => $permission->pivot?->effect === 'deny'
-                        && (
-                            $permission->pivot?->expires_at === null
-                            || now()->lessThan(
-                                $permission->pivot->expires_at,
-                            )
-                        ),
-                )
-                ->map(
-                    fn ($permission) => $permission->key
-                        ?? $permission->slug
-                        ?? $permission->code
-                        ?? $permission->name,
-                )
-                ->filter();
-
-            $permissions = $rolePermissions
-                ->merge($allowedDirectPermissions)
-                ->unique()
-                ->reject(
-                    fn ($permission) => $deniedDirectPermissions
-                        ->contains($permission),
-                )
-                ->values();
-        }
+        $user->setRelation('roles', $user->roles->filter(fn ($role) => $role->is_active
+            && ($role->pivot?->expires_at === null || now()->lessThan($role->pivot->expires_at))));
 
         $primaryRole = $user
             ->roles
@@ -672,33 +567,17 @@ class AuthController extends Controller
     /**
      * حذف الصورة القديمة من التخزين المحلي.
      */
-    private function deleteStoredProfilePhoto(
-        ?string $profilePhoto,
-    ): void {
-        if (! $profilePhoto) {
-            return;
-        }
+    private function storedPhotoPath(?string $photo): ?string
+    {
+        $path = parse_url($photo ?? '', PHP_URL_PATH);
+        if (!is_string($path)) return null;
+        if (!preg_match('~(?:^|/)storage/(profile-photos/[A-Za-z0-9_-]+\.(?:jpe?g|png|webp))$~i', $path, $match)) return null;
+        return $match[1];
+    }
 
-        $path = parse_url(
-            $profilePhoto,
-            PHP_URL_PATH,
-        );
-
-        if (
-            ! is_string($path) ||
-            ! Str::startsWith(
-                $path,
-                '/storage/profile-photos/',
-            )
-        ) {
-            return;
-        }
-
-        Storage::disk('public')->delete(
-            Str::after(
-                $path,
-                '/storage/',
-            ),
-        );
+    private function deleteStoredProfilePhoto(?string $photo): void
+    {
+        $path = $this->storedPhotoPath($photo);
+        if ($path) Storage::disk('public')->delete($path);
     }
 }

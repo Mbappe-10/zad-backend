@@ -750,6 +750,8 @@ class AdminResourceController extends Controller
 
     private function guardResource(string $resource): void
     {
+        abort_if(in_array($resource, ['users', 'roles'], true), 404, 'Use the identity management endpoint.');
+
         abort_unless(
             in_array($resource, self::RESOURCES, true),
             404,

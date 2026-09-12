@@ -168,6 +168,10 @@ class FamilyProductController extends Controller
         Request $request,
     ): array {
         return $request->validate([
+            'category_id' => [
+                'sometimes', 'nullable', 'integer',
+                \Illuminate\Validation\Rule::exists('categories', 'id')->whereNull('deleted_at'),
+            ],
             'name_ar' => [
                 'required',
                 'string',
@@ -261,6 +265,7 @@ class FamilyProductController extends Controller
         return [
             'id' => $product->id,
             'store_id' => $product->store_id,
+            'category_id' => $product->category_id,
             'name_ar' => $product->name_ar,
             'description_ar' => $product->description_ar,
             'price' => (float) $product->price,

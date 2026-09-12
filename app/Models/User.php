@@ -437,66 +437,11 @@ class User extends Authenticatable
                 ->all();
         }
 
-        $permissions = collect();
-
-        /*
-        |--------------------------------------------------------------------------
-        | جمع صلاحيات الأدوار
-        |--------------------------------------------------------------------------
-        */
-
-        foreach ($this->roles as $role) {
-            if ($this->roleIsExpired($role)) {
-                continue;
-            }
-
-            foreach ($role->permissions as $permission) {
-                $identifier = $this->permissionIdentifier($permission);
-
-                if ($identifier !== '') {
-                    $permissions->push($identifier);
-                }
-            }
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | تطبيق صلاحيات المستخدم المباشرة
-        |--------------------------------------------------------------------------
-        */
-
-        foreach ($this->directPermissions as $permission) {
-            if ($this->directPermissionIsExpired($permission)) {
-                continue;
-            }
-
-            $identifier = $this->permissionIdentifier($permission);
-
-            if ($identifier === '') {
-                continue;
-            }
-
-            if ($permission->pivot?->effect === 'deny') {
-                $permissions = $permissions->reject(
-                    fn (string $item): bool => $this->normalizeIdentifier($item)
-                        === $this->normalizeIdentifier($identifier),
-                );
-
-                continue;
-            }
-
-            if ($permission->pivot?->effect === 'allow') {
-                $permissions->push($identifier);
-            }
-        }
-
-        return $permissions
-            ->filter()
-            ->unique(
-                fn (string $permission): string => $this->normalizeIdentifier($permission),
-            )
-            ->values()
-            ->all();
+        return $this->roles->flatMap(fn (Role $role) => $role->permissions)
+            ->merge($this->directPermissions)
+            ->map(fn (Permission $permission) => $this->permissionIdentifier($permission))
+            ->filter(fn (string $key) => $key !== '' && $this->hasPermission($key))
+            ->unique()->values()->all();
     }
 
     /*
@@ -509,6 +454,7 @@ class User extends Authenticatable
         Permission $permission,
         string $permissionName,
     ): bool {
+        if (!$permission->is_active) return false;
         return $this->normalizeIdentifier(
             $this->permissionIdentifier($permission),
         ) === $this->normalizeIdentifier($permissionName);
@@ -548,6 +494,7 @@ class User extends Authenticatable
 
     private function roleIsExpired(Role $role): bool
     {
+        if (!$role->is_active) return true;
         $expiresAt = $role->pivot?->expires_at;
 
         if (! $expiresAt) {

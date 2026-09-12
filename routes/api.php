@@ -646,6 +646,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     */
 
     Route::prefix('admin')->group(function () {
+        Route::any('/{identity}/{record?}/{action?}', \App\Http\Controllers\Api\AdminIdentityController::class)
+            ->where('identity', 'users|roles')->whereNumber('record')
+            ->name('api.admin.identity');
+
         Route::get('/payout-requests', [PayoutAdminController::class, 'index']);
         Route::get('/payout-requests/{payout}', [PayoutAdminController::class, 'show'])->whereNumber('payout');
         Route::patch('/payout-requests/{payout}/decision', [PayoutAdminController::class, 'decide'])->whereNumber('payout');
@@ -830,6 +834,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
 Route::prefix('v1/app')->group(function (): void {
     Route::get('/bootstrap', BootstrapController::class);
+    Route::get('/categories', [\App\Http\Controllers\Api\App\CategoryCatalogController::class, 'index']);
+    Route::get('/categories/{category}/products', [\App\Http\Controllers\Api\App\CategoryCatalogController::class, 'products'])->whereNumber('category');
 
     Route::post(
         '/promotions/{promotion}/impression',
@@ -947,3 +953,31 @@ Route::middleware('auth:sanctum')->prefix('v1/app/support')->group(function (): 
 });
 
 require __DIR__.'/zad_payments.php';
+
+
+\Illuminate\Support\Facades\Route::post(
+    'digital-employee-order-tasks',
+    [
+        \App\Http\Controllers\Api\DigitalEmployeeOrderTaskController::class,
+        'store',
+    ]
+)->middleware([
+    'auth:sanctum',
+    'throttle:api',
+]);
+
+// ZAD_DIGITAL_REPORT_ASSIGNMENTS_V1
+Route::middleware(['auth:sanctum', 'throttle:api'])->prefix('digital-report-assignments')->group(function (): void {
+    $controller = \App\Http\Controllers\Api\DigitalReportAssignmentController::class;
+    Route::get('/', [$controller, 'index']);
+    Route::post('/', [$controller, 'store']);
+    Route::post('/{id}/change', [$controller, 'change'])->whereNumber('id');
+    Route::post('/runs/{id}/review', [$controller, 'review'])->whereNumber('id');
+    Route::post('/runs/{id}/retry', [$controller, 'retry'])->whereNumber('id');
+    Route::post('/runs/{id}/remind', [$controller, 'remind'])->whereNumber('id');
+    Route::get('/runs/{id}/export/{format}', [$controller, 'export'])->whereNumber('id')->whereIn('format', ['pdf', 'xlsx']);
+});
+
+// ZAD_ACCOUNT_AVATAR_V1
+Route::get('/profile/photo/content', [AuthController::class, 'profilePhotoContent'])
+    ->middleware(['auth:sanctum', 'throttle:api']);

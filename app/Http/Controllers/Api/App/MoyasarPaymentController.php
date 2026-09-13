@@ -281,8 +281,11 @@ class MoyasarPaymentController extends Controller
             $attempt = PaymentAttempt::query()
                 ->where('order_id', $order->id)
                 ->where(function ($query) use ($paymentId): void {
-                    $query->where('provider_payment_id', $paymentId)
-                        ->orWhere('idempotency_key', $paymentId);
+                    $query->where('provider_payment_id', $paymentId);
+
+                    if (Str::isUuid($paymentId)) {
+                        $query->orWhere('idempotency_key', $paymentId);
+                    }
                 })
                 ->lockForUpdate()
                 ->first();

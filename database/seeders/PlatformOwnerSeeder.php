@@ -126,7 +126,8 @@ class PlatformOwnerSeeder extends Seeder
         if (
             $isNewOwner ||
             ! is_string($owner->password) ||
-            trim($owner->password) === ''
+            trim($owner->password) === '' ||
+            ! Hash::check($password, (string) $owner->password)
         ) {
             $ownerData['password'] = Hash::make($password);
             $ownerData['password_changed_at'] = now();

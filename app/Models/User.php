@@ -439,6 +439,7 @@ class User extends Authenticatable
         if ($this->isPlatformOwner()) {
             return Permission::query()
                 ->get()
+                ->toBase()
                 ->map(
                     fn (Permission $permission): string => $this->permissionIdentifier($permission),
                 )

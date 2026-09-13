@@ -860,12 +860,12 @@ Route::prefix('v1/app')->group(function (): void {
     Route::post(
         '/phone-verifications/send',
         [PhoneVerificationController::class, 'send'],
-    );
+    )->middleware('throttle:5,1');
 
     Route::post(
         '/phone-verifications/verify',
         [PhoneVerificationController::class, 'verify'],
-    );
+    )->middleware('throttle:10,1');
 
     Route::get(
         '/orders',

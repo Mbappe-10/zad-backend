@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\App;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\PaymentAttempt;
+use App\Support\InternalTesting;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ class MoyasarPaymentController extends Controller
 
         if ($order->isPaid()) {
             return response()->json([
-                'message' => 'ط§ظ„ط·ظ„ط¨ ظ…ط¯ظپظˆط¹ ظ…ط³ط¨ظ‚ظ‹ط§.',
+                'message' => 'الطلب مدفوع مسبقًا.',
                 'data' => [
                     'paid' => true,
                     'order' => $this->orderSummary($order),
@@ -29,14 +30,20 @@ class MoyasarPaymentController extends Controller
             ]);
         }
 
-        abort_if($order->isCancelled(), 422, 'ظ„ط§ ظٹظ…ظƒظ† ط¯ظپط¹ ط·ظ„ط¨ ظ…ظ„ط؛ظٹ ط£ظˆ ظ…ط±ظپظˆط¶.');
+        abort_if(
+            $order->isCancelled(),
+            422,
+            'لا يمكن دفع طلب ملغي أو مرفوض.',
+        );
 
         $publishableKey = trim((string) config('moyasar.publishable_key'));
-        $localTestEnabled = $this->localTestEnabled();
+        $localTestEnabled = $this->localTestEnabled($order);
 
         if ($publishableKey === '' && ! $localTestEnabled) {
             throw ValidationException::withMessages([
-                'payment' => ['ط¨ظˆط§ط¨ط© ظ…ظٹط³ظ‘ط± ط؛ظٹط± ظ…ظ‡ظٹط£ط©. ط£ط¶ظپ ظ…ظپط§طھظٹط­ ظ…ظٹط³ظ‘ط± ظپظٹ ظ…ظ„ظپ Laravel .env.'],
+                'payment' => [
+                    'بوابة ميسّر غير مهيأة. أضف مفاتيح ميسّر في إعدادات Laravel.',
+                ],
             ]);
         }
 
@@ -57,10 +64,14 @@ class MoyasarPaymentController extends Controller
         }
 
         return response()->json([
-            'message' => 'طھظ… طھط¬ظ‡ظٹط² ظ…ط­ط§ظˆظ„ط© ط§ظ„ط¯ظپط¹.',
+            'message' => 'تم تجهيز محاولة الدفع.',
             'data' => [
                 'paid' => false,
-                'publishable_key' => $publishableKey,
+                // A real gateway key must never reach the mobile UI while
+                // this order is using the controlled internal-test path.
+                'publishable_key' => $localTestEnabled
+                    ? ''
+                    : $publishableKey,
                 'amount_halalas' => $amountHalalas,
                 'currency' => 'SAR',
                 'description' => "ZAD Sync order {$order->number}",
@@ -69,7 +80,11 @@ class MoyasarPaymentController extends Controller
                     'order_id' => (string) $order->id,
                     'order_number' => (string) $order->number,
                 ],
-                'apple_pay_merchant_id' => trim((string) config('moyasar.apple_pay_merchant_id')),
+                'apple_pay_merchant_id' => $localTestEnabled
+                    ? ''
+                    : trim((string) config(
+                        'moyasar.apple_pay_merchant_id',
+                    )),
                 'apple_pay_label' => (string) config('moyasar.apple_pay_label', 'ZAD Sync'),
                 'local_test_enabled' => $localTestEnabled,
                 'order' => $this->orderSummary($order->fresh()),
@@ -113,7 +128,7 @@ class MoyasarPaymentController extends Controller
     {
         $this->authorizeOrder($request, $order);
 
-        abort_unless($this->localTestEnabled(), 404);
+        abort_unless($this->localTestEnabled($order), 404);
 
         if ($order->isPaid()) {
             return $this->paidResponse($order);
@@ -127,7 +142,7 @@ class MoyasarPaymentController extends Controller
             'metadata' => [
                 'order_id' => (string) $order->id,
                 'order_number' => (string) $order->number,
-                'environment' => 'local_test',
+                'environment' => 'internal_test',
             ],
         ];
 
@@ -173,7 +188,11 @@ class MoyasarPaymentController extends Controller
                 ->where('provider_payment_id', (string) ($payment['id'] ?? ''))
                 ->update([
                     'status' => 'failed',
-                    'failure_message' => (string) data_get($payment, 'source.message', 'طھط¹ط°ط± ط§ظ„ط¯ظپط¹.'),
+                    'failure_message' => (string) data_get(
+                        $payment,
+                        'source.message',
+                        'تعذر الدفع.',
+                    ),
                     'payload' => $payment,
                     'failed_at' => now(),
                 ]);
@@ -192,7 +211,9 @@ class MoyasarPaymentController extends Controller
 
         if ($secretKey === '') {
             throw ValidationException::withMessages([
-                'payment' => ['ظ…ظپطھط§ط­ ظ…ظٹط³ظ‘ط± ط§ظ„ط³ط±ظٹ ط؛ظٹط± ظ…ظ‡ظٹط£ ظپظٹ Laravel.'],
+                'payment' => [
+                    'مفتاح ميسّر السري غير مهيأ في Laravel.',
+                ],
             ]);
         }
 
@@ -204,13 +225,17 @@ class MoyasarPaymentController extends Controller
                 ->get(rtrim((string) config('moyasar.api_url'), '/').'/payments/'.$paymentId);
         } catch (ConnectionException) {
             throw ValidationException::withMessages([
-                'payment' => ['طھط¹ط°ط± ط§ظ„ط§طھطµط§ظ„ ط¨ظ…ظٹط³ظ‘ط± ظ„ظ„طھط­ظ‚ظ‚ ظ…ظ† ط§ظ„ط¯ظپط¹. ط£ط¹ط¯ ط§ظ„ظ…ط­ط§ظˆظ„ط©.'],
+                'payment' => [
+                    'تعذر الاتصال بميسّر للتحقق من الدفع. أعد المحاولة.',
+                ],
             ]);
         }
 
         if (! $response->successful()) {
             throw ValidationException::withMessages([
-                'payment' => ['طھط¹ط°ط± ط§ظ„طھط­ظ‚ظ‚ ظ…ظ† ط¹ظ…ظ„ظٹط© ط§ظ„ط¯ظپط¹ ظ„ط¯ظ‰ ظ…ظٹط³ظ‘ط±.'],
+                'payment' => [
+                    'تعذر التحقق من عملية الدفع لدى ميسّر.',
+                ],
             ]);
         }
 
@@ -236,7 +261,9 @@ class MoyasarPaymentController extends Controller
             $paymentOrderId !== (int) $order->id
         ) {
             throw ValidationException::withMessages([
-                'payment' => ['ط¨ظٹط§ظ†ط§طھ ط¹ظ…ظ„ظٹط© ط§ظ„ط¯ظپط¹ ظ„ط§ طھط·ط§ط¨ظ‚ ظ…ط¨ظ„ط؛ ظˆط±ظ‚ظ… ط§ظ„ط·ظ„ط¨.'],
+                'payment' => [
+                    'بيانات الدفع لا تطابق مبلغ ورقم الطلب.',
+                ],
             ]);
         }
     }
@@ -298,13 +325,25 @@ class MoyasarPaymentController extends Controller
             $order->customer_id !== null &&
             $order->customer_id === $user->appProfile?->customer_id;
 
-        abort_unless($guestAllowed || $customerAllowed, 403, 'ظ„ط§ ظٹظ…ظƒظ†ظƒ ط§ظ„ظˆطµظˆظ„ ط¥ظ„ظ‰ ط¯ظپط¹ ظ‡ط°ط§ ط§ظ„ط·ظ„ط¨.');
+        abort_unless(
+            $guestAllowed || $customerAllowed,
+            403,
+            'لا يمكنك الوصول إلى دفع هذا الطلب.',
+        );
     }
 
-    private function localTestEnabled(): bool
+    private function localTestEnabled(Order $order): bool
     {
-        return app()->environment(['local', 'testing']) &&
-            (bool) config('moyasar.local_test_enabled', false);
+        if (
+            app()->environment(['local', 'testing'])
+            && (bool) config('moyasar.local_test_enabled', false)
+        ) {
+            return true;
+        }
+
+        return InternalTesting::simulatesPaymentFor(
+            (string) $order->contact_phone,
+        );
     }
 
     private function amountHalalas(Order $order): int
@@ -337,7 +376,7 @@ class MoyasarPaymentController extends Controller
     private function paidResponse(Order $order): JsonResponse
     {
         return response()->json([
-            'message' => 'طھظ… ط§ظ„ط¯ظپط¹ ظˆطھط£ظƒظٹط¯ ط§ظ„ط·ظ„ط¨ ط¨ظ†ط¬ط§ط­.',
+            'message' => 'تم الدفع وتأكيد الطلب بنجاح.',
             'data' => [
                 'paid' => true,
                 'order' => $this->orderSummary($order),
@@ -348,6 +387,8 @@ class MoyasarPaymentController extends Controller
     private function failureMessage(array $payment): string
     {
         $message = trim((string) data_get($payment, 'source.message', ''));
-        return $message !== '' ? $message : 'ظ„ظ… طھظƒطھظ…ظ„ ط¹ظ…ظ„ظٹط© ط§ظ„ط¯ظپط¹. ظٹظ…ظƒظ†ظƒ ط¥ط¹ط§ط¯ط© ط§ظ„ظ…ط­ط§ظˆظ„ط© ط£ظˆ طھط؛ظٹظٹط± ط§ظ„ط¨ط·ط§ظ‚ط©.';
+        return $message !== ''
+            ? $message
+            : 'لم تكتمل عملية الدفع. يمكنك إعادة المحاولة أو تغيير البطاقة.';
     }
 }

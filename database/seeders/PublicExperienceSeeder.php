@@ -31,6 +31,7 @@ class PublicExperienceSeeder extends Seeder
 
         $this->seedCities();
         $this->assignCatalogStoresToMakkah($catalog);
+        $this->applyInternalTestingPickupLocation();
         $this->seedAdvertisements($catalog);
     }
 
@@ -213,6 +214,47 @@ class PublicExperienceSeeder extends Seeder
                     $values,
                 );
         }
+    }
+
+    private function applyInternalTestingPickupLocation(): void
+    {
+        if (!(bool) config('internal_testing.enabled', false)) {
+            return;
+        }
+
+        $storeSlug = trim((string) config(
+            'internal_testing.family.store_slug',
+            '',
+        ));
+        $latitude = config(
+            'internal_testing.family.pickup_latitude',
+        );
+        $longitude = config(
+            'internal_testing.family.pickup_longitude',
+        );
+
+        if (
+            $storeSlug === '' ||
+            !is_numeric($latitude) ||
+            !is_numeric($longitude) ||
+            (float) $latitude < -90 ||
+            (float) $latitude > 90 ||
+            (float) $longitude < -180 ||
+            (float) $longitude > 180
+        ) {
+            return;
+        }
+
+        Store::query()
+            ->where('slug', $storeSlug)
+            ->update([
+                'pickup_address' => trim((string) config(
+                    'internal_testing.family.pickup_address',
+                    'نقطة استلام تجريبية - مكة المكرمة',
+                )),
+                'pickup_latitude' => (float) $latitude,
+                'pickup_longitude' => (float) $longitude,
+            ]);
     }
 
     private function productForSourceId(

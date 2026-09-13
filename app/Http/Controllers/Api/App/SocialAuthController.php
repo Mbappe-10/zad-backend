@@ -6,148 +6,99 @@ use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
 use App\Models\Driver;
 use App\Models\ProductiveFamily;
-use App\Models\User;
-use Google\Client as GoogleClient;
+use App\Services\App\GoogleIdentityVerifier;
+use App\Services\App\SocialAccountLinker;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 class SocialAuthController extends Controller
 {
+    public function __construct(
+        private readonly GoogleIdentityVerifier $googleIdentity,
+        private readonly SocialAccountLinker $accounts,
+    ) {
+    }
+
     public function google(Request $request): JsonResponse
     {
         $data = $request->validate([
             'id_token' => ['required', 'string'],
-            'join_type' => ['required', 'in:productive_family,driver'],
-            'device_name' => ['nullable', 'string', 'max:100'],
+            'join_type' => [
+                'required',
+                'in:productive_family,driver',
+            ],
+            'device_name' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
         ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | التحقق من Google ID Token
-        |--------------------------------------------------------------------------
-        */
-
-        $client = new GoogleClient([
-            'client_id' => config('services.google.client_id'),
-        ]);
-
-        $payload = $client->verifyIdToken($data['id_token']);
-
-        if (! $payload || empty($payload['sub'])) {
-            throw ValidationException::withMessages([
-                'id_token' => ['تعذر التحقق من حساب Google. حاول مرة أخرى.'],
-            ]);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | هوية Google
-        |--------------------------------------------------------------------------
-        |
-        | لا نحفظ البريد الإلكتروني.
-        | لا نحفظ كلمة مرور.
-        | نعتمد فقط على معرف Google الموثق.
-        |
-        */
+        $payload = $this->googleIdentity->verify(
+            $data['id_token'],
+        );
 
         $providerUserId = (string) $payload['sub'];
-
+        $email = (string) $payload['email'];
         $name = trim((string) ($payload['name'] ?? ''));
 
         if ($name === '') {
             $name = 'مستخدم زاد سينك';
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | البحث عن الحساب أو إنشاؤه
-        |--------------------------------------------------------------------------
-        */
-
-        [$user, $profile, $isNewUser] = DB::transaction(
-            function () use (
+        [$user, $profile, $isNewUser, $accountLinked] =
+            DB::transaction(function () use (
                 $providerUserId,
+                $email,
                 $name,
-                $data
+                $data,
             ): array {
-                $user = User::query()
-                    ->where('auth_provider', 'google')
-                    ->where('provider_user_id', $providerUserId)
-                    ->first();
+                [$user, $isNewUser] =
+                    $this->accounts->resolveGoogleUser(
+                        $providerUserId,
+                        $email,
+                        $name,
+                        $data['join_type'],
+                    );
 
-                $isNewUser = $user === null;
-
-                if ($isNewUser) {
-                    $user = User::create([
-                        'name' => $name,
-                        'name_ar' => $name,
-
-                        // لا Email
-                        // لا Password
-                        // لا Phone في هذه المرحلة
-
-                        'auth_provider' => 'google',
-                        'provider_user_id' => $providerUserId,
-
-                        'status' => 'active',
-                        'is_approved' => true,
-                        'locale' => 'ar',
-                        'timezone' => 'Asia/Riyadh',
-                    ]);
-                }
-
-                if ($user->status !== 'active') {
-                    abort(403, 'الحساب غير نشط.');
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | App Profile
-                |--------------------------------------------------------------------------
-                */
-
-                $profile = AppProfile::firstOrCreate(
-                    [
-                        'user_id' => $user->id,
-                    ],
+                $profile = AppProfile::query()->firstOrCreate(
+                    ['user_id' => $user->id],
                     [
                         'roles' => [],
                         'active_mode' => $data['join_type'],
                     ],
                 );
 
-                /*
-                |--------------------------------------------------------------------------
-                | إضافة نوع الانضمام
-                |--------------------------------------------------------------------------
-                */
-
-                $roles = $profile->roles ?? [];
+                $roles = is_array($profile->roles)
+                    ? $profile->roles
+                    : [];
 
                 if (! in_array($data['join_type'], $roles, true)) {
                     $roles[] = $data['join_type'];
                 }
 
-                $profile->update([
+                $profile->forceFill([
                     'roles' => array_values(array_unique($roles)),
                     'active_mode' => $data['join_type'],
-                ]);
-
-                $user->forceFill([
-                    'last_login_at' => now(),
                 ])->save();
 
-                return [$user, $profile->fresh(), $isNewUser];
-            },
-        );
+                $accountLinked =
+                    $this->accounts->linkRoleAccount(
+                        $user,
+                        $profile,
+                        $email,
+                        $data['join_type'],
+                        $name,
+                    );
 
-        /*
-        |--------------------------------------------------------------------------
-        | إصدار Sanctum Token لتطبيق ZADSYNC
-        |--------------------------------------------------------------------------
-        */
+                return [
+                    $user->fresh(),
+                    $profile->fresh(),
+                    $isNewUser,
+                    $accountLinked,
+                ];
+            });
 
         $token = $user
             ->createToken(
@@ -156,30 +107,24 @@ class SocialAuthController extends Controller
             ->plainTextToken;
 
         return response()->json([
-            'message' => $isNewUser
-                ? 'تم إنشاء حساب زاد سينك بنجاح.'
-                : 'تم تسجيل الدخول بنجاح.',
-
+            'message' => $accountLinked
+                ? 'تم تسجيل الدخول وربط الحساب التشغيلي بنجاح.'
+                : ($isNewUser
+                    ? 'تم إنشاء حساب زاد سينك بنجاح.'
+                    : 'تم تسجيل الدخول بنجاح.'),
             'is_new_user' => $isNewUser,
-
+            'account_linked' => $accountLinked,
             'token' => $token,
-
             'user' => [
                 'id' => $user->id,
                 'name' => $user->displayName('ar'),
-
                 'auth_provider' => $user->auth_provider,
-
                 'roles' => $profile->roles ?? [],
                 'active_mode' => $profile->active_mode,
-
                 'productive_family_id' =>
                     $profile->productive_family_id,
-
-                'driver_id' =>
-                    $profile->driver_id,
+                'driver_id' => $profile->driver_id,
             ],
-
             'next_step' => $this->nextStep(
                 $profile->active_mode,
                 $profile,
@@ -191,29 +136,33 @@ class SocialAuthController extends Controller
         ?string $activeMode,
         AppProfile $profile,
     ): string {
-        if (
-            $activeMode === 'productive_family'
-            && (
-                ! $profile->productive_family_id
-                || ! ProductiveFamily::query()
+        if ($activeMode === 'productive_family') {
+            $familyExists = $profile->productive_family_id !== null
+                && ProductiveFamily::query()
                     ->whereKey($profile->productive_family_id)
                     ->whereHas('store')
-                    ->exists()
-            )
-        ) {
-            return 'complete_productive_family_profile';
+                    ->exists();
+
+            return $familyExists
+                ? 'dashboard'
+                : 'complete_productive_family_profile';
         }
 
-        if (
-            $activeMode === 'driver'
-            && (
-                ! $profile->driver_id
-                || ! Driver::query()
-                    ->whereKey($profile->driver_id)
-                    ->exists()
-            )
-        ) {
-            return 'complete_driver_profile';
+        if ($activeMode === 'driver') {
+            $driver = $profile->driver_id !== null
+                ? Driver::query()->find($profile->driver_id)
+                : null;
+
+            if ($driver === null) {
+                return 'complete_driver_profile';
+            }
+
+            return match ($driver->application_status) {
+                Driver::APPLICATION_APPROVED => 'dashboard',
+                Driver::APPLICATION_REJECTED,
+                'needs_correction' => 'driver_profile_rejected',
+                default => 'driver_pending_review',
+            };
         }
 
         return 'dashboard';

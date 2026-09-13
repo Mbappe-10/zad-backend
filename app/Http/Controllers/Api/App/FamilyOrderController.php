@@ -49,7 +49,6 @@ class FamilyOrderController extends Controller
 
                 'products_count' => Product::query()
                     ->whereIn('store_id', $storeIds)
-            ->where('payment_status', Order::PAYMENT_PAID)
                     ->count(),
 
                 'sales_total' => (float) (clone $orders)

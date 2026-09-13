@@ -252,7 +252,7 @@ class AppOrderController extends Controller
         abort_unless(
             $order->isPaid(),
             402,
-            'ظٹط¬ط¨ ط¥طھظ…ط§ظ… ط§ظ„ط¯ظپط¹ ظ‚ط¨ظ„ ظپطھط­ طھطھط¨ط¹ ط§ظ„ط·ظ„ط¨.',
+            'يجب إتمام الدفع قبل فتح تتبع الطلب.',
         );
 
         $order->load([
@@ -639,6 +639,25 @@ class AppOrderController extends Controller
         ) {
             throw ValidationException::withMessages([
                 'verification_token' => ['بيانات توثيق رقم الجوال غير متطابقة.'],
+            ]);
+        }
+
+        if (($token['purpose'] ?? null) !== 'checkout') {
+            throw ValidationException::withMessages([
+                'verification_token' => [
+                    'رمز التحقق غير مخصص لإنشاء طلب.',
+                ],
+            ]);
+        }
+
+        if (
+            isset($token['guest_session_id'])
+            && (string) $token['guest_session_id'] !== $guestSessionId
+        ) {
+            throw ValidationException::withMessages([
+                'verification_token' => [
+                    'رمز التحقق لا يخص جلسة هذا الجهاز.',
+                ],
             ]);
         }
 

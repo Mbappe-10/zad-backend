@@ -17,6 +17,7 @@ use App\Models\Store;
 use App\Services\App\VehicleRecommendationService;
 use App\Services\VehiclePricingService;
 use App\Services\OrderSettlementService;
+use App\Services\OrderJourneyRetentionService;
 use App\Services\DeliveryVerificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,7 @@ class AppOrderController extends Controller
         private readonly VehiclePricingService $pricing,
         private readonly OrderSettlementService $settlements,
         private readonly DeliveryVerificationService $deliveryVerification,
+        private readonly OrderJourneyRetentionService $journeyRetention,
     ) {
     }
 
@@ -492,6 +494,20 @@ class AppOrderController extends Controller
 
             return $rating;
         });
+
+        if (
+            $data['arrival_condition'] === 'issue'
+            || count($data['feedback_items'] ?? []) > 0
+        ) {
+            try {
+                $this->journeyRetention->holdForProblem(
+                    $order,
+                    'تجميد تلقائي بسبب بلاغ العميل في تقييم الطلب.',
+                );
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+        }
 
         return response()->json([
             'message' => 'شكرًا لك، تم حفظ تقييمك.',

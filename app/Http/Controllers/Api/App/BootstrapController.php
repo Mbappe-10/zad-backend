@@ -761,6 +761,6 @@ class BootstrapController extends Controller
             );
         }
 
-        return '/storage/'.$cleanPath;
+        return Storage::disk('public')->url($cleanPath);
     }
 }

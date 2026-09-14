@@ -156,7 +156,7 @@ class ProductImageService
                  * نعيد مسارًا نسبيًا بدل asset() حتى لا يحدث تعارض
                  * بين localhost و 127.0.0.1 في بيئة التطوير.
                  */
-                'image_url' => '/storage/'.$newImagePath,
+                'image_url' => Storage::disk('public')->url($newImagePath),
                 'size_bytes' => $sizeBytes,
                 'size_kb' => round(
                     $sizeBytes / 1024,

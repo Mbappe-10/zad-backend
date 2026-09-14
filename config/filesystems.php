@@ -39,9 +39,12 @@ return [
         ],
 
         'public' => [
-            'driver' => 'local',
+            'driver' => env('PUBLIC_FILESYSTEM_DRIVER', 'local'),
             'root' => storage_path('app/public'),
             'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
+            'cloudinary_url' => env('CLOUDINARY_URL'),
+            'cloudinary_prefix' => env('CLOUDINARY_PREFIX', 'zad-sync'),
+            'cloudinary_secure' => env('CLOUDINARY_SECURE', true),
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

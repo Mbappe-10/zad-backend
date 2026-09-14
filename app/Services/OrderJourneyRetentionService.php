@@ -119,6 +119,50 @@ class OrderJourneyRetentionService
         return $order->fresh();
     }
 
+    public function scheduleAt(
+        Order $order,
+        CarbonInterface $deleteAt,
+        string $reason,
+        ?int $userId = null,
+    ): Order {
+        if ($deleteAt->isPast() || $deleteAt->greaterThan(now()->addYear())) {
+            throw new RuntimeException('موعد الحذف يجب أن يكون مستقبلًا وخلال سنة واحدة.');
+        }
+
+        $order->forceFill([
+            'media_retention_status' => 'scheduled',
+            'media_retention_hold' => false,
+            'media_hold_until' => null,
+            'media_delete_at' => $deleteAt,
+            'media_retention_reason' => $reason,
+            'media_purge_last_error' => null,
+        ])->save();
+
+        $this->audit($order, 'تم تحديد موعد حذف وسائط الرحلة: '.$reason, $userId, [
+            'retention_action' => 'schedule_at',
+            'delete_at' => $deleteAt->toIso8601String(),
+        ]);
+
+        return $order->fresh();
+    }
+
+    public function holdForProblem(Order $order, string $reason = 'بلاغ أو مشكلة في الطلب'): Order
+    {
+        $order->refresh();
+
+        if ($order->media_retention_status === 'purged' || $order->media_retention_hold) {
+            return $order;
+        }
+
+        $hours = JourneyRetentionSetting::current()->problem_retention_hours;
+
+        return $this->hold(
+            $order,
+            $reason,
+            now()->addHours($hours),
+        );
+    }
+
     public function purge(Order $order, ?int $userId = null, string $reason = 'انتهاء مدة الاحتفاظ'): Order
     {
         $order->refresh();

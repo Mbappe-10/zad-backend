@@ -2,11 +2,17 @@
 
 namespace App\Providers;
 
+use App\Filesystems\CloudinaryStorageAdapter;
+use Cloudinary\Cloudinary;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Filesystem\FilesystemAdapter as LaravelFilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
+use League\Flysystem\Filesystem;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -17,6 +23,33 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        Storage::extend('cloudinary', function ($app, array $config): LaravelFilesystemAdapter {
+            $cloudinaryUrl = trim((string) ($config['cloudinary_url'] ?? ''));
+
+            if ($cloudinaryUrl === '') {
+                throw new RuntimeException('CLOUDINARY_URL is required for the Cloudinary filesystem.');
+            }
+
+            $cloudName = parse_url($cloudinaryUrl, PHP_URL_HOST);
+
+            if (! is_string($cloudName) || $cloudName === '') {
+                throw new RuntimeException('CLOUDINARY_URL does not contain a valid cloud name.');
+            }
+
+            $adapter = new CloudinaryStorageAdapter(
+                new Cloudinary($cloudinaryUrl),
+                $cloudName,
+                (string) ($config['cloudinary_prefix'] ?? 'zad-sync'),
+                (bool) ($config['cloudinary_secure'] ?? true),
+            );
+
+            return new LaravelFilesystemAdapter(
+                new Filesystem($adapter, $config),
+                $adapter,
+                $config,
+            );
+        });
+
         // ZAD_SQLITE_LOCAL_PRAGMAS
         if (
             app()->environment('local') &&

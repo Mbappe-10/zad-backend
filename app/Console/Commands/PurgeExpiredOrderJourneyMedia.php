@@ -35,6 +35,21 @@ class PurgeExpiredOrderJourneyMedia extends Command
             return self::SUCCESS;
         }
 
+        if ($orderIds->isEmpty() && ! $this->option('dry-run')) {
+            Order::query()
+                ->where('media_retention_hold', true)
+                ->whereNotNull('media_hold_until')
+                ->where('media_hold_until', '<=', now())
+                ->chunkById(100, function ($orders) use ($retention): void {
+                    foreach ($orders as $order) {
+                        $retention->release(
+                            $order,
+                            'انتهت مدة تجميد الحذف التلقائي.',
+                        );
+                    }
+                });
+        }
+
         Order::query()
             ->whereIn('status', [...Order::completedStatuses(), ...Order::cancelledStatuses()])
             ->whereNull('media_delete_at')

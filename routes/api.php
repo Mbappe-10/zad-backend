@@ -183,6 +183,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     );
 
     Route::post(
+        '/delivery/orders/{order}/retention/schedule-at',
+        [OrderJourneyAdminController::class, 'scheduleAt'],
+    );
+
+    Route::post(
         '/delivery/orders/{order}/retention/purge',
         [OrderJourneyAdminController::class, 'purge'],
     );

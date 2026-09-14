@@ -255,6 +255,29 @@ class OrderJourneyAdminController extends Controller
         ]);
     }
 
+    public function scheduleAt(Request $request, Order $order): JsonResponse
+    {
+        $this->ensurePlatformOwner($request);
+        $this->ensureNotPurged($order);
+
+        $data = $request->validate([
+            'delete_at' => ['required', 'date', 'after:now', 'before_or_equal:'.now()->addYear()->toIso8601String()],
+            'reason' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        $order = $this->retention->scheduleAt(
+            $order,
+            Carbon::parse($data['delete_at']),
+            $data['reason'],
+            $request->user()->id,
+        );
+
+        return response()->json([
+            'message' => 'تم تحديد موعد حذف وسائط الطلب.',
+            'data' => $this->retentionPayload($order),
+        ]);
+    }
+
     public function purge(Request $request, Order $order): JsonResponse
     {
         $this->ensurePlatformOwner($request);
@@ -283,10 +306,11 @@ class OrderJourneyAdminController extends Controller
         $data = $request->validate([
             'order_ids' => ['required', 'array', 'min:1', 'max:100'],
             'order_ids.*' => ['required', 'integer', 'distinct', 'exists:orders,id'],
-            'action' => ['required', 'in:hold,release,extend,purge'],
+            'action' => ['required', 'in:hold,release,extend,schedule_at,purge'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
             'hours' => ['nullable', 'required_if:action,extend', 'integer', 'min:1', 'max:8760'],
             'hold_until' => ['nullable', 'date', 'after:now'],
+            'delete_at' => ['nullable', 'required_if:action,schedule_at', 'date', 'after:now'],
             'confirmation' => ['nullable', 'required_if:action,purge', 'in:PURGE'],
         ]);
 
@@ -314,6 +338,12 @@ class OrderJourneyAdminController extends Controller
                     'extend' => $this->retention->extend(
                         $order,
                         (int) $data['hours'],
+                        $data['reason'],
+                        $request->user()->id,
+                    ),
+                    'schedule_at' => $this->retention->scheduleAt(
+                        $order,
+                        Carbon::parse($data['delete_at']),
                         $data['reason'],
                         $request->user()->id,
                     ),

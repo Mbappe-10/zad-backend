@@ -415,7 +415,7 @@ class AuthController extends Controller
             $old = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $path) {
                 $user = User::query()->lockForUpdate()->findOrFail($request->user()->id);
                 $old = $user->profile_photo;
-                $user->update(['profile_photo' => '/storage/'.$path]);
+                $user->update(['profile_photo' => $path]);
                 return $old;
             });
         } catch (\Throwable $e) {
@@ -529,7 +529,7 @@ class AuthController extends Controller
                 ->values()
                 ->all(),
 
-            'profilePhoto' => $user->profile_photo,
+            'profilePhoto' => $this->profilePhotoUrl($user->profile_photo),
 
             'isApproved' => (bool) $user->is_approved,
             'isPlatformOwner' => $user->isPlatformOwner(),
@@ -565,14 +565,25 @@ class AuthController extends Controller
     }
 
     /**
-     * حذف الصورة القديمة من التخزين المحلي.
+     * استخراج مسار الصورة سواء كانت قيمة قديمة محلية أو رابط Cloudinary.
      */
     private function storedPhotoPath(?string $photo): ?string
     {
         $path = parse_url($photo ?? '', PHP_URL_PATH);
         if (!is_string($path)) return null;
-        if (!preg_match('~(?:^|/)storage/(profile-photos/[A-Za-z0-9_-]+\.(?:jpe?g|png|webp))$~i', $path, $match)) return null;
+        if (!preg_match('~(?:^|/)(profile-photos/[A-Za-z0-9_-]+\.(?:jpe?g|png|webp))$~i', $path, $match)) return null;
         return $match[1];
+    }
+
+    private function profilePhotoUrl(?string $photo): ?string
+    {
+        if (! filled($photo)) return null;
+
+        $path = $this->storedPhotoPath($photo);
+
+        return $path
+            ? Storage::disk('public')->url($path)
+            : $photo;
     }
 
     private function deleteStoredProfilePhoto(?string $photo): void

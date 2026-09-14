@@ -10,9 +10,26 @@ class UpdatePlatformSettingsRequest extends FormRequest
     {
         $user = $this->user();
 
-        return (bool) $user && (
-            (bool) ($user->is_owner ?? false)
-            || (method_exists($user, 'can') && $user->can('master_settings.access'))
+        if (! $user) {
+            return false;
+        }
+
+        $isPlatformOwner = (
+            (method_exists($user, 'isPlatformOwner') && $user->isPlatformOwner())
+            || (bool) $user->getAttribute('is_platform_owner')
+            || (bool) $user->getAttribute('is_owner')
+            || (string) $user->getAttribute('role') === 'platform_owner'
+        );
+
+        if ($isPlatformOwner) {
+            return true;
+        }
+
+        return (
+            (method_exists($user, 'hasPermission')
+                && $user->hasPermission('master_settings.access'))
+            || (method_exists($user, 'can')
+                && $user->can('master_settings.access'))
         );
     }
 

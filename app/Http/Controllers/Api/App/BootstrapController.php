@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\App;
 
+use Illuminate\Support\Facades\Storage;
 use App\Http\Controllers\Controller;
 use App\Models\AppSetting;
 use App\Models\Category;

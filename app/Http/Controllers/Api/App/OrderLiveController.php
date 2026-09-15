@@ -180,10 +180,29 @@ class OrderLiveController extends Controller
         ]);
 
         $session = $this->activeSession($order);
-        $path = $data['final_photo']->store(
-            "order-live/{$order->id}",
-            'public',
-        );
+
+        try {
+            $path = $data['final_photo']->store(
+                "order-live/{$order->id}",
+                'public',
+            );
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'تعذر رفع الصورة إلى التخزين الخارجي. تحقق من إعدادات Cloudinary.',
+            ], 500);
+        }
+
+        if (! is_string($path) || trim($path) === '') {
+            report(new \RuntimeException(
+                'Final dish photo storage returned an empty path.',
+            ));
+
+            return response()->json([
+                'message' => 'تعذر حفظ الصورة النهائية في التخزين الخارجي.',
+            ], 500);
+        }
 
         $session->update([
             'status' => OrderLiveSession::STATUS_ENDED,

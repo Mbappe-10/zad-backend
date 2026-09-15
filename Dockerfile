@@ -1,5 +1,12 @@
 FROM php:8.4-cli
 
+# ZAD_FINAL_PHOTO_UPLOAD_LIMITS
+RUN printf '%s\n' \
+    'upload_max_filesize=16M' \
+    'post_max_size=20M' \
+    'memory_limit=256M' \
+    > /usr/local/etc/php/conf.d/zad-uploads.ini
+
 RUN apt-get update && apt-get install -y \
     git \
     unzip \

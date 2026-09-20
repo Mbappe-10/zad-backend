@@ -83,5 +83,42 @@ class AppServiceProvider extends ServiceProvider
                     'message' => 'تم تجاوز عدد محاولات تسجيل الدخول المسموح بها. حاول مرة أخرى بعد دقيقة.',
                 ], 429));
         });
+
+        RateLimiter::for('payment-action', function (Request $request): Limit {
+            $order = $request->route('order');
+            $orderId = is_object($order) && method_exists($order, 'getKey')
+                ? (string) $order->getKey()
+                : (string) $order;
+            $guestSession = trim((string) $request->header('X-Guest-Session', ''));
+            $actor = $request->user()?->getAuthIdentifier() !== null
+                ? 'user:'.$request->user()->getAuthIdentifier()
+                : ($guestSession !== ''
+                    ? 'guest:'.hash('sha256', $guestSession)
+                    : 'ip:'.$request->ip());
+
+            return Limit::perMinute((int) env('PAYMENT_ACTION_RATE_LIMIT_PER_MINUTE', 30))
+                ->by("payment-action:{$orderId}:{$actor}")
+                ->response(fn (Request $request, array $headers) => response()->json([
+                    'message' => 'طلبات الدفع متقاربة جدًا. انتظر لحظات ثم أعد المحاولة مرة واحدة.',
+                    'code' => 'payment_rate_limited',
+                    'retry_after' => (int) ($headers['Retry-After'] ?? 1),
+                ], 429, $headers));
+        });
+
+        RateLimiter::for('payment-status', function (Request $request): Limit {
+            $order = $request->route('order');
+            $orderId = is_object($order) && method_exists($order, 'getKey')
+                ? (string) $order->getKey()
+                : (string) $order;
+            $guestSession = trim((string) $request->header('X-Guest-Session', ''));
+            $actor = $request->user()?->getAuthIdentifier() !== null
+                ? 'user:'.$request->user()->getAuthIdentifier()
+                : ($guestSession !== ''
+                    ? 'guest:'.hash('sha256', $guestSession)
+                    : 'ip:'.$request->ip());
+
+            return Limit::perMinute((int) env('PAYMENT_STATUS_RATE_LIMIT_PER_MINUTE', 120))
+                ->by("payment-status:{$orderId}:{$actor}");
+        });
     }
 }

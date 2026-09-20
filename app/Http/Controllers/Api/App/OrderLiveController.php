@@ -170,6 +170,32 @@ class OrderLiveController extends Controller
     {
         $this->ensureFamilyOwnsOrder($request, $order);
 
+        $existingSession = OrderLiveSession::query()
+            ->where('order_id', $order->id)
+            ->latest('id')
+            ->first();
+
+        if (
+            $existingSession?->status === OrderLiveSession::STATUS_ENDED
+            && filled($existingSession->final_photo_path)
+        ) {
+            $order->refresh();
+
+            return response()->json([
+                'message' => 'الصورة النهائية محفوظة مسبقًا.',
+                'dispatch_status' => $order->driver_id === null
+                    ? 'searching'
+                    : 'assigned',
+                'data' => $this->sessionPayload($existingSession),
+                'order' => [
+                    'id' => $order->id,
+                    'number' => $order->number,
+                    'status' => $order->status,
+                    'driver_id' => $order->driver_id,
+                ],
+            ]);
+        }
+
         $data = $request->validate([
             'final_photo' => [
                 'required',
@@ -190,8 +216,10 @@ class OrderLiveController extends Controller
             report($exception);
 
             return response()->json([
-                'message' => 'تعذر رفع الصورة إلى التخزين الخارجي. تحقق من إعدادات Cloudinary.',
-            ], 500);
+                'message' => 'تعذر رفع الصورة الآن. لم يُنهَ الطلب ويمكن إعادة المحاولة بأمان.',
+                'code' => 'media_upload_unavailable',
+                'retryable' => true,
+            ], 503);
         }
 
         if (! is_string($path) || trim($path) === '') {

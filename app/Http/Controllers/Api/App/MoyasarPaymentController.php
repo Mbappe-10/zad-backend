@@ -47,17 +47,29 @@ class MoyasarPaymentController extends Controller
             ]);
         }
 
-        $givenId = (string) Str::uuid();
         $amountHalalas = $this->amountHalalas($order);
+        $attempt = PaymentAttempt::query()
+            ->where('order_id', $order->id)
+            ->where('gateway', 'moyasar')
+            ->where('status', 'created')
+            ->where('amount_halalas', $amountHalalas)
+            ->where('currency', 'SAR')
+            ->where('created_at', '>=', now()->subMinutes(15))
+            ->latest('id')
+            ->first();
 
-        PaymentAttempt::query()->create([
-            'order_id' => $order->id,
-            'idempotency_key' => $givenId,
-            'gateway' => 'moyasar',
-            'status' => 'created',
-            'amount_halalas' => $amountHalalas,
-            'currency' => 'SAR',
-        ]);
+        if ($attempt === null) {
+            $attempt = PaymentAttempt::query()->create([
+                'order_id' => $order->id,
+                'idempotency_key' => (string) Str::uuid(),
+                'gateway' => 'moyasar',
+                'status' => 'created',
+                'amount_halalas' => $amountHalalas,
+                'currency' => 'SAR',
+            ]);
+        }
+
+        $givenId = (string) $attempt->idempotency_key;
 
         if ($order->payment_status !== Order::PAYMENT_PENDING) {
             $order->update(['payment_status' => Order::PAYMENT_PENDING]);

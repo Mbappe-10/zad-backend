@@ -36,6 +36,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
+# Keep polling requests from blocking checkout or media uploads.
+ENV PHP_CLI_SERVER_WORKERS=2
+
 COPY composer.json composer.lock ./
 
 RUN composer install \
@@ -60,4 +63,4 @@ RUN mkdir -p \
 
 EXPOSE 10000
 
-CMD ["/bin/sh", "-c", "set -e; php artisan optimize:clear; php artisan migrate --force; php artisan db:seed --class=PlatformOwnerSeeder --force; php artisan db:seed --class=MarketplaceCatalogSeeder --force; php artisan db:seed --class=ProductionCatalogSeeder --force; php artisan db:seed --class=PublicExperienceSeeder --force; php artisan schedule:work >> storage/logs/scheduler.log 2>&1 & exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
+CMD ["/bin/sh", "-c", "set -e; php artisan optimize:clear; php artisan migrate --force; php artisan schedule:work >> storage/logs/scheduler.log 2>&1 & exec php artisan serve --no-reload --host=0.0.0.0 --port=${PORT:-10000}"]

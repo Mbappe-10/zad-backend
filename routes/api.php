@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Admin\StoreController;
 use App\Http\Controllers\Api\AdminResourceController;
 use App\Http\Controllers\Api\App\AppOrderController;
 use App\Http\Controllers\Api\App\BootstrapController;
+use App\Http\Controllers\Api\App\PublicMediaController;
 use App\Http\Controllers\Api\App\DriverOrderController;
 use App\Http\Controllers\Api\App\DriverProfileController;
 use App\Http\Controllers\Api\App\FamilyOrderController;
@@ -57,6 +58,11 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/branding', [BrandingSettingController::class, 'show'])
     ->name('api.branding.show');
+
+/* ZAD_PUBLIC_MEDIA_CORS_V1 */
+Route::get('/v1/app/media', [PublicMediaController::class, 'show'])
+    ->middleware('throttle:300,1')
+    ->name('api.app.media.show');
 
 /*
 |--------------------------------------------------------------------------

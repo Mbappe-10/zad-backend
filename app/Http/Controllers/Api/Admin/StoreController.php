@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
 use App\Models\ProductiveFamily;
 use App\Models\Store;
+use Cloudinary\Cloudinary;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -145,7 +146,7 @@ class StoreController extends Controller
             throw $exception;
         }
 
-        $url = Storage::disk('public')->url($path);
+        $url = $this->fileUrl($path);
 
         return response()->json([
             'message' => 'تم رفع شعار المتجر بنجاح.',
@@ -394,23 +395,67 @@ class StoreController extends Controller
     {
         $file = $request->file('logo');
 
-        if (! $file) {
-            throw new RuntimeException('لم يتم استلام ملف شعار صالح.');
+        if (! $file || ! $file->isValid()) {
+            throw new RuntimeException(
+                'A valid store logo was not received.',
+                self::LOGO_STORAGE_ERROR_CODE,
+            );
         }
 
-        try {
-            $path = $file->store('stores/logos', 'public');
-        } catch (Throwable $exception) {
+        $cloudinaryUrl = trim((string) config(
+            'filesystems.disks.public.cloudinary_url',
+        ));
+
+        if ($cloudinaryUrl === '') {
             throw new RuntimeException(
-                'تعذر الاتصال بخدمة تخزين الشعارات.',
+                'CLOUDINARY_URL is not configured.',
+                self::LOGO_STORAGE_ERROR_CODE,
+            );
+        }
+
+        $realPath = $file->getRealPath();
+
+        if (! is_string($realPath) || $realPath === '') {
+            throw new RuntimeException(
+                'Unable to read the uploaded store logo.',
+                self::LOGO_STORAGE_ERROR_CODE,
+            );
+        }
+
+        $prefix = trim((string) config(
+            'filesystems.disks.public.cloudinary_prefix',
+            'zad-sync',
+        ), '/');
+
+        $folder = $prefix !== ''
+            ? $prefix.'/stores/logos'
+            : 'stores/logos';
+
+        try {
+            $result = (new Cloudinary($cloudinaryUrl))
+                ->uploadApi()
+                ->upload($realPath, [
+                    'folder' => $folder,
+                    'resource_type' => 'image',
+                    'use_filename' => true,
+                    'unique_filename' => true,
+                    'overwrite' => false,
+                ]);
+
+            $path = trim((string) ($result['secure_url'] ?? ''));
+        } catch (Throwable $exception) {
+            report($exception);
+
+            throw new RuntimeException(
+                'Cloudinary logo upload failed.',
                 self::LOGO_STORAGE_ERROR_CODE,
                 $exception,
             );
         }
 
-        if (! is_string($path) || $path === '') {
+        if ($path === '') {
             throw new RuntimeException(
-                'تعذر حفظ شعار المتجر في التخزين الخارجي.',
+                'Cloudinary did not return secure_url.',
                 self::LOGO_STORAGE_ERROR_CODE,
             );
         }

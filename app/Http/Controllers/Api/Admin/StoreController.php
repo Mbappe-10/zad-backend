@@ -12,9 +12,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
 
 class StoreController extends Controller
 {
+    private const LOGO_STORAGE_ERROR_CODE = 1701;
+
     public function index(Request $request): JsonResponse
     {
         $query = Store::query()
@@ -79,19 +83,44 @@ class StoreController extends Controller
             ], 422);
         }
 
-        $store = DB::transaction(function () use ($request, $family): Store {
-            return Store::query()->create($this->payload($request, null, $family));
-        });
+        $storedLogoPath = null;
+
+        try {
+            $store = DB::transaction(function () use ($request, $family, &$storedLogoPath): Store {
+                $payload = $this->payload($request, null, $family);
+
+                if ($request->hasFile('logo')) {
+                    $storedLogoPath = $this->storeLogo($request);
+                    $payload['logo_path'] = $storedLogoPath;
+                }
+
+                $store = Store::query()->create($payload);
+                $this->syncFamilyMetadata($family, $store, $request);
+
+                return $store;
+            });
+        } catch (Throwable $exception) {
+            $this->deleteManagedLogo($storedLogoPath);
+
+            if ($this->isLogoStorageFailure($exception)) {
+                return $this->logoStorageErrorResponse();
+            }
+
+            throw $exception;
+        }
 
         return response()->json([
             'message' => 'تم إنشاء المتجر وربطه بالأسرة بنجاح.',
-            'data' => $this->transformStore($store->fresh(['productiveFamily', 'city'])),
+            'saved' => true,
+            'data' => $this->transformStore(
+                $store->fresh(['productiveFamily', 'city'])->loadCount(['products', 'orders']),
+            ),
         ], 201);
     }
 
     public function uploadLogo(Request $request): JsonResponse
     {
-        $data = $request->validate([
+        $request->validate([
             'logo' => [
                 'required',
                 'file',
@@ -106,7 +135,16 @@ class StoreController extends Controller
             'logo.max' => 'حجم الشعار يجب ألا يتجاوز 5 ميجابايت.',
         ]);
 
-        $path = $data['logo']->store('stores/logos', 'public');
+        try {
+            $path = $this->storeLogo($request);
+        } catch (Throwable $exception) {
+            if ($this->isLogoStorageFailure($exception)) {
+                return $this->logoStorageErrorResponse();
+            }
+
+            throw $exception;
+        }
+
         $url = Storage::disk('public')->url($path);
 
         return response()->json([
@@ -156,18 +194,50 @@ class StoreController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($request, $store, $family): void {
-            $store->update($this->payload($request, $store, $family));
+        $oldLogoPath = $store->logo_path;
+        $storedLogoPath = null;
+        $removeLogo = $request->boolean('remove_logo');
 
-            if ($family) {
-                $metadata = is_array($family->metadata) ? $family->metadata : [];
-                $metadata['store_name'] = $store->name_ar;
-                $family->update(['metadata' => $metadata]);
+        try {
+            DB::transaction(function () use (
+                $request,
+                $store,
+                $family,
+                $removeLogo,
+                &$storedLogoPath,
+            ): void {
+                $payload = $this->payload($request, $store, $family);
+
+                if ($request->hasFile('logo')) {
+                    $storedLogoPath = $this->storeLogo($request);
+                    $payload['logo_path'] = $storedLogoPath;
+                } elseif ($removeLogo) {
+                    $payload['logo_path'] = null;
+                }
+
+                $store->update($payload);
+
+                if ($family) {
+                    $this->syncFamilyMetadata($family, $store, $request);
+                }
+            });
+        } catch (Throwable $exception) {
+            $this->deleteManagedLogo($storedLogoPath);
+
+            if ($this->isLogoStorageFailure($exception)) {
+                return $this->logoStorageErrorResponse();
             }
-        });
+
+            throw $exception;
+        }
+
+        if (($storedLogoPath !== null || $removeLogo) && $oldLogoPath !== $storedLogoPath) {
+            $this->deleteManagedLogo($oldLogoPath);
+        }
 
         return response()->json([
             'message' => 'تم تحديث المتجر والأسرة المرتبطة به بنجاح.',
+            'saved' => true,
             'data' => $this->transformStore($store->fresh(['productiveFamily', 'city'])->loadCount(['products', 'orders'])),
         ]);
     }
@@ -263,9 +333,13 @@ class StoreController extends Controller
             'description_en' => ['nullable', 'string', 'max:5000'],
             'logo_url' => ['nullable', 'string', 'max:2048'],
             'logo_path' => ['nullable', 'string', 'max:2048'],
+            'logo' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'remove_logo' => ['nullable', 'boolean'],
             'cover_url' => ['nullable', 'string', 'max:2048'],
             'status' => ['nullable', 'string', 'in:active,inactive,pending,approved,rejected,suspended,archived'],
+            'plan' => ['nullable', 'string', 'in:free,silver,gold'],
             'is_open' => ['nullable', 'boolean'],
+            'is_featured' => ['nullable', 'boolean'],
             'working_hours' => ['nullable', 'array'],
         ];
     }
@@ -289,15 +363,23 @@ class StoreController extends Controller
         return [
             'productive_family_id' => $family?->id,
             'city_id' => $request->input('city_id', $store?->city_id ?? $family?->city_id),
-            'admin_location_text' => $request->input(
+            'admin_location_text' => trim((string) $request->input(
                 'admin_location_text',
-                $store?->admin_location_text,
-            ),
+                $store?->admin_location_text ?? '',
+            )),
             'name_ar' => $nameAr,
-            'name_en' => $request->input('name_en', $store?->name_en),
+            'name_en' => $this->nullableTrimmedValue($request, 'name_en', $store?->name_en),
             'slug' => $slug,
-            'description_ar' => $request->input('description_ar', $store?->description_ar),
-            'description_en' => $request->input('description_en', $store?->description_en),
+            'description_ar' => $this->nullableTrimmedValue(
+                $request,
+                'description_ar',
+                $store?->description_ar,
+            ),
+            'description_en' => $this->nullableTrimmedValue(
+                $request,
+                'description_en',
+                $store?->description_en,
+            ),
             'logo_path' => $request->input('logo_path', $request->input('logo_url', $store?->logo_path)),
             'cover_path' => $request->input('cover_path', $request->input('cover_url', $store?->cover_path)),
             'status' => $status,
@@ -306,6 +388,100 @@ class StoreController extends Controller
             'rating_count' => $store?->rating_count ?? 0,
             'working_hours' => $request->input('working_hours', $store?->working_hours ?? []),
         ];
+    }
+
+    private function storeLogo(Request $request): string
+    {
+        $file = $request->file('logo');
+
+        if (! $file) {
+            throw new RuntimeException('لم يتم استلام ملف شعار صالح.');
+        }
+
+        try {
+            $path = $file->store('stores/logos', 'public');
+        } catch (Throwable $exception) {
+            throw new RuntimeException(
+                'تعذر الاتصال بخدمة تخزين الشعارات.',
+                self::LOGO_STORAGE_ERROR_CODE,
+                $exception,
+            );
+        }
+
+        if (! is_string($path) || $path === '') {
+            throw new RuntimeException(
+                'تعذر حفظ شعار المتجر في التخزين الخارجي.',
+                self::LOGO_STORAGE_ERROR_CODE,
+            );
+        }
+
+        return $path;
+    }
+
+    private function syncFamilyMetadata(
+        ProductiveFamily $family,
+        Store $store,
+        Request $request,
+    ): void {
+        $metadata = is_array($family->metadata) ? $family->metadata : [];
+        $metadata['store_name'] = $store->name_ar;
+
+        if ($request->exists('plan')) {
+            $metadata['subscription_plan'] = $request->string('plan')->toString();
+        } elseif (! array_key_exists('subscription_plan', $metadata)) {
+            $metadata['subscription_plan'] = 'free';
+        }
+
+        if ($request->exists('is_featured')) {
+            $metadata['is_featured'] = $request->boolean('is_featured');
+        } elseif (! array_key_exists('is_featured', $metadata)) {
+            $metadata['is_featured'] = false;
+        }
+
+        $family->update(['metadata' => $metadata]);
+    }
+
+    private function nullableTrimmedValue(
+        Request $request,
+        string $key,
+        ?string $fallback,
+    ): ?string {
+        if (! $request->exists($key)) {
+            return $fallback;
+        }
+
+        $value = trim((string) $request->input($key));
+
+        return $value !== '' ? $value : null;
+    }
+
+    private function deleteManagedLogo(?string $path): void
+    {
+        if (! $path || Str::startsWith($path, ['http://', 'https://'])) {
+            return;
+        }
+
+        try {
+            Storage::disk('public')->delete($path);
+        } catch (Throwable) {
+            // The database save must remain successful even if old-file cleanup fails.
+        }
+    }
+
+    private function isLogoStorageFailure(Throwable $exception): bool
+    {
+        return $exception instanceof RuntimeException
+            && $exception->getCode() === self::LOGO_STORAGE_ERROR_CODE;
+    }
+
+    private function logoStorageErrorResponse(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'تعذر حفظ شعار المتجر. تحقق من إعدادات PUBLIC_FILESYSTEM_DRIVER وCLOUDINARY_URL في الخادم.',
+            'errors' => [
+                'logo' => ['تعذر حفظ الشعار؛ تحقق من إعدادات Cloudinary في خدمة الباك إند.'],
+            ],
+        ], 422);
     }
 
     private function uniqueSlug(string $base, ?int $ignoreId = null): string
@@ -378,5 +554,3 @@ class StoreController extends Controller
         return Storage::disk('public')->url($path);
     }
 }
-
-

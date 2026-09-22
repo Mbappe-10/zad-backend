@@ -809,11 +809,7 @@ class DriverOrderController extends Controller
                             $proof->stage,
 
                         'photo_url' =>
-                            $proof->photo_path !== null
-                                ? Storage::disk('public')->url(
-                                        $proof->photo_path,
-                                )
-                                : null,
+                            $proof->photo_url,
 
                         'latitude' =>
                             $proof->latitude !== null

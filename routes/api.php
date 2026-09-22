@@ -866,7 +866,7 @@ Route::prefix('v1/app')->group(function (): void {
     Route::post(
         '/auth/google',
         [SocialAuthController::class, 'google'],
-    )->middleware('throttle:10,1');
+    )->middleware('throttle:social-auth');
 
     Route::post(
         '/phone-verifications/send',
@@ -907,7 +907,7 @@ Route::prefix('v1/app')->group(function (): void {
     Route::post(
         '/orders/{order}/rating',
         [AppOrderController::class, 'rateDelivery'],
-    )->middleware('throttle:10,1');
+    )->middleware('throttle:order-rating');
 
     Route::get(
         '/product-fields',

@@ -4,10 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 class OrderJourneyProof extends Model
 {
     protected $guarded = ['id'];
+
+    protected $appends = ['photo_url'];
 
     protected function casts(): array
     {
@@ -32,5 +35,29 @@ class OrderJourneyProof extends Model
             User::class,
             'uploaded_by',
         );
+    }
+
+    public function getPhotoUrlAttribute(): ?string
+    {
+        $path = trim((string) $this->photo_path);
+
+        if ($path === '') {
+            return null;
+        }
+
+        if (
+            str_starts_with($path, 'https://') ||
+            str_starts_with($path, 'http://')
+        ) {
+            return $path;
+        }
+
+        $path = ltrim($path, '/');
+
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+
+        return Storage::disk('public')->url($path);
     }
 }

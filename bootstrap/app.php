@@ -17,6 +17,26 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         /*
         |--------------------------------------------------------------------------
+        | Render Trusted Proxy
+        |--------------------------------------------------------------------------
+        |
+        | Render terminates HTTPS and forwards the real visitor address through
+        | the standard X-Forwarded headers. Trusting the platform proxy prevents
+        | every customer from sharing the same rate-limit identity.
+        |
+        */
+
+        $middleware->trustProxies(
+            at: '*',
+            headers:
+                Request::HEADER_X_FORWARDED_FOR |
+                Request::HEADER_X_FORWARDED_HOST |
+                Request::HEADER_X_FORWARDED_PORT |
+                Request::HEADER_X_FORWARDED_PROTO,
+        );
+
+        /*
+        |--------------------------------------------------------------------------
         | Sanctum API Middleware
         |--------------------------------------------------------------------------
         |

@@ -23,7 +23,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -331,13 +330,8 @@ class AppOrderController extends Controller
             'stage' => $stage,
             'title' => $title,
             'description' => $description,
-            // ZAD_TRACKING_MEDIA_STREAM_V1
-            'photo_url' => URL::temporarySignedRoute(
-                'api.app.order-tracking.proof-media',
-                now()->addHours(12),
-                ['proof' => $proof->id],
-                absolute: false,
-            ),
+            // Direct Cloudinary URL shared by mobile and Flutter Web.
+            'photo_url' => $proof->photo_url,
             'documented_at' => $proof->created_at,
         ];
     }

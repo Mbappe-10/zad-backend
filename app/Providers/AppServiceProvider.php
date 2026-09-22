@@ -84,6 +84,50 @@ class AppServiceProvider extends ServiceProvider
                 ], 429));
         });
 
+        RateLimiter::for('social-auth', function (Request $request): array {
+            $joinType = trim((string) $request->input('join_type', 'unknown'));
+            $idToken = trim((string) $request->input('id_token', ''));
+            $accountKey = $idToken === ''
+                ? 'missing'
+                : hash('sha256', $idToken);
+
+            $response = fn (Request $request, array $headers) => response()->json([
+                'message' => 'جاري إكمال المحاولة السابقة. انتظر لحظات ثم اضغط مرة واحدة.',
+                'code' => 'social_auth_rate_limited',
+                'retry_after' => (int) ($headers['Retry-After'] ?? 1),
+            ], 429, $headers);
+
+            return [
+                Limit::perMinute((int) env('SOCIAL_AUTH_RATE_LIMIT_PER_MINUTE', 20))
+                    ->by("social-auth-account:{$joinType}:{$accountKey}")
+                    ->response($response),
+                Limit::perMinute((int) env('SOCIAL_AUTH_IP_RATE_LIMIT_PER_MINUTE', 60))
+                    ->by('social-auth-ip:'.$request->ip())
+                    ->response($response),
+            ];
+        });
+
+        RateLimiter::for('order-rating', function (Request $request): Limit {
+            $order = $request->route('order');
+            $orderId = is_object($order) && method_exists($order, 'getKey')
+                ? (string) $order->getKey()
+                : (string) $order;
+            $guestSession = trim((string) $request->header('X-Guest-Session', ''));
+            $actor = $request->user()?->getAuthIdentifier() !== null
+                ? 'user:'.$request->user()->getAuthIdentifier()
+                : ($guestSession !== ''
+                    ? 'guest:'.hash('sha256', $guestSession)
+                    : 'ip:'.$request->ip());
+
+            return Limit::perMinute((int) env('ORDER_RATING_RATE_LIMIT_PER_MINUTE', 6))
+                ->by("order-rating:{$orderId}:{$actor}")
+                ->response(fn (Request $request, array $headers) => response()->json([
+                    'message' => 'تم استلام طلب التقييم بالفعل، ولا حاجة للضغط مرة أخرى.',
+                    'code' => 'order_rating_rate_limited',
+                    'retry_after' => (int) ($headers['Retry-After'] ?? 1),
+                ], 429, $headers));
+        });
+
         RateLimiter::for('payment-action', function (Request $request): Limit {
             $order = $request->route('order');
             $orderId = is_object($order) && method_exists($order, 'getKey')

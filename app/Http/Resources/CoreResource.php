@@ -20,6 +20,7 @@ class CoreResource extends JsonResource
 
             $data['images'] = $images;
             $data['image_url'] = $images[0] ?? null;
+            $data['primary_image_url'] = $images[0] ?? null;
         }
 
         return $data;

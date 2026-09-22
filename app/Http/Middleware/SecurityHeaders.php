@@ -18,7 +18,17 @@ class SecurityHeaders
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
         $response->headers->set('Cross-Origin-Opener-Policy', 'same-origin');
-        $response->headers->set('Cross-Origin-Resource-Policy', 'same-site');
+        /*
+         * Public media responses intentionally opt in to cross-origin use.
+         * Keep that controller-level value so the Flutter Web site and a
+         * future custom domain can display legacy catalog/storage files.
+         */
+        if (! $response->headers->has('Cross-Origin-Resource-Policy')) {
+            $response->headers->set(
+                'Cross-Origin-Resource-Policy',
+                'same-site',
+            );
+        }
 
         if (app()->environment('production') && $request->isSecure()) {
             $response->headers->set(

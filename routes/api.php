@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
 use App\Http\Controllers\Api\Admin\RolePortalAdminController;
 use App\Http\Controllers\Api\Admin\ControlCenterController;
 use App\Http\Controllers\Api\Admin\PayoutAdminController;
+use App\Http\Controllers\Api\Admin\AdminWalletController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\Admin\PolicyCenterController;
 use App\Http\Controllers\Api\App\PublicPolicyController;
@@ -660,6 +661,26 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::any('/{identity}/{record?}/{action?}', \App\Http\Controllers\Api\AdminIdentityController::class)
             ->where('identity', 'users|roles')->whereNumber('record')
             ->name('api.admin.identity');
+
+        /*
+        |------------------------------------------------------------------
+        | Real Wallet Operations
+        |------------------------------------------------------------------
+        |
+        | These routes must remain above the generic /{resource} routes.
+        | They read the real wallets, transactions and order settlements.
+        |
+        */
+        Route::get('/wallets/overview', [AdminWalletController::class, 'overview']);
+        Route::get('/wallets', [AdminWalletController::class, 'index']);
+        Route::get('/wallets/{wallet}', [AdminWalletController::class, 'show'])
+            ->whereNumber('wallet');
+        Route::get('/wallets/{wallet}/transactions', [AdminWalletController::class, 'transactions'])
+            ->whereNumber('wallet');
+        Route::post('/wallets/{wallet}/adjust', [AdminWalletController::class, 'adjust'])
+            ->whereNumber('wallet');
+        Route::patch('/wallets/{wallet}/status', [AdminWalletController::class, 'updateStatus'])
+            ->whereNumber('wallet');
 
         Route::get('/payout-requests', [PayoutAdminController::class, 'index']);
         Route::get('/payout-requests/{payout}', [PayoutAdminController::class, 'show'])->whereNumber('payout');

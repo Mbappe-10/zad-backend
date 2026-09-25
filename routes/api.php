@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 use App\Http\Controllers\Api\Admin\OrderChatAdminController;
 use App\Http\Controllers\Api\App\OrderChatController;
@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Admin\ProductiveFamilyController;
 use App\Http\Controllers\Api\Admin\RolePortalAdminController;
 use App\Http\Controllers\Api\Admin\ControlCenterController;
 use App\Http\Controllers\Api\Admin\PayoutAdminController;
+use App\Http\Controllers\Api\Admin\LaunchAnalyticsController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\Admin\PolicyCenterController;
 use App\Http\Controllers\Api\App\PublicPolicyController;
@@ -28,6 +29,7 @@ use App\Http\Controllers\Api\App\GuestSessionController;
 use App\Http\Controllers\Api\App\OrderLiveController;
 use App\Http\Controllers\Api\App\PhoneVerificationController;
 use App\Http\Controllers\Api\App\PromotionTrackingController;
+use App\Http\Controllers\Api\App\LaunchTrackingController;
 use App\Http\Controllers\Api\App\ProductiveFamilyProfileController;
 use App\Http\Controllers\Api\App\RoleDashboardController;
 use App\Http\Controllers\Api\App\RolePortalController;
@@ -51,8 +53,8 @@ use Illuminate\Support\Facades\Route;
 | Public API Routes
 |--------------------------------------------------------------------------
 |
-| ظ…ط³ط§ط±ط§طھ ط¹ط§ظ…ط© ظ„ط§ طھط­طھط§ط¬ ط¥ظ„ظ‰ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„.
-| طµظپط­ط© طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„ طھط³طھط®ط¯ظ… ظ‡ط°ط§ ط§ظ„ظ…ط³ط§ط± ظ„ط¬ظ„ط¨ ط§ظ„ظ‡ظˆظٹط© ط§ظ„ط¨طµط±ظٹط©.
+| ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒╪╖┬د╪╖┌╛ ╪╖┬╣╪╖┬د╪╕ظخ╪╖┬ر ╪╕ظئ╪╖┬د ╪╖┌╛╪╖┬ص╪╖┌╛╪╖┬د╪╖┬ش ╪╖┬ح╪╕ظئ╪╕ظ░ ╪╖┌╛╪╖┬│╪╖┬ش╪╕┘╣╪╕ظئ ╪╖┬د╪╕ظئ╪╖┬»╪╖┬«╪╕╦╪╕ظئ.
+| ╪╖┬╡╪╕┘╛╪╖┬ص╪╖┬ر ╪╖┌╛╪╖┬│╪╖┬ش╪╕┘╣╪╕ظئ ╪╖┬د╪╕ظئ╪╖┬»╪╖┬«╪╕╦╪╕ظئ ╪╖┌╛╪╖┬│╪╖┌╛╪╖┬«╪╖┬»╪╕ظخ ╪╕ظة╪╖┬░╪╖┬د ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒ ╪╕ظئ╪╖┬ش╪╕ظئ╪╖┬ذ ╪╖┬د╪╕ظئ╪╕ظة╪╕╦╪╕┘╣╪╖┬ر ╪╖┬د╪╕ظئ╪╖┬ذ╪╖┬╡╪╖┬▒╪╕┘╣╪╖┬ر.
 |
 */
 
@@ -69,8 +71,8 @@ Route::get('/v1/app/media', [PublicMediaController::class, 'show'])
 | Protected API Routes
 |--------------------------------------------------------------------------
 |
-| ط¬ظ…ظٹط¹ ط§ظ„ظ…ط³ط§ط±ط§طھ ط§ظ„ظ…ظˆط¬ظˆط¯ط© ط¯ط§ط®ظ„ ظ‡ط°ظ‡ ط§ظ„ظ…ط¬ظ…ظˆط¹ط© طھط­طھط§ط¬ ط¥ظ„ظ‰ ظ…ط³طھط®ط¯ظ…
-| ظ…ط³ط¬ظ„ ط¯ط®ظˆظ„ظ‡ ط¹ظ† ط·ط±ظٹظ‚ Laravel Sanctum.
+| ╪╖┬ش╪╕ظخ╪╕┘╣╪╖┬╣ ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒╪╖┬د╪╖┌╛ ╪╖┬د╪╕ظئ╪╕ظخ╪╕╦╪╖┬ش╪╕╦╪╖┬»╪╖┬ر ╪╖┬»╪╖┬د╪╖┬«╪╕ظئ ╪╕ظة╪╖┬░╪╕ظة ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬ش╪╕ظخ╪╕╦╪╖┬╣╪╖┬ر ╪╖┌╛╪╖┬ص╪╖┌╛╪╖┬د╪╖┬ش ╪╖┬ح╪╕ظئ╪╕ظ░ ╪╕ظخ╪╖┬│╪╖┌╛╪╖┬«╪╖┬»╪╕ظخ
+| ╪╕ظخ╪╖┬│╪╖┬ش╪╕ظئ ╪╖┬»╪╖┬«╪╕╦╪╕ظئ╪╕ظة ╪╖┬╣╪╕ظب ╪╖┬╖╪╖┬▒╪╕┘╣╪╕ظأ Laravel Sanctum.
 |
 */
 /*
@@ -78,8 +80,8 @@ Route::get('/v1/app/media', [PublicMediaController::class, 'show'])
 | Authentication - Bearer Token
 |--------------------------------------------------------------------------
 |
-| ظ‡ط°ط§ ط§ظ„ظ…ط³ط§ط± ط¹ط§ظ… ظˆظ„ط§ ظٹط³طھط®ط¯ظ… CSRF ط£ظˆ ط¬ظ„ط³ط§طھ ط§ظ„ظ…طھطµظپط­.
-| ط§ظ„ظˆط§ط¬ظ‡ط© طھط³طھظ‚ط¨ظ„ Sanctum Bearer Token ظˆطھظڈط±ط³ظ„ظ‡ ظپظٹ Authorization header.
+| ╪╕ظة╪╖┬░╪╖┬د ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒ ╪╖┬╣╪╖┬د╪╕ظخ ╪╕╦╪╕ظئ╪╖┬د ╪╕┘╣╪╖┬│╪╖┌╛╪╖┬«╪╖┬»╪╕ظخ CSRF ╪╖┬ث╪╕╦ ╪╖┬ش╪╕ظئ╪╖┬│╪╖┬د╪╖┌╛ ╪╖┬د╪╕ظئ╪╕ظخ╪╖┌╛╪╖┬╡╪╕┘╛╪╖┬ص.
+| ╪╖┬د╪╕ظئ╪╕╦╪╖┬د╪╖┬ش╪╕ظة╪╖┬ر ╪╖┌╛╪╖┬│╪╖┌╛╪╕ظأ╪╖┬ذ╪╕ظئ Sanctum Bearer Token ╪╕╦╪╖┌╛╪╕┌ê╪╖┬▒╪╖┬│╪╕ظئ╪╕ظة ╪╕┘╛╪╕┘╣ Authorization header.
 |
 */
 
@@ -94,6 +96,10 @@ Route::get('/v1/app/policies/{key}', [PublicPolicyController::class, 'show'])
     ->where('key', '[a-z_]+')
     ->name('api.app.policies.show');
 
+Route::post('/v1/app/launch/track', [LaunchTrackingController::class, 'track'])
+    ->middleware('throttle:180,1')
+    ->name('api.app.launch.track');
+
 // ZAD_TRACKING_MEDIA_STREAM_V1
 Route::get(
     '/v1/app/order-tracking/proofs/{proof}/media',
@@ -103,6 +109,10 @@ Route::get(
     ->name('api.app.order-tracking.proof-media');
 
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+
+    Route::post('/v1/app/launch/claim', [LaunchTrackingController::class, 'claim'])
+        ->middleware('throttle:30,1')
+        ->name('api.app.launch.claim');
 
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
     Route::patch('/admin/control-center/{section}', [ControlCenterController::class, 'update']);
@@ -261,7 +271,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::prefix('v1/app/driver')->group(function (): void {
     /*
     |--------------------------------------------------------------------------
-    | ظ…ظ„ظپ ط§ظ„ظ…ظ†ط¯ظˆط¨
+    | ╪╕ظخ╪╕ظئ╪╕┘╛ ╪╖┬د╪╕ظئ╪╕ظخ╪╕ظب╪╖┬»╪╕╦╪╖┬ذ
     |--------------------------------------------------------------------------
     */
 
@@ -292,7 +302,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | ط§ظ„طھظˆظپط± ظˆط§ظ„ظ…ظˆظ‚ط¹
+    | ╪╖┬د╪╕ظئ╪╖┌╛╪╕╦╪╕┘╛╪╖┬▒ ╪╕╦╪╖┬د╪╕ظئ╪╕ظخ╪╕╦╪╕ظأ╪╖┬╣
     |--------------------------------------------------------------------------
     */
 
@@ -308,7 +318,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | ظ…ظ‡ط§ظ… ط§ظ„ظ…ظ†ط¯ظˆط¨
+    | ╪╕ظخ╪╕ظة╪╖┬د╪╕ظخ ╪╖┬د╪╕ظئ╪╕ظخ╪╕ظب╪╖┬»╪╕╦╪╖┬ذ
     |--------------------------------------------------------------------------
     */
 
@@ -508,8 +518,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Product Field Settings
     |--------------------------------------------------------------------------
     |
-    | ط¥ط¯ط§ط±ط© ط§ظ„ط­ظ‚ظˆظ„ ظ…طھط§ط­ط© ظپظ‚ط· ظ„ظ„ظ…ط³طھط®ط¯ظ… ط§ظ„ظ…طµط§ط¯ظ‚ ط¹ظ„ظٹظ‡طŒ ظˆظٹظ…ظƒظ† ظ„ط§ط­ظ‚ظ‹ط§
-    | ط±ط¨ط·ظ‡ط§ ط¨طµظ„ط§ط­ظٹط© products.fields.manage ط£ظˆ products.fields.view.
+    | ╪╖┬ح╪╖┬»╪╖┬د╪╖┬▒╪╖┬ر ╪╖┬د╪╕ظئ╪╖┬ص╪╕ظأ╪╕╦╪╕ظئ ╪╕ظخ╪╖┌╛╪╖┬د╪╖┬ص╪╖┬ر ╪╕┘╛╪╕ظأ╪╖┬╖ ╪╕ظئ╪╕ظئ╪╕ظخ╪╖┬│╪╖┌╛╪╖┬«╪╖┬»╪╕ظخ ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬╡╪╖┬د╪╖┬»╪╕ظأ ╪╖┬╣╪╕ظئ╪╕┘╣╪╕ظة╪╖┼ْ ╪╕╦╪╕┘╣╪╕ظخ╪╕╞ْ╪╕ظب ╪╕ظئ╪╖┬د╪╖┬ص╪╕ظأ╪╕ظ╣╪╖┬د
+    | ╪╖┬▒╪╖┬ذ╪╖┬╖╪╕ظة╪╖┬د ╪╖┬ذ╪╖┬╡╪╕ظئ╪╖┬د╪╖┬ص╪╕┘╣╪╖┬ر products.fields.manage ╪╖┬ث╪╕╦ products.fields.view.
     |
     */
 
@@ -530,7 +540,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Productive Families Management
     |--------------------------------------------------------------------------
     |
-    | ظ…ط³ط§ط±ط§طھ ط¥ط¯ط§ط±ط© ط§ظ„ط£ط³ط± ط§ظ„ظ…ظ†طھط¬ط© ط§ظ„ظ…طھظˆط§ظپظ‚ط© ظ…ط¹ طµظپط­ط© React.
+    | ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒╪╖┬د╪╖┌╛ ╪╖┬ح╪╖┬»╪╖┬د╪╖┬▒╪╖┬ر ╪╖┬د╪╕ظئ╪╖┬ث╪╖┬│╪╖┬▒ ╪╖┬د╪╕ظئ╪╕ظخ╪╕ظب╪╖┌╛╪╖┬ش╪╖┬ر ╪╖┬د╪╕ظئ╪╕ظخ╪╖┌╛╪╕╦╪╖┬د╪╕┘╛╪╕ظأ╪╖┬ر ╪╕ظخ╪╖┬╣ ╪╖┬╡╪╕┘╛╪╖┬ص╪╖┬ر React.
     |
     */
 
@@ -598,7 +608,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | Branding Management
     |--------------------------------------------------------------------------
     |
-    | ط¥ط¯ط§ط±ط© ظ‡ظˆظٹط© ط§ظ„ظ…ظ†طµط© ظˆطµظپط­ط© طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„.
+    | ╪╖┬ح╪╖┬»╪╖┬د╪╖┬▒╪╖┬ر ╪╕ظة╪╕╦╪╕┘╣╪╖┬ر ╪╖┬د╪╕ظئ╪╕ظخ╪╕ظب╪╖┬╡╪╖┬ر ╪╕╦╪╖┬╡╪╕┘╛╪╖┬ص╪╖┬ر ╪╖┌╛╪╖┬│╪╖┬ش╪╕┘╣╪╕ظئ ╪╖┬د╪╕ظئ╪╖┬»╪╖┬«╪╕╦╪╕ظئ.
     |
     */
 
@@ -661,6 +671,47 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             ->where('identity', 'users|roles')->whereNumber('record')
             ->name('api.admin.identity');
 
+        /* Launch analytics: keep above the generic admin resource routes. */
+        Route::prefix('launch-analytics')->group(function (): void {
+            Route::middleware('permission:view_launch_analytics')->group(function (): void {
+                Route::get('/summary', [LaunchAnalyticsController::class, 'summary']);
+                Route::get('/timeseries', [LaunchAnalyticsController::class, 'timeseries']);
+                Route::get('/funnel', [LaunchAnalyticsController::class, 'funnel']);
+                Route::get('/creators', [LaunchAnalyticsController::class, 'creators']);
+                Route::get('/families', [LaunchAnalyticsController::class, 'families']);
+                Route::get('/campaigns', [LaunchAnalyticsController::class, 'campaigns']);
+                Route::get('/links', [LaunchAnalyticsController::class, 'links']);
+                Route::get('/realtime', [LaunchAnalyticsController::class, 'realtime']);
+                Route::get('/options', [LaunchAnalyticsController::class, 'options']);
+                Route::get('/export', [LaunchAnalyticsController::class, 'export']);
+            });
+
+            Route::middleware('permission:manage_launch_campaigns')->group(function (): void {
+                Route::post('/campaigns', [LaunchAnalyticsController::class, 'storeCampaign']);
+                Route::match(['put', 'patch'], '/campaigns/{campaign}', [LaunchAnalyticsController::class, 'updateCampaign']);
+                Route::delete('/campaigns/{campaign}', [LaunchAnalyticsController::class, 'destroyCampaign']);
+                Route::post('/creators', [LaunchAnalyticsController::class, 'storeCreator']);
+                Route::match(['put', 'patch'], '/creators/{creator}', [LaunchAnalyticsController::class, 'updateCreator']);
+                Route::delete('/creators/{creator}', [LaunchAnalyticsController::class, 'destroyCreator']);
+                Route::post('/campaigns/{campaign}/creators', [LaunchAnalyticsController::class, 'assignCreator']);
+
+                Route::match(
+                    ['put', 'patch'],
+                    '/creator-assignments/{assignment}/contract',
+                    [LaunchAnalyticsController::class, 'updateCreatorContract']
+                );
+
+                Route::get(
+                    '/creator-assignments/{assignment}/contract/download',
+                    [LaunchAnalyticsController::class, 'downloadCreatorContract']
+                );
+
+                Route::delete('/creator-assignments/{assignment}', [LaunchAnalyticsController::class, 'removeCreatorAssignment']);
+                Route::post('/campaigns/{campaign}/families', [LaunchAnalyticsController::class, 'assignFamily']);
+                Route::delete('/family-assignments/{assignment}', [LaunchAnalyticsController::class, 'removeFamilyAssignment']);
+            });
+        });
+
         Route::get('/payout-requests', [PayoutAdminController::class, 'index']);
         Route::get('/payout-requests/{payout}', [PayoutAdminController::class, 'show'])->whereNumber('payout');
         Route::patch('/payout-requests/{payout}/decision', [PayoutAdminController::class, 'decide'])->whereNumber('payout');
@@ -675,8 +726,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         | Driver Registration Field Settings
         |--------------------------------------------------------------------------
         |
-        | ط¥ط¯ط§ط±ط© ط§ظ„ط£ط³ط¦ظ„ط© ط§ظ„ط¥ط¶ط§ظپظٹط© ظپظٹ ظ†ظ…ظˆط°ط¬ ط§ظ„ظ…ظ†ط¯ظˆط¨. ظٹط¬ط¨ ط£ظ† طھط¨ظ‚ظ‰ ظ‡ط°ظ‡ ط§ظ„ظ…ط³ط§ط±ط§طھ
-        | ظ‚ط¨ظ„ ظ…ط³ط§ط±ط§طھ /{resource} ط§ظ„ط¯ظٹظ†ط§ظ…ظٹظƒظٹط© ط§ظ„ظ…ظˆط¬ظˆط¯ط© ظپظٹ ط£ط³ظپظ„ ط§ظ„ظ…ط¬ظ…ظˆط¹ط©.
+        | ╪╖┬ح╪╖┬»╪╖┬د╪╖┬▒╪╖┬ر ╪╖┬د╪╕ظئ╪╖┬ث╪╖┬│╪╖┬خ╪╕ظئ╪╖┬ر ╪╖┬د╪╕ظئ╪╖┬ح╪╖┬╢╪╖┬د╪╕┘╛╪╕┘╣╪╖┬ر ╪╕┘╛╪╕┘╣ ╪╕ظب╪╕ظخ╪╕╦╪╖┬░╪╖┬ش ╪╖┬د╪╕ظئ╪╕ظخ╪╕ظب╪╖┬»╪╕╦╪╖┬ذ. ╪╕┘╣╪╖┬ش╪╖┬ذ ╪╖┬ث╪╕ظب ╪╖┌╛╪╖┬ذ╪╕ظأ╪╕ظ░ ╪╕ظة╪╖┬░╪╕ظة ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒╪╖┬د╪╖┌╛
+        | ╪╕ظأ╪╖┬ذ╪╕ظئ ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒╪╖┬د╪╖┌╛ /{resource} ╪╖┬د╪╕ظئ╪╖┬»╪╕┘╣╪╕ظب╪╖┬د╪╕ظخ╪╕┘╣╪╕╞ْ╪╕┘╣╪╖┬ر ╪╖┬د╪╕ظئ╪╕ظخ╪╕╦╪╖┬ش╪╕╦╪╖┬»╪╖┬ر ╪╕┘╛╪╕┘╣ ╪╖┬ث╪╖┬│╪╕┘╛╪╕ظئ ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬ش╪╕ظخ╪╕╦╪╖┬╣╪╖┬ر.
         |
         */
 
@@ -708,9 +759,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         | Live Broadcast Owner Control
         |--------------------------------------------------------------------------
         |
-        | ظ‡ط°ظ‡ ط§ظ„ظ…ط³ط§ط±ط§طھ ظ…ط­ظ…ظٹط© ط¯ط§ط®ظ„ LiveBroadcastAdminControllerطŒ ظˆظ„ط§ ظٹط³ظ…ط­
-        | ط¨طھظ†ظپظٹط°ظ‡ط§ ط¥ظ„ط§ ظ„ظ…ط§ظ„ظƒ ط§ظ„ظ…ظ†طµط©. ظٹط¬ط¨ ط£ظ† طھط¨ظ‚ظ‰ ظ‚ط¨ظ„ ظ…ط³ط§ط±ط§طھ {resource}
-        | ط§ظ„ط¯ظٹظ†ط§ظ…ظٹظƒظٹط© ط§ظ„ظ…ظˆط¬ظˆط¯ط© ظپظٹ ط£ط³ظپظ„ ظ‡ط°ظ‡ ط§ظ„ظ…ط¬ظ…ظˆط¹ط©.
+        | ╪╕ظة╪╖┬░╪╕ظة ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒╪╖┬د╪╖┌╛ ╪╕ظخ╪╖┬ص╪╕ظخ╪╕┘╣╪╖┬ر ╪╖┬»╪╖┬د╪╖┬«╪╕ظئ LiveBroadcastAdminController╪╖┼ْ ╪╕╦╪╕ظئ╪╖┬د ╪╕┘╣╪╖┬│╪╕ظخ╪╖┬ص
+        | ╪╖┬ذ╪╖┌╛╪╕ظب╪╕┘╛╪╕┘╣╪╖┬░╪╕ظة╪╖┬د ╪╖┬ح╪╕ظئ╪╖┬د ╪╕ظئ╪╕ظخ╪╖┬د╪╕ظئ╪╕╞ْ ╪╖┬د╪╕ظئ╪╕ظخ╪╕ظب╪╖┬╡╪╖┬ر. ╪╕┘╣╪╖┬ش╪╖┬ذ ╪╖┬ث╪╕ظب ╪╖┌╛╪╖┬ذ╪╕ظأ╪╕ظ░ ╪╕ظأ╪╖┬ذ╪╕ظئ ╪╕ظخ╪╖┬│╪╖┬د╪╖┬▒╪╖┬د╪╖┌╛ {resource}
+        | ╪╖┬د╪╕ظئ╪╖┬»╪╕┘╣╪╕ظب╪╖┬د╪╕ظخ╪╕┘╣╪╕╞ْ╪╕┘╣╪╖┬ر ╪╖┬د╪╕ظئ╪╕ظخ╪╕╦╪╖┬ش╪╕╦╪╖┬»╪╖┬ر ╪╕┘╛╪╕┘╣ ╪╖┬ث╪╖┬│╪╕┘╛╪╕ظئ ╪╕ظة╪╖┬░╪╕ظة ╪╖┬د╪╕ظئ╪╕ظخ╪╖┬ش╪╕ظخ╪╕╦╪╖┬╣╪╖┬ر.
         |
         */
 
@@ -992,3 +1043,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->prefix('digital-report-assi
 // ZAD_ACCOUNT_AVATAR_V1
 Route::get('/profile/photo/content', [AuthController::class, 'profilePhotoContent'])
     ->middleware(['auth:sanctum', 'throttle:api']);
+
+
+
+

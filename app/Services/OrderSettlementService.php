@@ -17,6 +17,7 @@ class OrderSettlementService
 {
     public function __construct(
         private readonly FinancialService $financial,
+        private readonly LaunchAttributionService $launchAttribution,
     ) {
     }
 
@@ -146,6 +147,10 @@ class OrderSettlementService
 
             return $settlement;
         });
+
+        $this->launchAttribution->finalizeCreatorCommission(
+            Order::query()->findOrFail($settlement->order_id)
+        );
 
         if (
             $this->automaticReleaseEnabled() &&

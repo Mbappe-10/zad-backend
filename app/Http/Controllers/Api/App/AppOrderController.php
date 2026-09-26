@@ -12,6 +12,7 @@ use App\Models\OrderJourneyProof;
 use App\Models\OrderRating;
 use App\Models\OrderStatusHistory;
 use App\Models\PhoneVerification;
+use App\Models\PlatformControl;
 use App\Models\Product;
 use App\Models\Store;
 use App\Services\App\VehicleRecommendationService;
@@ -19,6 +20,7 @@ use App\Services\VehiclePricingService;
 use App\Services\OrderSettlementService;
 use App\Services\OrderJourneyRetentionService;
 use App\Services\DeliveryVerificationService;
+use App\Services\LaunchAttributionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +28,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class AppOrderController extends Controller
 {
@@ -35,6 +38,7 @@ class AppOrderController extends Controller
         private readonly OrderSettlementService $settlements,
         private readonly DeliveryVerificationService $deliveryVerification,
         private readonly OrderJourneyRetentionService $journeyRetention,
+        private readonly LaunchAttributionService $launchAttribution,
     ) {
     }
 
@@ -57,6 +61,7 @@ class AppOrderController extends Controller
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1', 'max:50'],
             'items.*.options' => ['nullable', 'array'],
+            'launch_session_token' => ['nullable', 'string', 'max:128'],
         ]);
 
         $verification = $this->verifiedPhone(
@@ -210,6 +215,18 @@ class AppOrderController extends Controller
 
             return $order;
         });
+
+        try {
+            $this->launchAttribution->attributeOrder(
+                $order,
+                $data['launch_session_token']
+                    ?? $request->header('X-ZAD-Launch-Session'),
+                $data['guest_session_id'],
+            );
+        } catch (Throwable $exception) {
+            // Attribution must never block a valid customer order.
+            report($exception);
+        }
 
         return response()->json([
             'message' => 'تم إنشاء الطلب بنجاح.',

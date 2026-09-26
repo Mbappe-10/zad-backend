@@ -18,6 +18,9 @@ class Payout extends Model
             'paid_at' => 'datetime',
             'contract_signed_at' => 'datetime',
             'declaration_signed_at' => 'datetime',
+            'iban_proof_required' => 'boolean',
+            'iban_proof_uploaded_at' => 'datetime',
+            'iban_proof_deleted_at' => 'datetime',
             'policy_snapshot' => 'array',
             'declaration_snapshot' => 'array',
         ];

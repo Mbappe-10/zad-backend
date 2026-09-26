@@ -8,6 +8,7 @@ use App\Models\AppSetting;
 use App\Models\Category;
 use App\Models\City;
 use App\Models\PlatformRecord;
+use App\Models\PlatformControl;
 use App\Models\Product;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -201,6 +202,14 @@ class BootstrapController extends Controller
             })
             ->values();
 
+        $paymentGatewayEnabled = (bool) data_get(
+            PlatformControl::query()
+                ->where('section', 'services')
+                ->value('value'),
+            'paymentGatewayEnabled',
+            false,
+        );
+
         $banners = $this->homeBanners();
 
         $cities = City::query()
@@ -232,6 +241,7 @@ class BootstrapController extends Controller
                 'guest_first' => true,
             ],
             'settings' => $settings,
+            'payment_gateway_enabled' => $paymentGatewayEnabled,
             'categories' => $categories,
             'featured_stores' => $stores,
             'featured_products' => $products,

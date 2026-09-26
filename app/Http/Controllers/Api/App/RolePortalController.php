@@ -13,6 +13,7 @@ use App\Models\RolePortalRecord;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\FinancialService;
+use App\Services\SecurePayoutProofService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +21,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class RolePortalController extends Controller
 {
@@ -37,6 +40,7 @@ class RolePortalController extends Controller
 
     public function __construct(
         private readonly FinancialService $financialService,
+        private readonly SecurePayoutProofService $payoutProofs,
     ) {
     }
 
@@ -140,6 +144,13 @@ class RolePortalController extends Controller
             'bank_name' => ['required', 'string', 'max:150'],
             'iban' => ['required', 'string', 'max:50'],
             'account_name' => ['required', 'string', 'max:150'],
+            'iban_proof' => [
+                'required',
+                'file',
+                'mimes:jpg,jpeg,png,webp,pdf',
+                'mimetypes:image/jpeg,image/png,image/webp,application/pdf',
+                'max:10240',
+            ],
             'notes' => ['nullable', 'string', 'max:1000'],
             'declaration_accepted' => ['required', 'accepted'],
             'signature_base64' => ['required', 'string', 'max:2000000'],
@@ -152,6 +163,23 @@ class RolePortalController extends Controller
 
         abort_if((float) $data['amount'] < (float) $policy['minimum_amount'], 422,
             'الحد الأدنى للسحب لهذا الحساب هو '.$policy['minimum_amount'].' ريال.');
+
+        $ibanNormalized = $this->normalizeIban((string) $data['iban']);
+
+        if (! $this->isValidSaudiIban($ibanNormalized)) {
+            throw ValidationException::withMessages([
+                'iban' => ['أدخل آيبان سعوديًا صحيحًا يبدأ بـ SA ويتكون من 24 خانة.'],
+            ]);
+        }
+
+        if (Payout::query()
+            ->where('iban_normalized', $ibanNormalized)
+            ->where('wallet_id', '!=', $wallet->id)
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'iban' => ['رقم الآيبان مرتبط بحساب آخر ولا يمكن استخدامه لهذا الحساب.'],
+            ]);
+        }
 
         $openPayout = Payout::query()->where('wallet_id', $wallet->id)
             ->whereIn('status', ['pending', 'approved', 'processing'])->exists();
@@ -185,23 +213,40 @@ class RolePortalController extends Controller
             'net_amount' => round((float) $data['amount'] - $fee, 2),
             'bank_name' => $data['bank_name'],
             'account_name' => $data['account_name'],
-            'iban_masked' => $this->maskIban($data['iban']),
+            'iban_masked' => $this->maskIban($ibanNormalized),
             'contract_status' => 'signed_active_verified',
             'contract_reference' => $contractState['contract']->reference,
             'contract_version' => $contractState['contract']->version,
             'contract_acceptance_reference' => $contractState['acceptance']->reference,
             'signed_at' => $signedAt->toIso8601String(),
         ];
+        $proof = $this->payoutProofs->upload($request->file('iban_proof'));
+        $declarationSnapshot['iban_proof_sha256'] = $proof['sha256'];
+
         $declarationHash = hash('sha256', json_encode([
             $declarationReference, $declarationSnapshot, $policy,
             $data['signature_base64'], $request->user()->id,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         $acceptancePayload = $contractState['acceptance']->payload ?? [];
-        $payout = $this->financialService->requestPayout(
-            $wallet,
-            [
-                ...Arr::only($data, ['amount', 'bank_name', 'iban', 'account_name', 'notes']),
+        try {
+            $payout = $this->financialService->requestPayout(
+                $wallet,
+                [
+                ...Arr::only($data, ['amount', 'bank_name', 'account_name', 'notes']),
+                'iban' => $ibanNormalized,
+                'iban_normalized' => $ibanNormalized,
+                'iban_proof_required' => true,
+                'iban_proof_public_id' => $proof['public_id'],
+                'iban_proof_asset_id' => $proof['asset_id'],
+                'iban_proof_resource_type' => $proof['resource_type'],
+                'iban_proof_delivery_type' => $proof['delivery_type'],
+                'iban_proof_format' => $proof['format'],
+                'iban_proof_original_name' => $proof['original_name'],
+                'iban_proof_mime_type' => $proof['mime_type'],
+                'iban_proof_size' => $proof['size'],
+                'iban_proof_sha256' => $proof['sha256'],
+                'iban_proof_uploaded_at' => now(),
                 'fee' => $fee,
                 'account_role' => $context['role'],
                 'contract_id' => $contractState['contract']->id,
@@ -218,13 +263,26 @@ class RolePortalController extends Controller
                 'declaration_signed_at' => $signedAt,
                 'policy_snapshot' => $policy,
                 'declaration_snapshot' => $declarationSnapshot,
-            ],
-            $request->user()->id,
-        );
+                ],
+                $request->user()->id,
+            );
+        } catch (Throwable $exception) {
+            try {
+                $this->payoutProofs->delete(
+                    $proof['public_id'],
+                    $proof['resource_type'],
+                    $proof['delivery_type'],
+                );
+            } catch (Throwable $cleanupException) {
+                report($cleanupException);
+            }
+
+            throw $exception;
+        }
 
         return response()->json([
             'message' => 'تم توقيع إقرار السحب وإرسال الطلب للمراجعة.',
-            'data' => $payout,
+            'data' => $this->payoutPayload($payout),
         ], 201);
     }
 
@@ -350,8 +408,36 @@ class RolePortalController extends Controller
                 ->where('wallet_id', $wallet->id)
                 ->latest()
                 ->limit(30)
-                ->get(),
+                ->get()
+                ->map(fn (Payout $payout): array => $this->payoutPayload($payout))
+                ->values(),
         ];
+    }
+
+    private function payoutPayload(Payout $payout): array
+    {
+        $payload = $payout->makeHidden([
+            'iban_proof_public_id',
+            'iban_proof_asset_id',
+            'iban_proof_resource_type',
+            'iban_proof_delivery_type',
+            'iban_proof_sha256',
+            'iban_proof_deleted_by',
+            'iban_proof_deletion_reason',
+        ])->toArray();
+
+        $payload['iban_proof'] = [
+            'required' => (bool) $payout->iban_proof_required,
+            'available' => $payout->iban_proof_uploaded_at !== null
+                && $payout->iban_proof_deleted_at === null,
+            'file_name' => $payout->iban_proof_original_name,
+            'mime_type' => $payout->iban_proof_mime_type,
+            'size' => $payout->iban_proof_size,
+            'uploaded_at' => $payout->iban_proof_uploaded_at?->toIso8601String(),
+            'deleted_at' => $payout->iban_proof_deleted_at?->toIso8601String(),
+        ];
+
+        return $payload;
     }
 
     private function payoutPolicy(string $role): array
@@ -432,6 +518,35 @@ class RolePortalController extends Controller
     {
         $clean = preg_replace('/\s+/', '', $iban) ?? $iban;
         return strlen($clean) <= 8 ? str_repeat('*', max(strlen($clean) - 4, 0)).substr($clean, -4) : substr($clean, 0, 4).str_repeat('*', strlen($clean) - 8).substr($clean, -4);
+    }
+
+    private function normalizeIban(string $iban): string
+    {
+        return Str::upper(preg_replace('/[^A-Za-z0-9]/', '', $iban) ?? '');
+    }
+
+    private function isValidSaudiIban(string $iban): bool
+    {
+        if (! preg_match('/^SA\d{22}$/', $iban)) {
+            return false;
+        }
+
+        $rearranged = substr($iban, 4).substr($iban, 0, 4);
+        $numeric = '';
+
+        foreach (str_split($rearranged) as $character) {
+            $numeric .= ctype_alpha($character)
+                ? (string) (ord($character) - 55)
+                : $character;
+        }
+
+        $remainder = 0;
+
+        foreach (str_split($numeric) as $digit) {
+            $remainder = (($remainder * 10) + (int) $digit) % 97;
+        }
+
+        return $remainder === 1;
     }
 
     private function contractData(array $context): array

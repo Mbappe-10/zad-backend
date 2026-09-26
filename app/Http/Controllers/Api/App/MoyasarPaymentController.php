@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\PaymentAttempt;
+use App\Models\PaymentProvider;
+use App\Services\LaunchAttributionService;
 use App\Support\InternalTesting;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +19,11 @@ use Illuminate\Validation\ValidationException;
 
 class MoyasarPaymentController extends Controller
 {
+    public function __construct(
+        private readonly LaunchAttributionService $launchAttribution,
+    ) {
+    }
+
     public function attempt(Request $request, Order $order): JsonResponse
     {
         $this->authorizeOrder($request, $order);
@@ -323,7 +331,44 @@ class MoyasarPaymentController extends Controller
                 'failed_at' => null,
             ]);
 
+            $provider = PaymentProvider::query()->firstOrCreate(
+                ['code' => 'moyasar'],
+                [
+                    'name' => 'Moyasar',
+                    'currency' => 'SAR',
+                    'is_active' => true,
+                    'settings' => ['status' => 'active'],
+                ],
+            );
+            $grossAmount = round(((int) ($payment['amount'] ?? $this->amountHalalas($order))) / 100, 2);
+            $providerFee = round(max(0, ((int) ($payment['fee'] ?? 0)) / 100), 2);
+            $providerPaymentId = (string) ($payment['id'] ?? $attempt->idempotency_key);
+
+            Payment::query()->updateOrCreate(
+                ['provider_reference' => $providerPaymentId],
+                [
+                    'order_id' => $order->id,
+                    'provider_id' => $provider->id,
+                    'reference' => 'MYS-'.$order->id.'-'.Str::upper(substr(hash('sha256', $providerPaymentId), 0, 12)),
+                    'method' => (string) data_get($payment, 'source.type', 'gateway'),
+                    'currency' => 'SAR',
+                    'gross_amount' => $grossAmount,
+                    'provider_fee' => $providerFee,
+                    'net_amount' => round($grossAmount - $providerFee, 2),
+                    'status' => 'paid',
+                    'paid_at' => now(),
+                    'failed_at' => null,
+                    'metadata' => [
+                        'gateway' => $attempt->gateway,
+                        'attempt_id' => $attempt->id,
+                        'fee_reported_by_provider' => array_key_exists('fee', $payment),
+                    ],
+                ],
+            );
+
             $order->update(['payment_status' => Order::PAYMENT_PAID]);
+
+            $this->launchAttribution->markOrderPaid($order);
 
             return $order->fresh(['items', 'store']);
         });

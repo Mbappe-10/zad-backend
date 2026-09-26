@@ -10,7 +10,12 @@ class FinancialLedgerEntry extends Model
 
     protected function casts(): array
     {
-        return ['entry_date' => 'date', 'amount' => 'decimal:2'];
+        return [
+            'entry_date' => 'date',
+            'occurred_at' => 'datetime',
+            'amount' => 'decimal:2',
+            'metadata' => 'array',
+        ];
     }
 
     public function source()

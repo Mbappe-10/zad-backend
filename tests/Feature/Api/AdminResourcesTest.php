@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Models\User;
+use App\Models\Wallet;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -26,12 +27,12 @@ class AdminResourcesTest extends TestCase
     public function test_admin_resource_crud_and_status_actions(): void
     {
         $created = $this->postJson('/api/admin/customers', [
-            'name' => 'عميل اختبار',
+            'name' => 'ط¹ظ…ظٹظ„ ط§ط®طھط¨ط§ط±',
             'phone' => '0500000000',
             'status' => 'pending',
         ])
             ->assertCreated()
-            ->assertJsonPath('data.name', 'عميل اختبار')
+            ->assertJsonPath('data.name', 'ط¹ظ…ظٹظ„ ط§ط®طھط¨ط§ط±')
             ->json('data');
 
         $id = $created['id'];
@@ -42,10 +43,10 @@ class AdminResourcesTest extends TestCase
             ->assertJsonPath('data.0.id', $id);
 
         $this->putJson("/api/admin/customers/{$id}", [
-            'name' => 'عميل محدث',
+            'name' => 'ط¹ظ…ظٹظ„ ظ…ط­ط¯ط«',
         ])
             ->assertOk()
-            ->assertJsonPath('data.name', 'عميل محدث');
+            ->assertJsonPath('data.name', 'ط¹ظ…ظٹظ„ ظ…ط­ط¯ط«');
 
         $this->postJson("/api/admin/customers/{$id}/activate")
             ->assertOk()
@@ -68,13 +69,13 @@ class AdminResourcesTest extends TestCase
         $this->putJson('/api/admin/settings', [
             'settings' => [
                 'general' => [
-                    'appNameAr' => 'زاد سينك',
+                    'appNameAr' => 'ط²ط§ط¯ ط³ظٹظ†ظƒ',
                     'timezone' => 'Asia/Riyadh',
                 ],
             ],
         ])
             ->assertOk()
-            ->assertJsonPath('data.general.appNameAr', 'زاد سينك');
+            ->assertJsonPath('data.general.appNameAr', 'ط²ط§ط¯ ط³ظٹظ†ظƒ');
 
         $this->getJson('/api/admin/settings')
             ->assertOk()
@@ -96,8 +97,8 @@ class AdminResourcesTest extends TestCase
     public function test_support_ticket_reply_is_persisted(): void
     {
         $ticket = $this->postJson('/api/admin/support/tickets', [
-            'subject' => 'مشكلة اختبار',
-            'requester_name' => 'مستخدم',
+            'subject' => 'ظ…ط´ظƒظ„ط© ط§ط®طھط¨ط§ط±',
+            'requester_name' => 'ظ…ط³طھط®ط¯ظ…',
             'priority' => 'medium',
             'status' => 'open',
         ])
@@ -105,44 +106,58 @@ class AdminResourcesTest extends TestCase
             ->json('data');
 
         $this->postJson("/api/admin/support/tickets/{$ticket['id']}/reply", [
-            'message' => 'تم استلام طلبك.',
+            'message' => 'طھظ… ط§ط³طھظ„ط§ظ… ط·ظ„ط¨ظƒ.',
         ])
             ->assertOk()
             ->assertJsonPath('data.messages_count', 1)
-            ->assertJsonPath('data.messages.0.message', 'تم استلام طلبك.');
+            ->assertJsonPath('data.messages.0.message', 'طھظ… ط§ط³طھظ„ط§ظ… ط·ظ„ط¨ظƒ.');
     }
 
     public function test_wallet_actions_and_content_upload_work(): void
     {
-        $wallet = $this->postJson('/api/admin/wallets', [
-            'owner_name' => 'محفظة اختبار',
+        $owner = User::factory()->create();
+
+        $wallet = Wallet::query()->create([
+            'owner_type' => $owner->getMorphClass(),
+            'owner_id' => $owner->getKey(),
+            'currency' => 'SAR',
             'available_balance' => 100,
+            'pending_balance' => 0,
+            'is_frozen' => false,
             'status' => 'active',
-        ])->assertCreated()->json('data');
+        ]);
 
-        $this->postJson("/api/admin/wallets/{$wallet['id']}/credit", [
+        $this->postJson("/api/admin/wallets/{$wallet->id}/adjust", [
+            'direction' => 'credit',
             'amount' => 25,
-            'reason' => 'إضافة تجريبية',
-        ])
-            ->assertOk()
-            ->assertJsonPath('data.available_balance', 125);
+            'reason' => 'Test credit',
+        ])->assertCreated();
 
-        $this->postJson("/api/admin/wallets/{$wallet['id']}/debit", [
+        $this->assertSame('125.00', $wallet->fresh()->available_balance);
+
+        $this->postJson("/api/admin/wallets/{$wallet->id}/adjust", [
+            'direction' => 'debit',
             'amount' => 10,
-            'reason' => 'خصم تجريبي',
+            'reason' => 'Test debit',
+        ])->assertCreated();
+
+        $this->assertSame('115.00', $wallet->fresh()->available_balance);
+
+        $this->getJson("/api/admin/wallets/{$wallet->id}/transactions")
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $this->patchJson("/api/admin/wallets/{$wallet->id}/status", [
+            'status' => 'frozen',
+            'reason' => 'Test freeze',
         ])
-            ->assertOk()
-            ->assertJsonPath('data.available_balance', 115);
-
-        $this->getJson("/api/admin/wallets/{$wallet['id']}/transactions")
-            ->assertOk()
-            ->assertJsonCount(2, 'transactions');
-
-        $this->patchJson("/api/admin/wallets/{$wallet['id']}/freeze")
             ->assertOk()
             ->assertJsonPath('data.is_frozen', true);
 
-        $this->patchJson("/api/admin/wallets/{$wallet['id']}/unfreeze")
+        $this->patchJson("/api/admin/wallets/{$wallet->id}/status", [
+            'status' => 'active',
+            'reason' => 'Test unfreeze',
+        ])
             ->assertOk()
             ->assertJsonPath('data.is_frozen', false);
 

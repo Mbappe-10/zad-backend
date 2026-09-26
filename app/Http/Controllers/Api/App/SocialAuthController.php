@@ -8,6 +8,7 @@ use App\Models\Driver;
 use App\Models\ProductiveFamily;
 use App\Services\App\GoogleIdentityVerifier;
 use App\Services\App\SocialAccountLinker;
+use App\Services\LaunchAttributionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,7 @@ class SocialAuthController extends Controller
     public function __construct(
         private readonly GoogleIdentityVerifier $googleIdentity,
         private readonly SocialAccountLinker $accounts,
+        private readonly LaunchAttributionService $launchAttribution,
     ) {
     }
 
@@ -33,6 +35,8 @@ class SocialAuthController extends Controller
                 'string',
                 'max:100',
             ],
+            'launch_session_token' => ['nullable', 'string', 'max:128'],
+            'guest_session_id' => ['nullable', 'uuid', 'exists:app_guest_sessions,id'],
         ]);
 
         $payload = $this->googleIdentity->verify(
@@ -105,6 +109,14 @@ class SocialAuthController extends Controller
                 $data['device_name'] ?? 'zad-mobile-app',
             )
             ->plainTextToken;
+
+        if (filled($data['launch_session_token'] ?? null)) {
+            $this->launchAttribution->claim(
+                $data['launch_session_token'],
+                (int) $user->id,
+                $data['guest_session_id'] ?? null,
+            );
+        }
 
         return response()->json([
             'message' => $accountLinked

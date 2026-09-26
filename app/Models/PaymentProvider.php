@@ -12,4 +12,9 @@ class PaymentProvider extends Model
     {
         return ['is_active' => 'boolean', 'settings' => 'array', 'fixed_fee' => 'decimal:2', 'percentage_fee' => 'decimal:4'];
     }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class, 'provider_id');
+    }
 }

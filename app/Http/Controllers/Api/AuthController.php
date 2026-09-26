@@ -423,7 +423,7 @@ class AuthController extends Controller
             throw $e;
         }
         try { $this->deleteStoredProfilePhoto($old); } catch (\Throwable $e) { report($e); }
-        return response()->json(['message' => 'تم حفظ الصورة الشخصية.', 'user' => $this->serializeUser($request->user()->fresh())]);
+        return response()->json(['message' => 'تم حفظ الصورة الشخصية.', 'user' => $this->serializeUser($request->user()->fresh())], 201);
     }
 
     public function removeProfilePhoto(Request $request): JsonResponse

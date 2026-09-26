@@ -159,6 +159,19 @@ class ControlCenterController extends Controller
             'refundApprovalLimit' => 500,
         ],
 
+        'app_updates' => [
+            'androidLatestVersion' => '1.0.0',
+            'androidLatestBuild' => 1,
+            'androidMinimumBuild' => 1,
+            'androidForceUpdate' => false,
+            'androidStoreUrl' => 'https://play.google.com/store/apps/details?id=com.zadsync.app',
+
+            'iosLatestVersion' => '1.0.0',
+            'iosLatestBuild' => 1,
+            'iosMinimumBuild' => 1,
+            'iosForceUpdate' => false,
+            'iosStoreUrl' => '',
+        ],
         'governance' => [
             'auditLogsEnabled' => true,
             'preventAuditLogDeletion' => true,
@@ -665,6 +678,7 @@ class ControlCenterController extends Controller
             'artificial_intelligence' => 'ضوابط الذكاء الاصطناعي والموظفين الرقميين.',
             'services' => 'الخدمات الخارجية والبريد والرسائل والتخزين.',
             'operations' => 'التشغيل التقني والنسخ الاحتياطي والكاش والطوابير.',
+            'app_updates' => 'إدارة إصدارات تطبيق أندرويد وآيفون وسياسة التحديث الإجباري.',
             'governance' => 'الحوكمة والاعتمادات وسجل التغييرات.',
             default => 'إعدادات مركز التحكم الرئيسي.',
         };
@@ -680,6 +694,7 @@ class ControlCenterController extends Controller
             'orders_sales',
             'delivery',
             'finance',
+            'app_updates',
             'governance',
         ], true);
     }

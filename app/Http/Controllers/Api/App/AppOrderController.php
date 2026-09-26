@@ -46,7 +46,18 @@ class AppOrderController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
+                abort_unless(
+            (bool) data_get(
+                PlatformControl::query()
+                    ->where('section', 'platform')
+                    ->value('value'),
+                'newOrdersEnabled',
+                true,
+            ),
+            423,
+            'استقبال الطلبات الجديدة متوقف مؤقتًا.',
+        );
+$data = $request->validate([
             'guest_session_id' => ['required', 'string', 'max:36', 'exists:app_guest_sessions,id'],
             'verification_token' => ['required', 'string'],
             'store_id' => ['required', 'integer', 'exists:stores,id'],

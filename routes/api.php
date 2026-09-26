@@ -759,6 +759,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::get('/payout-requests', [PayoutAdminController::class, 'index']);
         Route::get('/payout-requests/{payout}', [PayoutAdminController::class, 'show'])->whereNumber('payout');
         Route::patch('/payout-requests/{payout}/decision', [PayoutAdminController::class, 'decide'])->whereNumber('payout');
+        Route::patch('/payout-requests/{payout}/start-processing', [PayoutAdminController::class, 'startProcessing'])->whereNumber('payout');
+        Route::patch('/payout-requests/{payout}/complete', [PayoutAdminController::class, 'complete'])->whereNumber('payout');
+        Route::get('/payout-requests/{payout}/transfer-proof', [PayoutAdminController::class, 'downloadTransferProof'])->whereNumber('payout')->name('api.admin.payout-transfer-proof.download');
         Route::delete('/payout-requests/{payout}/iban-proof', [PayoutAdminController::class, 'deleteProof'])->whereNumber('payout');
         Route::get('/dashboard', [AdminResourceController::class, 'dashboard']);
         Route::get('/dashboard/export', [AdminResourceController::class, 'dashboardExport']);

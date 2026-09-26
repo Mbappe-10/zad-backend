@@ -6,6 +6,7 @@ use App\Models\AppProfile;
 use App\Models\City;
 use App\Models\Driver;
 use App\Models\ProductiveFamily;
+use App\Models\PlatformControl;
 use App\Models\Store;
 use App\Models\User;
 use App\Support\InternalTesting;
@@ -48,6 +49,20 @@ class SocialAccountLinker
             ?? $providerUser;
 
         $isNewUser = $canonicalUser === null;
+
+        if ($isNewUser) {
+            abort_unless(
+                (bool) data_get(
+                    PlatformControl::query()
+                        ->where('section', 'platform')
+                        ->value('value'),
+                    'registrationsEnabled',
+                    true,
+                ),
+                403,
+                'التسجيل متوقف مؤقتًا بقرار من إدارة المنصة.',
+            );
+        }
 
         if ($canonicalUser !== null) {
             $duplicates = collect([

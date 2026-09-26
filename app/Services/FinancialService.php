@@ -19,7 +19,7 @@ class FinancialService
         return DB::transaction(function () use ($wallet, $amount, $type, $description, $source, $userId) {
             $wallet = Wallet::query()->lockForUpdate()->findOrFail($wallet->id);
             if ($wallet->is_frozen) {
-                throw ValidationException::withMessages(['wallet' => 'المحفظة مجمدة.']);
+                throw ValidationException::withMessages(['wallet' => 'ط§ظ„ظ…ط­ظپط¸ط© ظ…ط¬ظ…ط¯ط©.']);
             }
             $wallet->available_balance = round((float) $wallet->available_balance + $amount, 2);
             $wallet->save();
@@ -41,7 +41,7 @@ class FinancialService
     ): WalletTransaction {
         if ($amount <= 0) {
             throw ValidationException::withMessages([
-                'amount' => ['قيمة الرصيد المعلق يجب أن تكون أكبر من صفر.'],
+                'amount' => ['ظ‚ظٹظ…ط© ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…ط¹ظ„ظ‚ ظٹط¬ط¨ ط£ظ† طھظƒظˆظ† ط£ظƒط¨ط± ظ…ظ† طµظپط±.'],
             ]);
         }
 
@@ -100,7 +100,7 @@ class FinancialService
 
             if ($transaction->status !== 'pending') {
                 throw ValidationException::withMessages([
-                    'transaction' => ['الحركة المالية ليست في حالة تسمح بتحريرها.'],
+                    'transaction' => ['ط§ظ„ط­ط±ظƒط© ط§ظ„ظ…ط§ظ„ظٹط© ظ„ظٹط³طھ ظپظٹ ط­ط§ظ„ط© طھط³ظ…ط­ ط¨طھط­ط±ظٹط±ظ‡ط§.'],
                 ]);
             }
 
@@ -129,7 +129,7 @@ class FinancialService
                 'wallet_liability',
                 'credit',
                 $amount,
-                $transaction->description ?? 'تحرير مستحقات طلب',
+                $transaction->description ?? 'طھط­ط±ظٹط± ظ…ط³طھط­ظ‚ط§طھ ط·ظ„ط¨',
                 $transaction,
                 $userId,
             );
@@ -148,13 +148,13 @@ class FinancialService
     ): WalletTransaction {
         if (! in_array($direction, ['credit', 'debit'], true)) {
             throw ValidationException::withMessages([
-                'direction' => ['نوع تعديل المحفظة غير صالح.'],
+                'direction' => ['ظ†ظˆط¹ طھط¹ط¯ظٹظ„ ط§ظ„ظ…ط­ظپط¸ط© ط؛ظٹط± طµط§ظ„ط­.'],
             ]);
         }
 
         if ($amount <= 0) {
             throw ValidationException::withMessages([
-                'amount' => ['يجب أن يكون مبلغ التعديل أكبر من صفر.'],
+                'amount' => ['ظٹط¬ط¨ ط£ظ† ظٹظƒظˆظ† ظ…ط¨ظ„ط؛ ط§ظ„طھط¹ط¯ظٹظ„ ط£ظƒط¨ط± ظ…ظ† طµظپط±.'],
             ]);
         }
 
@@ -172,7 +172,7 @@ class FinancialService
 
             if (($wallet->status ?? null) === 'closed') {
                 throw ValidationException::withMessages([
-                    'wallet' => ['لا يمكن تعديل رصيد محفظة مغلقة.'],
+                    'wallet' => ['ظ„ط§ ظٹظ…ظƒظ† طھط¹ط¯ظٹظ„ ط±طµظٹط¯ ظ…ط­ظپط¸ط© ظ…ط؛ظ„ظ‚ط©.'],
                 ]);
             }
 
@@ -180,7 +180,7 @@ class FinancialService
 
             if ($direction === 'debit' && $amount > $currentBalance) {
                 throw ValidationException::withMessages([
-                    'amount' => ['قيمة الخصم تتجاوز الرصيد المتاح.'],
+                    'amount' => ['ظ‚ظٹظ…ط© ط§ظ„ط®طµظ… طھطھط¬ط§ظˆط² ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…طھط§ط­.'],
                 ]);
             }
 
@@ -222,16 +222,16 @@ class FinancialService
         return DB::transaction(function () use ($wallet, $data, $userId) {
             $wallet = Wallet::query()->lockForUpdate()->findOrFail($wallet->id);
             if ($wallet->is_frozen) {
-                throw ValidationException::withMessages(['wallet' => 'المحفظة مجمدة.']);
+                throw ValidationException::withMessages(['wallet' => 'ط§ظ„ظ…ط­ظپط¸ط© ظ…ط¬ظ…ط¯ط©.']);
             }
             if (Payout::query()->where('wallet_id', $wallet->id)
                 ->whereIn('status', ['pending', 'approved', 'processing'])
                 ->lockForUpdate()->exists()) {
-                throw ValidationException::withMessages(['payout' => 'يوجد طلب سحب مفتوح لهذا الحساب.']);
+                throw ValidationException::withMessages(['payout' => 'ظٹظˆط¬ط¯ ط·ظ„ط¨ ط³ط­ط¨ ظ…ظپطھظˆط­ ظ„ظ‡ط°ط§ ط§ظ„ط­ط³ط§ط¨.']);
             }
             $amount = (float) $data['amount'];
             if ($amount <= 0 || $amount > (float) $wallet->available_balance) {
-                throw ValidationException::withMessages(['amount' => 'الرصيد المتاح غير كافٍ.']);
+                throw ValidationException::withMessages(['amount' => 'ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…طھط§ط­ ط؛ظٹط± ظƒط§ظپظچ.']);
             }
             $wallet->available_balance = round((float) $wallet->available_balance - $amount, 2);
             $wallet->pending_balance = round((float) $wallet->pending_balance + $amount, 2);
@@ -241,40 +241,171 @@ class FinancialService
         });
     }
 
-    public function decidePayout(Payout $payout, string $decision, ?int $userId): Payout
+    public function decidePayout(Payout $payout, string $decision, ?int $userId, ?string $notes = null): Payout
     {
-        return DB::transaction(function () use ($payout, $decision, $userId) {
+        return DB::transaction(function () use ($payout, $decision, $userId, $notes) {
             $payout = Payout::query()->lockForUpdate()->findOrFail($payout->id);
+
             if ($payout->status !== 'pending') {
-                throw ValidationException::withMessages(['status' => 'تم اتخاذ قرار على طلب الصرف مسبقًا.']);
+                throw ValidationException::withMessages([
+                    'status' => 'تم اتخاذ قرار على طلب الصرف مسبقًا.',
+                ]);
             }
-            $wallet = Wallet::query()->lockForUpdate()->findOrFail($payout->wallet_id);
+
+            $wallet = Wallet::query()
+                ->lockForUpdate()
+                ->findOrFail($payout->wallet_id);
+
             if ($decision === 'reject') {
-                $wallet->pending_balance -= $payout->amount;
-                $wallet->available_balance += $payout->amount;
+                $wallet->pending_balance = max(
+                    round((float) $wallet->pending_balance - (float) $payout->amount, 2),
+                    0
+                );
+                $wallet->available_balance = round(
+                    (float) $wallet->available_balance + (float) $payout->amount,
+                    2
+                );
                 $wallet->save();
-                $payout->update(['status' => 'rejected', 'approved_by' => $userId, 'approved_at' => now()]);
+
+                $payout->update([
+                    'status' => 'rejected',
+                    'rejection_reason' => $notes,
+                    'rejected_by' => $userId,
+                    'rejected_at' => now(),
+                ]);
             } else {
-                $wallet->pending_balance -= $payout->amount;
-                $wallet->save();
-                $payout->update(['status' => 'paid', 'approved_by' => $userId, 'approved_at' => now(), 'paid_at' => now()]);
-                $this->ledger('cash', 'debit', (float) $payout->net_amount, 'صرف مستحقات', $payout, $userId);
+                $payout->update([
+                    'status' => 'approved',
+                    'approved_by' => $userId,
+                    'approved_at' => now(),
+                    'approval_notes' => $notes,
+                ]);
             }
 
             return $payout->fresh();
         });
     }
 
+    public function startPayoutProcessing(Payout $payout, ?int $userId): Payout
+    {
+        return DB::transaction(function () use ($payout, $userId) {
+            $payout = Payout::query()->lockForUpdate()->findOrFail($payout->id);
+
+            if ($payout->status !== 'approved') {
+                throw ValidationException::withMessages([
+                    'status' => 'طلب الصرف ليس جاهزًا للتحويل.',
+                ]);
+            }
+
+            if ($payout->approved_by !== null && $userId !== null
+                && (int) $payout->approved_by === (int) $userId) {
+                throw ValidationException::withMessages([
+                    'user' => 'يجب أن ينفذ التحويل موظف مختلف عن موظف الاعتماد.',
+                ]);
+            }
+
+            $payout->update([
+                'status' => 'processing',
+                'processing_by' => $userId,
+                'processing_at' => now(),
+            ]);
+
+            return $payout->fresh();
+        });
+    }
+
+    public function completePayout(
+        Payout $payout,
+        string $bankTransferReference,
+        ?int $userId,
+        ?string $notes = null,
+        array $transferProof = []
+    ): Payout {
+        return DB::transaction(function () use (
+            $payout,
+            $bankTransferReference,
+            $userId,
+            $notes,
+            $transferProof
+        ) {
+            $payout = Payout::query()->lockForUpdate()->findOrFail($payout->id);
+
+            if ($payout->status !== 'processing') {
+                throw ValidationException::withMessages([
+                    'status' => 'طلب الصرف ليس قيد التنفيذ.',
+                ]);
+            }
+
+            if ($payout->processing_by !== null && $userId !== null
+                && (int) $payout->processing_by !== (int) $userId) {
+                throw ValidationException::withMessages([
+                    'user' => 'إكمال التحويل يجب أن يتم بواسطة موظف التنفيذ نفسه.',
+                ]);
+            }
+
+            if (trim($bankTransferReference) === '') {
+                throw ValidationException::withMessages([
+                    'bank_transfer_reference' => 'مرجع التحويل البنكي مطلوب.',
+                ]);
+            }
+
+            $wallet = Wallet::query()
+                ->lockForUpdate()
+                ->findOrFail($payout->wallet_id);
+
+            if ((float) $wallet->pending_balance < (float) $payout->amount) {
+                throw ValidationException::withMessages([
+                    'wallet' => 'الرصيد المعلق لا يغطي طلب الصرف.',
+                ]);
+            }
+
+            $wallet->pending_balance = round(
+                (float) $wallet->pending_balance - (float) $payout->amount,
+                2
+            );
+            $wallet->save();
+
+            $payout->update([
+                'status' => 'paid',
+                'executed_by' => $userId,
+                'executed_at' => now(),
+                'paid_at' => now(),
+                'bank_transfer_reference' => trim($bankTransferReference),
+                'transfer_notes' => $notes,
+                'transfer_proof_public_id' => $transferProof['public_id'] ?? null,
+                'transfer_proof_asset_id' => $transferProof['asset_id'] ?? null,
+                'transfer_proof_resource_type' => $transferProof['resource_type'] ?? null,
+                'transfer_proof_delivery_type' => $transferProof['delivery_type'] ?? null,
+                'transfer_proof_format' => $transferProof['format'] ?? null,
+                'transfer_proof_original_name' => $transferProof['original_name'] ?? null,
+                'transfer_proof_mime_type' => $transferProof['mime_type'] ?? null,
+                'transfer_proof_size' => $transferProof['size'] ?? null,
+                'transfer_proof_sha256' => $transferProof['sha256'] ?? null,
+                'transfer_proof_uploaded_at' => filled($transferProof) ? now() : null,
+            ]);
+
+            $this->ledger(
+                'cash',
+                'debit',
+                (float) $payout->net_amount,
+                'صرف مستحقات - تحويل بنكي منفذ',
+                $payout,
+                $userId
+            );
+
+            return $payout->fresh();
+        });
+    }
     public function refund(Payment $payment, array $data, ?int $userId): Refund
     {
         return DB::transaction(function () use ($payment, $data, $userId) {
             $refunded = (float) Refund::where('payment_id', $payment->id)->whereIn('status', ['approved', 'completed'])->sum('amount');
             $amount = (float) $data['amount'];
             if ($amount <= 0 || $refunded + $amount > (float) $payment->gross_amount) {
-                throw ValidationException::withMessages(['amount' => 'قيمة الاسترداد تتجاوز المبلغ القابل للاسترداد.']);
+                throw ValidationException::withMessages(['amount' => 'ظ‚ظٹظ…ط© ط§ظ„ط§ط³طھط±ط¯ط§ط¯ طھطھط¬ط§ظˆط² ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ظ‚ط§ط¨ظ„ ظ„ظ„ط§ط³طھط±ط¯ط§ط¯.']);
             }
             $refund = Refund::create(['payment_id' => $payment->id, 'order_id' => $payment->order_id, 'reference' => 'REF-'.Str::upper(Str::random(14)), 'amount' => $amount, 'status' => 'completed', 'reason' => $data['reason'], 'requested_by' => $userId, 'approved_by' => $userId, 'approved_at' => now(), 'refunded_at' => now()]);
-            $this->ledger('customer_refunds', 'debit', $amount, 'استرداد دفعة', $refund, $userId);
+            $this->ledger('customer_refunds', 'debit', $amount, 'ط§ط³طھط±ط¯ط§ط¯ ط¯ظپط¹ط©', $refund, $userId);
 
             return $refund;
         });
@@ -285,3 +416,4 @@ class FinancialService
         FinancialLedgerEntry::create(['entry_number' => 'LED-'.Str::upper(Str::random(16)), 'entry_date' => today(), 'account_code' => $account, 'direction' => $direction, 'amount' => $amount, 'source_type' => $source?->getMorphClass(), 'source_id' => $source?->getKey(), 'description' => $description, 'created_by' => $userId]);
     }
 }
+

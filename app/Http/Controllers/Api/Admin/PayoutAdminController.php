@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Payout;
 use App\Services\FinancialService;
 use App\Services\SecurePayoutProofService;
+use App\Services\SecurePayoutTransferProofService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -70,6 +71,7 @@ class PayoutAdminController extends Controller
             $payout,
             $data['decision'] === 'approve' ? 'approve' : 'reject',
             $request->user()?->id,
+            $data['reason'] ?? null,
         );
 
         return response()->json([
@@ -78,6 +80,76 @@ class PayoutAdminController extends Controller
         ]);
     }
 
+    public function startProcessing(Request $request, Payout $payout, FinancialService $financialService): JsonResponse
+    {
+        $updated = $financialService->startPayoutProcessing(
+            $payout,
+            $request->user()?->id,
+        );
+
+        return response()->json([
+            'message' => 'تم نقل طلب السحب إلى مرحلة تنفيذ التحويل.',
+            'data' => $this->payload($updated->load('wallet')),
+        ]);
+    }
+
+    public function complete(
+        Request $request,
+        Payout $payout,
+        FinancialService $financialService,
+        SecurePayoutTransferProofService $transferProofs,
+    ): JsonResponse {
+        $data = $request->validate([
+            'bank_transfer_reference' => ['required', 'string', 'max:150'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'transfer_proof' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'],
+        ]);
+
+        $proof = $transferProofs->upload($request->file('transfer_proof'));
+
+        try {
+            $updated = $financialService->completePayout(
+                $payout,
+                $data['bank_transfer_reference'],
+                $request->user()?->id,
+                $data['notes'] ?? null,
+                $proof,
+            );
+        } catch (\Throwable $exception) {
+            try {
+                $transferProofs->delete(
+                    $proof['public_id'],
+                    $proof['resource_type'],
+                    $proof['delivery_type'],
+                );
+            } catch (\Throwable $cleanupException) {
+                report($cleanupException);
+            }
+
+            throw $exception;
+        }
+
+        return response()->json([
+            'message' => 'تم تسجيل تنفيذ تحويل المستحقات وإثبات التحويل بنجاح.',
+            'data' => $this->payload($updated->fresh()->load('wallet')),
+        ]);
+    }
+
+    public function downloadTransferProof(
+        Payout $payout,
+        SecurePayoutTransferProofService $transferProofs,
+    ): RedirectResponse {
+        abort_unless(filled($payout->transfer_proof_public_id), 404);
+
+        $url = $transferProofs->temporaryDownloadUrl(
+            (string) $payout->transfer_proof_public_id,
+            (string) ($payout->transfer_proof_format ?: 'pdf'),
+            (string) ($payout->transfer_proof_resource_type ?: 'image'),
+            (string) ($payout->transfer_proof_delivery_type ?: 'authenticated'),
+        );
+
+        return redirect()->away($url);
+    }
     public function downloadProof(Payout $payout): RedirectResponse
     {
         abort_unless(
@@ -147,16 +219,49 @@ class PayoutAdminController extends Controller
             'iban_proof_asset_id',
             'iban_proof_resource_type',
             'iban_proof_delivery_type',
+            'transfer_proof_public_id',
+            'transfer_proof_asset_id',
+            'transfer_proof_resource_type',
+            'transfer_proof_delivery_type',
         ])->toArray();
+
         $proofAvailable = $payout->iban_proof_uploaded_at !== null
             && $payout->iban_proof_deleted_at === null
             && filled($payout->iban_proof_public_id);
 
+        $transferProofAvailable = $payout->transfer_proof_uploaded_at !== null
+            && filled($payout->transfer_proof_public_id);
+
         return [
             ...$raw,
             'requested_at' => $payout->created_at?->toIso8601String(),
-            'declaration_complete' => (bool) ($payout->declaration_reference && $payout->declaration_signature && $payout->declaration_hash),
-            'contract_verified' => (bool) ($payout->contract_reference && $payout->contract_acceptance_reference),
+
+            'declaration_complete' => (bool) (
+                $payout->declaration_reference
+                && $payout->declaration_signature
+                && $payout->declaration_hash
+            ),
+
+            'contract_verified' => (bool) (
+                $payout->contract_reference
+                && $payout->contract_acceptance_reference
+            ),
+
+            'finance_audit' => [
+                'approved_by' => $payout->approved_by,
+                'approved_at' => $payout->approved_at?->toIso8601String(),
+                'approval_notes' => $payout->approval_notes,
+                'rejected_by' => $payout->rejected_by,
+                'rejected_at' => $payout->rejected_at?->toIso8601String(),
+                'rejection_reason' => $payout->rejection_reason,
+                'processing_by' => $payout->processing_by,
+                'processing_at' => $payout->processing_at?->toIso8601String(),
+                'executed_by' => $payout->executed_by,
+                'executed_at' => $payout->executed_at?->toIso8601String(),
+                'bank_transfer_reference' => $payout->bank_transfer_reference,
+                'transfer_notes' => $payout->transfer_notes,
+            ],
+
             'iban_proof' => [
                 'required' => (bool) $payout->iban_proof_required,
                 'available' => $proofAvailable,
@@ -175,6 +280,21 @@ class PayoutAdminController extends Controller
                     : null,
                 'can_delete' => $proofAvailable
                     && in_array($payout->status, ['paid', 'completed'], true),
+            ],
+
+            'transfer_proof' => [
+                'available' => $transferProofAvailable,
+                'file_name' => $payout->transfer_proof_original_name,
+                'mime_type' => $payout->transfer_proof_mime_type,
+                'size' => $payout->transfer_proof_size,
+                'sha256' => $payout->transfer_proof_sha256,
+                'uploaded_at' => $payout->transfer_proof_uploaded_at?->toIso8601String(),
+                'download_url' => $transferProofAvailable
+                    ? route(
+                        'api.admin.payout-transfer-proof.download',
+                        ['payout' => $payout->id],
+                    )
+                    : null,
             ],
         ];
     }

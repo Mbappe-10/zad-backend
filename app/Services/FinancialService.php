@@ -138,6 +138,85 @@ class FinancialService
         });
     }
 
+    public function adjustWallet(
+        Wallet $wallet,
+        string $direction,
+        float $amount,
+        string $description,
+        ?string $reference,
+        ?int $userId,
+    ): WalletTransaction {
+        if (! in_array($direction, ['credit', 'debit'], true)) {
+            throw ValidationException::withMessages([
+                'direction' => ['نوع تعديل المحفظة غير صالح.'],
+            ]);
+        }
+
+        if ($amount <= 0) {
+            throw ValidationException::withMessages([
+                'amount' => ['يجب أن يكون مبلغ التعديل أكبر من صفر.'],
+            ]);
+        }
+
+        return DB::transaction(function () use (
+            $wallet,
+            $direction,
+            $amount,
+            $description,
+            $reference,
+            $userId,
+        ): WalletTransaction {
+            $wallet = Wallet::query()
+                ->lockForUpdate()
+                ->findOrFail($wallet->id);
+
+            if (($wallet->status ?? null) === 'closed') {
+                throw ValidationException::withMessages([
+                    'wallet' => ['لا يمكن تعديل رصيد محفظة مغلقة.'],
+                ]);
+            }
+
+            $currentBalance = (float) $wallet->available_balance;
+
+            if ($direction === 'debit' && $amount > $currentBalance) {
+                throw ValidationException::withMessages([
+                    'amount' => ['قيمة الخصم تتجاوز الرصيد المتاح.'],
+                ]);
+            }
+
+            $newBalance = $direction === 'credit'
+                ? $currentBalance + $amount
+                : $currentBalance - $amount;
+
+            $wallet->available_balance = round($newBalance, 2);
+            $wallet->save();
+
+            $transaction = WalletTransaction::query()->create([
+                'wallet_id' => $wallet->id,
+                'reference' => $reference ?: 'ADJ-'.Str::upper(Str::random(16)),
+                'type' => $direction === 'credit'
+                    ? 'manual_credit'
+                    : 'manual_debit',
+                'amount' => round($amount, 2),
+                'balance_after' => (float) $wallet->available_balance,
+                'status' => 'completed',
+                'description' => $description,
+                'created_by' => $userId,
+            ]);
+
+            $this->ledger(
+                'wallet_liability',
+                $direction === 'credit' ? 'credit' : 'debit',
+                $amount,
+                $description,
+                $transaction,
+                $userId,
+            );
+
+            return $transaction;
+        });
+    }
+
     public function requestPayout(Wallet $wallet, array $data, ?int $userId): Payout
     {
         return DB::transaction(function () use ($wallet, $data, $userId) {

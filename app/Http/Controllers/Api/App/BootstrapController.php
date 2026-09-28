@@ -13,13 +13,18 @@ use App\Models\Product;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 class BootstrapController extends Controller
 {
     public function __invoke(): JsonResponse
     {
-        $settings = AppSetting::query()
+        $payload = Cache::remember(
+            'app.bootstrap.v1',
+            now()->addSeconds(60),
+            function (): array {
+$settings = AppSetting::query()
             ->where('is_public', true)
             ->orderBy('group')
             ->orderBy('key')
@@ -233,21 +238,24 @@ class BootstrapController extends Controller
                 ];
             })
             ->values();
+                return [
+                    'app' => [
+                        'name' => 'ZAD Sync',
+                        'version' => '1.0.0',
+                        'guest_first' => true,
+                    ],
+                    'settings' => $settings,
+                    'payment_gateway_enabled' => $paymentGatewayEnabled,
+                    'categories' => $categories,
+                    'featured_stores' => $stores,
+                    'featured_products' => $products,
+                    'banners' => $banners,
+                    'cities' => $cities,
+                ];
+            },
+        );
 
-        return response()->json([
-            'app' => [
-                'name' => 'زاد سينك',
-                'version' => '1.0.0',
-                'guest_first' => true,
-            ],
-            'settings' => $settings,
-            'payment_gateway_enabled' => $paymentGatewayEnabled,
-            'categories' => $categories,
-            'featured_stores' => $stores,
-            'featured_products' => $products,
-            'banners' => $banners,
-            'cities' => $cities,
-        ]);
+        return response()->json($payload);
     }
 
     /**
@@ -775,3 +783,4 @@ class BootstrapController extends Controller
         return Storage::disk('public')->url($cleanPath);
     }
 }
+

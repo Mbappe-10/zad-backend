@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\Store;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 class PublicExperienceSeeder extends Seeder
@@ -126,8 +127,6 @@ class PublicExperienceSeeder extends Seeder
                 'title_ar' => 'كبسة دجاج (نصف حبة)',
                 'title_en' =>
                     'Chicken Kabsa (Half Chicken)',
-                'media_url' =>
-                    'https://zad-backend-w2a2.onrender.com/catalog/banners/z6hrbUKxEvSmDBTFwrh0Ws7y6fhOdUp8ixebqn8c.png',
                 'display_order' => 1,
             ],
             [
@@ -137,8 +136,6 @@ class PublicExperienceSeeder extends Seeder
                     'فخامة الفستق... برائحة الورد',
                 'title_en' =>
                     'Pistachio Elegance with Rose',
-                'media_url' =>
-                    'https://zad-backend-w2a2.onrender.com/catalog/banners/8oHnrDlkIUECQ4dh93M4P8vt0bo6qRoWBBjRMzOi.png',
                 'display_order' => 2,
             ],
             [
@@ -148,8 +145,6 @@ class PublicExperienceSeeder extends Seeder
                     'أربع نكهات... وسعادة لا تنتهي',
                 'title_en' =>
                     'Four Flavors, Endless Happiness',
-                'media_url' =>
-                    'https://zad-backend-w2a2.onrender.com/catalog/banners/prQjCy38LsXQAgPU9NZhqHslQZUKoZBDGfYmQ5sI.png',
                 'display_order' => 3,
             ],
         ];
@@ -160,14 +155,56 @@ class PublicExperienceSeeder extends Seeder
                 $catalog,
             );
 
+            $productImages = is_array($product->images)
+                ? $product->images
+                : [];
+
+            $productImage = collect($productImages)
+                ->map(static function ($image): ?string {
+                    if (is_string($image)) {
+                        $value = trim($image);
+
+                        return $value !== '' ? $value : null;
+                    }
+
+                    if (is_array($image)) {
+                        foreach (['secure_url', 'url', 'image_url', 'path', 'src'] as $key) {
+                            $value = trim((string) ($image[$key] ?? ''));
+
+                            if ($value !== '') {
+                                return $value;
+                            }
+                        }
+                    }
+
+                    return null;
+                })
+                ->filter()
+                ->first();
+
+            if (!$productImage) {
+                throw new RuntimeException(
+                    "Product {$product->id} has no image for advertisement {$ad['external_key']}."
+                );
+            }
+
+            $advertisementImageUrl = preg_match(
+                '#^https?://#i',
+                $productImage,
+            )
+                ? $productImage
+                : Storage::disk('public')->url(
+                    ltrim($productImage, '/'),
+                );
+
             $payload = [
                 'titleAr' => $ad['title_ar'],
                 'titleEn' => $ad['title_en'],
                 'descriptionAr' => null,
                 'descriptionEn' => null,
                 'mediaType' => 'image',
-                'mediaUrl' => $ad['media_url'],
-                'imageUrl' => $ad['media_url'],
+                'mediaUrl' => $advertisementImageUrl,
+                'imageUrl' => $advertisementImageUrl,
                 'storeId' => (int) $product->store_id,
                 'productId' => (int) $product->id,
                 'displayOrder' =>

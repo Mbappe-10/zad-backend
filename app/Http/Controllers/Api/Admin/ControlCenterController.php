@@ -172,6 +172,12 @@ class ControlCenterController extends Controller
             'iosForceUpdate' => false,
             'iosStoreUrl' => '',
         ],
+        'social_media' => [
+            'tiktokUrl' => '',
+            'xUrl' => '',
+            'instagramUrl' => '',
+            'snapchatUrl' => '',
+        ],
         'governance' => [
             'auditLogsEnabled' => true,
             'preventAuditLogDeletion' => true,
@@ -679,6 +685,7 @@ class ControlCenterController extends Controller
             'services' => 'الخدمات الخارجية والبريد والرسائل والتخزين.',
             'operations' => 'التشغيل التقني والنسخ الاحتياطي والكاش والطوابير.',
             'app_updates' => 'إدارة إصدارات تطبيق أندرويد وآيفون وسياسة التحديث الإجباري.',
+            'social_media' => 'روابط التواصل الاجتماعي العامة في ملف زاد سينك التعريفي.',
             'governance' => 'الحوكمة والاعتمادات وسجل التغييرات.',
             default => 'إعدادات مركز التحكم الرئيسي.',
         };

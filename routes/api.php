@@ -91,6 +91,51 @@ Route::get('/v1/app/media', [PublicMediaController::class, 'show'])
 |
 */
 
+/*
+|--------------------------------------------------------------------------
+| ZAD Sync Public Social Links
+|--------------------------------------------------------------------------
+| Read-only public endpoint. Editing remains restricted to Platform Owner
+| through the protected Owner Control Center.
+*/
+
+Route::get('/public/social-links', function () {
+    $value = \App\Models\PlatformControl::query()
+        ->where('section', 'social_media')
+        ->value('value');
+
+    $value = is_array($value) ? $value : [];
+
+    $keys = [
+        'tiktokUrl',
+        'xUrl',
+        'instagramUrl',
+        'snapchatUrl',
+    ];
+
+    $data = [];
+
+    foreach ($keys as $key) {
+        $url = trim((string) ($value[$key] ?? ''));
+
+        $data[$key] = filter_var(
+            $url,
+            FILTER_VALIDATE_URL
+        ) ? $url : '';
+    }
+
+    return response()
+        ->json([
+            'data' => $data,
+        ])
+        ->header(
+            'Cache-Control',
+            'no-store, no-cache, must-revalidate'
+        );
+})
+    ->middleware('throttle:60,1')
+    ->name('api.public.social-links');
+
 Route::post('/auth/login', [AuthController::class, 'login'])
     ->middleware('throttle:5,1')
     ->name('api.auth.login');

@@ -7,6 +7,7 @@ use App\Models\AppProfile;
 use App\Models\Driver;
 use App\Models\DriverDocument;
 use App\Models\DriverProfileFieldSetting;
+use App\Services\App\PlatformOperationGate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -47,6 +48,11 @@ class DriverProfileController extends Controller
             'cargo_interior',
         ],
     ];
+
+    public function __construct(
+        private readonly PlatformOperationGate $operations,
+    ) {
+    }
 
     public function fields(): JsonResponse
     {
@@ -97,6 +103,24 @@ class DriverProfileController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $profileDriverId = AppProfile::query()
+            ->where('user_id', $request->user()->id)
+            ->value('driver_id');
+
+        $hasExistingDriver = Driver::withTrashed()
+            ->where('user_id', $request->user()->id)
+            ->exists()
+            || (
+                $profileDriverId !== null
+                && Driver::withTrashed()
+                    ->whereKey($profileDriverId)
+                    ->exists()
+            );
+
+        if (! $hasExistingDriver) {
+            $this->operations->assertNewDriverRegistrationAllowed();
+        }
+
         if (! $request->has('answers') && $request->has('extra_answers')) {
             $request->merge(['answers' => $request->input('extra_answers', [])]);
         }

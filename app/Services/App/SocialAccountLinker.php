@@ -6,7 +6,6 @@ use App\Models\AppProfile;
 use App\Models\City;
 use App\Models\Driver;
 use App\Models\ProductiveFamily;
-use App\Models\PlatformControl;
 use App\Models\Store;
 use App\Models\User;
 use App\Support\InternalTesting;
@@ -14,6 +13,11 @@ use Illuminate\Validation\ValidationException;
 
 class SocialAccountLinker
 {
+    public function __construct(
+        private readonly PlatformOperationGate $operations,
+    ) {
+    }
+
     /**
      * Resolve one canonical ZADSYNC user for a verified Google identity.
      *
@@ -51,17 +55,16 @@ class SocialAccountLinker
         $isNewUser = $canonicalUser === null;
 
         if ($isNewUser) {
-            abort_unless(
-                (bool) data_get(
-                    PlatformControl::query()
-                        ->where('section', 'platform')
-                        ->value('value'),
-                    'registrationsEnabled',
-                    true,
-                ),
-                403,
-                'التسجيل متوقف مؤقتًا بقرار من إدارة المنصة.',
-            );
+            if ($joinType === 'productive_family') {
+                $this->operations
+                    ->assertNewFamilyRegistrationAllowed();
+            } elseif ($joinType === 'driver') {
+                $this->operations
+                    ->assertNewDriverRegistrationAllowed();
+            } else {
+                $this->operations
+                    ->assertNewAccountRegistrationAllowed();
+            }
         }
 
         if ($canonicalUser !== null) {

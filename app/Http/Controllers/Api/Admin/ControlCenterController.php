@@ -329,7 +329,7 @@ class ControlCenterController extends Controller
             ],
         );
 
-        Cache::forget('zad.platform-control');
+        $this->forgetRuntimeCaches();
 
         return response()->json([
             'message' => 'تم حفظ إعدادات القسم بنجاح.',
@@ -444,7 +444,7 @@ class ControlCenterController extends Controller
             'updated_by' => $userId,
         ])->save();
 
-        Cache::forget('zad.platform-control');
+        $this->forgetRuntimeCaches();
 
         return [
             'section' => 'platform',
@@ -461,6 +461,12 @@ class ControlCenterController extends Controller
             'cleared' => true,
             'output' => trim(Artisan::output()),
         ];
+    }
+
+    private function forgetRuntimeCaches(): void
+    {
+        PlatformControl::forgetCachedValues();
+        Cache::forget('app.bootstrap.v1');
     }
 
     private function restartQueue(): array

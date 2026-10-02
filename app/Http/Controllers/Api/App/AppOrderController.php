@@ -12,9 +12,9 @@ use App\Models\OrderJourneyProof;
 use App\Models\OrderRating;
 use App\Models\OrderStatusHistory;
 use App\Models\PhoneVerification;
-use App\Models\PlatformControl;
 use App\Models\Product;
 use App\Models\Store;
+use App\Services\App\PlatformOperationGate;
 use App\Services\App\VehicleRecommendationService;
 use App\Services\VehiclePricingService;
 use App\Services\OrderSettlementService;
@@ -39,6 +39,7 @@ class AppOrderController extends Controller
         private readonly DeliveryVerificationService $deliveryVerification,
         private readonly OrderJourneyRetentionService $journeyRetention,
         private readonly LaunchAttributionService $launchAttribution,
+        private readonly PlatformOperationGate $operations,
     ) {
     }
 
@@ -46,18 +47,9 @@ class AppOrderController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-                abort_unless(
-            (bool) data_get(
-                PlatformControl::query()
-                    ->where('section', 'platform')
-                    ->value('value'),
-                'newOrdersEnabled',
-                true,
-            ),
-            423,
-            'استقبال الطلبات الجديدة متوقف مؤقتًا.',
-        );
-$data = $request->validate([
+        $this->operations->assertNewOrderAllowed();
+
+        $data = $request->validate([
             'guest_session_id' => ['required', 'string', 'max:36', 'exists:app_guest_sessions,id'],
             'verification_token' => ['required', 'string'],
             'store_id' => ['required', 'integer', 'exists:stores,id'],

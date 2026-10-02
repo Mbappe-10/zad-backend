@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentProvider;
+use App\Services\App\PlatformOperationGate;
 use App\Services\LaunchAttributionService;
 use App\Support\InternalTesting;
 use Illuminate\Http\Client\ConnectionException;
@@ -21,6 +22,7 @@ class MoyasarPaymentController extends Controller
 {
     public function __construct(
         private readonly LaunchAttributionService $launchAttribution,
+        private readonly PlatformOperationGate $operations,
     ) {
     }
 
@@ -37,6 +39,8 @@ class MoyasarPaymentController extends Controller
                 ],
             ]);
         }
+
+        $this->operations->assertNewPaymentAttemptAllowed();
 
         abort_if(
             $order->isCancelled(),
@@ -153,6 +157,8 @@ class MoyasarPaymentController extends Controller
         if ($order->isPaid()) {
             return $this->paidResponse($order);
         }
+
+        $this->operations->assertNewPaymentAttemptAllowed();
 
         $payload = [
             'id' => 'local_'.Str::uuid(),

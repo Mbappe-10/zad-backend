@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
 use App\Models\ProductiveFamily;
 use App\Models\Store;
+use App\Services\App\PlatformOperationGate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,11 @@ use Illuminate\Support\Str;
 
 class ProductiveFamilyProfileController extends Controller
 {
+    public function __construct(
+        private readonly PlatformOperationGate $operations,
+    ) {
+    }
+
     public function show(Request $request): JsonResponse
     {
         $profile = AppProfile::query()
@@ -52,6 +58,19 @@ class ProductiveFamilyProfileController extends Controller
          */
         if ($request->input('action') === 'update_pickup_location') {
             return $this->updatePickupLocation($request);
+        }
+
+        $profile = AppProfile::query()
+            ->where('user_id', $request->user()->id)
+            ->first();
+
+        $hasExistingFamily = $profile?->productive_family_id !== null
+            && ProductiveFamily::withTrashed()
+                ->whereKey($profile->productive_family_id)
+                ->exists();
+
+        if (! $hasExistingFamily) {
+            $this->operations->assertNewFamilyRegistrationAllowed();
         }
 
         $data = $request->validate([

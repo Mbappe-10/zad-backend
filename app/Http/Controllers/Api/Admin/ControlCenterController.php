@@ -173,7 +173,9 @@ class ControlCenterController extends Controller
             'iosStoreUrl' => '',
         ],
         'social_media' => [
-            'tiktokUrl' => '',
+            
+            'appWebUrl' => 'https://zad-sync-customer-web.onrender.com/',
+'tiktokUrl' => '',
             'xUrl' => '',
             'instagramUrl' => '',
             'snapchatUrl' => '',
@@ -206,6 +208,27 @@ class ControlCenterController extends Controller
         $userId = (int) $request->user()->getKey();
 
         $this->ensureDefaultSectionsExist($userId);
+        // ZAD_APP_WEB_URL_BACKFILL
+        // Backfill only when the key does not exist. An intentionally blank
+        // or changed value saved later by the owner is never overwritten.
+        $socialControl = PlatformControl::query()
+            ->where('section', 'social_media')
+            ->first();
+
+        if ($socialControl) {
+            $socialValue = is_array($socialControl->value)
+                ? $socialControl->value
+                : [];
+
+            if (! array_key_exists('appWebUrl', $socialValue)) {
+                $socialValue['appWebUrl'] =
+                    self::DEFAULT_SECTIONS['social_media']['appWebUrl'];
+
+                $socialControl->value = $socialValue;
+                $socialControl->updated_by = $userId;
+                $socialControl->save();
+            }
+        }
 
         $controls = PlatformControl::query()
             ->with('updatedBy:id,name,email')

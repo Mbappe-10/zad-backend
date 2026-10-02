@@ -106,7 +106,12 @@ Route::get('/public/social-links', function () {
 
     $value = is_array($value) ? $value : [];
 
+    if (! array_key_exists('appWebUrl', $value)) {
+        $value['appWebUrl'] = 'https://zad-sync-customer-web.onrender.com/';
+    }
+
     $keys = [
+        'appWebUrl',
         'tiktokUrl',
         'xUrl',
         'instagramUrl',

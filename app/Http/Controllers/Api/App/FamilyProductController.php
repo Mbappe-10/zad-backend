@@ -279,8 +279,12 @@ class FamilyProductController extends Controller
             'images' => $images,
             'image_url' => is_string($firstImage)
                 && $firstImage !== ''
-                    ? Storage::disk('public')->url(
-                        ltrim($firstImage, '/'),
+                    ? (
+                        filter_var($firstImage, FILTER_VALIDATE_URL) !== false
+                            ? $firstImage
+                            : Storage::disk('public')->url(
+                                ltrim($firstImage, '/'),
+                            )
                     )
                     : null,
             'created_at' => $product->created_at,

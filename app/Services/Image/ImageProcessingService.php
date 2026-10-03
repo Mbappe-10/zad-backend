@@ -105,13 +105,11 @@ class ImageProcessingService
                 );
             }
 
-            if (! Storage::disk('public')->exists($savedPath)) {
-                throw new RuntimeException(
-                    'تمت معالجة الصورة ولكن لم يتم العثور عليها بعد الحفظ.',
-                );
-            }
-
-            $actualSize = Storage::disk('public')->size($savedPath);
+            /*
+             * The successful write is authoritative. Avoid an immediate
+             * Cloudinary metadata round-trip after upload.
+             */
+            $actualSize = strlen($encodedResult['contents']);
 
             return [
                 'path' => $savedPath,

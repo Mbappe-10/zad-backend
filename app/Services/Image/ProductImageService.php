@@ -72,6 +72,7 @@ class ProductImageService
         );
         $newImagePath = null;
         $processedImage = null;
+        $databaseUpdated = false;
 
         try {
             $processedImage = $this->imageProcessor->processProductImage(
@@ -95,6 +96,7 @@ class ProductImageService
                 ])->save();
             });
 
+            $databaseUpdated = true;
             $product->refresh();
 
             /*
@@ -103,10 +105,13 @@ class ProductImageService
             if (
                 $oldImagePath !== null
                 && $oldImagePath !== $newImagePath
+                && filter_var($oldImagePath, FILTER_VALIDATE_URL) === false
             ) {
-                Storage::disk('public')->delete(
-                    $oldImagePath,
-                );
+                try {
+                    Storage::disk('public')->delete($oldImagePath);
+                } catch (Throwable $cleanupException) {
+                    report($cleanupException);
+                }
             }
             return [
                 'product_id' => $productId,
@@ -120,15 +125,16 @@ class ProductImageService
             ];
         } catch (Throwable $exception) {
             /*
-             * إذا فشل تحديث قاعدة البيانات بعد حفظ الملف، نحذف الملف الجديد.
+             * Delete the new object only when the database was NOT updated.
+             * Once the DB points to the new image, a later cleanup failure
+             * must never destroy that successfully saved image.
              */
-            if (
-                $newImagePath !== null
-                && Storage::disk('public')->exists($newImagePath)
-            ) {
-                Storage::disk('public')->delete(
-                    $newImagePath,
-                );
+            if (! $databaseUpdated && $newImagePath !== null) {
+                try {
+                    Storage::disk('public')->delete($newImagePath);
+                } catch (Throwable $cleanupException) {
+                    report($cleanupException);
+                }
             }
 
             throw $exception;
@@ -153,10 +159,15 @@ class ProductImageService
             ])->save();
         });
 
-        if ($oldImagePath !== null) {
-            Storage::disk('public')->delete(
-                $oldImagePath,
-            );
+        if (
+            $oldImagePath !== null
+            && filter_var($oldImagePath, FILTER_VALIDATE_URL) === false
+        ) {
+            try {
+                Storage::disk('public')->delete($oldImagePath);
+            } catch (Throwable $cleanupException) {
+                report($cleanupException);
+            }
         }
     }
 

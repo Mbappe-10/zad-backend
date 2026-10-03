@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y \
     libonig-dev \
     libxml2-dev \
     libpng-dev \
-    libjpeg62-turbo-dev \
+    libjpeg62-turbo-dev libwebp-dev \
     libfreetype6-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) \
         pdo \
         pdo_mysql \
@@ -31,6 +31,10 @@ RUN apt-get update && apt-get install -y \
         xmlwriter \
         gd \
     && rm -rf /var/lib/apt/lists/*
+
+# ZAD_WEBP_CHECK
+RUN php -r "if (!function_exists('imagewebp')) { fwrite(STDERR, 'ERROR: imagewebp missing\n'); exit(1); } echo 'PASS: imagewebp enabled\n';"
+
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 

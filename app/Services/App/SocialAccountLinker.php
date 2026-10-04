@@ -202,7 +202,7 @@ class SocialAccountLinker
             return false;
         }
 
-        if (! in_array($family->status, ['active', 'approved'], true)) {
+        if (! in_array($family->status, ['pending', 'active', 'approved'], true)) {
             throw ValidationException::withMessages([
                 'account' => [
                     'حساب الأسرة موجود لكنه غير معتمد أو غير نشط.',

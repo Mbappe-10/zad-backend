@@ -14,6 +14,7 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\FinancialService;
 use App\Services\SecurePayoutProofService;
+use App\Services\SecureContractPdfService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,6 +42,7 @@ class RolePortalController extends Controller
     public function __construct(
         private readonly FinancialService $financialService,
         private readonly SecurePayoutProofService $payoutProofs,
+        private readonly SecureContractPdfService $contractPdfs,
     ) {
     }
 
@@ -131,6 +133,88 @@ class RolePortalController extends Controller
                 : 'تم إرسال الطلب للمراجعة.',
             'data' => $this->recordPayload($record),
         ], 201);
+    }
+
+    public function contractPdf(Request $request, string $role): \Illuminate\Http\Response
+    {
+        $context = $this->context($request, $role);
+        $signed = $this->signedContract($context);
+        abort_unless($signed !== null, 404, 'لا توجد نسخة عقد موقعة للإصدار الحالي.');
+
+        $acceptance = $signed['acceptance'];
+        $meta = data_get($acceptance->payload, 'signed_pdf');
+        abort_unless(
+            is_array($meta) && filled($meta['public_id'] ?? null),
+            409,
+            'نسخة PDF الأصلية لم تُؤرشف بعد. افتح العقد مرة واحدة من حساب الأسرة لإتمام الأرشفة.',
+        );
+
+        $pdf = $this->contractPdfs->download($meta);
+        $safeReference = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) $acceptance->reference) ?: 'contract';
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="ZADSYNC-'.$safeReference.'.pdf"',
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'X-ZAD-Canonical-PDF' => '1',
+            'X-ZAD-PDF-SHA256' => (string) ($meta['sha256'] ?? ''),
+        ]);
+    }
+
+    public function archiveContractPdf(Request $request, string $role): JsonResponse
+    {
+        $context = $this->context($request, $role);
+        $data = $request->validate([
+            'acceptance_id' => ['required', 'integer', 'exists:role_portal_records,id'],
+            'pdf' => ['required', 'file', 'mimes:pdf', 'mimetypes:application/pdf', 'max:15360'],
+        ]);
+
+        $acceptance = RolePortalRecord::query()
+            ->whereKey($data['acceptance_id'])
+            ->where('role', $context['role'])
+            ->where('module', 'contract-acceptance')
+            ->where('owner_type', $context['owner_type'])
+            ->where('owner_id', $context['owner_id'])
+            ->where('status', 'accepted')
+            ->firstOrFail();
+
+        $payload = is_array($acceptance->payload) ? $acceptance->payload : [];
+        $existing = $payload['signed_pdf'] ?? null;
+        if (is_array($existing) && filled($existing['public_id'] ?? null)) {
+            return response()->json([
+                'message' => 'نسخة العقد الرسمية مؤرشفة مسبقًا ولم يتم استبدالها.',
+                'data' => $this->recordPayload($acceptance),
+            ]);
+        }
+
+        $stored = $this->contractPdfs->upload(
+            $request->file('pdf'),
+            $context['role'],
+            (int) $context['owner_id'],
+            (int) $acceptance->version,
+        );
+
+        try {
+            $payload['signed_pdf'] = [
+                ...$stored,
+                'archived_at' => now()->toIso8601String(),
+                'immutable' => true,
+                'renderer' => 'dart_pdf',
+            ];
+            $acceptance->forceFill(['payload' => $payload])->save();
+        } catch (Throwable $exception) {
+            try {
+                $this->contractPdfs->delete($stored);
+            } catch (Throwable $cleanupException) {
+                report($cleanupException);
+            }
+            throw $exception;
+        }
+
+        return response()->json([
+            'message' => 'تم أرشفة نسخة العقد الرسمية بنجاح.',
+            'data' => $this->recordPayload($acceptance->fresh()),
+        ]);
     }
 
     private function requestPayout(Request $request, array $context): JsonResponse
@@ -341,6 +425,8 @@ class RolePortalController extends Controller
                     'user_agent' => Str::limit((string) $request->userAgent(), 500),
                     'accepted_at' => $acceptedAt->toIso8601String(),
                     'brand' => [
+                        'logo_url' => data_get($contract->payload, 'logo_url'),
+                        'seal_url' => data_get($contract->payload, 'seal_url'),
                         'logo_asset' => 'assets/contracts/zad_logo.png',
                         'seal_asset' => 'assets/contracts/zad_seal.png',
                         'seal_label' => 'ZADSYNC PLATFORM',

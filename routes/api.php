@@ -204,6 +204,18 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     )->middleware('throttle:20,1');
 
     Route::get(
+        '/v1/app/{role}/portal/contract/pdf',
+        [RolePortalController::class, 'contractPdf'],
+    )->whereIn('role', ['family', 'driver']);
+
+    Route::post(
+        '/v1/app/{role}/portal/contract/pdf',
+        [RolePortalController::class, 'archiveContractPdf'],
+    )
+        ->whereIn('role', ['family', 'driver'])
+        ->middleware('throttle:10,1');
+
+    Route::get(
         '/v1/app/{role}/portal/{module}',
         [RolePortalController::class, 'show'],
     )->whereIn('role', ['family', 'driver']);

@@ -1018,6 +1018,16 @@ Route::prefix('v1/app')->group(function (): void {
     )->middleware('throttle:social-auth');
 
     Route::post(
+        '/auth/google/redirect',
+        [SocialAuthController::class, 'googleRedirect'],
+    )->middleware('throttle:social-auth');
+
+    Route::post(
+        '/auth/google/redirect/exchange',
+        [SocialAuthController::class, 'exchangeGoogleRedirect'],
+    )->middleware('throttle:social-auth');
+
+    Route::post(
         '/phone-verifications/send',
         [PhoneVerificationController::class, 'send'],
     )->middleware('throttle:5,1');

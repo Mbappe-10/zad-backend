@@ -21,7 +21,7 @@ class BootstrapController extends Controller
     public function __invoke(): JsonResponse
     {
         $payload = Cache::remember(
-            'app.bootstrap.v1',
+            'app.bootstrap.v2',
             now()->addSeconds(60),
             function (): array {
 $settings = AppSetting::query()
@@ -36,7 +36,7 @@ $settings = AppSetting::query()
                         $setting->type,
                     ),
                 ];
-            });
+            })->all();
 
         $categories = Category::query()
             ->where('is_active', true)
@@ -64,7 +64,7 @@ $settings = AppSetting::query()
                     'sort_order' => $category->sort_order,
                 ];
             })
-            ->values();
+            ->values()->all();
 
         $stores = DB::table('stores')
             ->whereNull('deleted_at')
@@ -104,7 +104,7 @@ $settings = AppSetting::query()
                     'is_open' => true,
                 ];
             })
-            ->values();
+            ->values()->all();
 
         /*
          * كل منتج في زاد سينك تابع لمتجر أسرة منتجة حقيقي.
@@ -205,7 +205,7 @@ $settings = AppSetting::query()
                     'store' => $store,
                 ];
             })
-            ->values();
+            ->values()->all();
 
         $paymentGatewayEnabled = (bool) data_get(
             PlatformControl::query()
@@ -237,7 +237,7 @@ $settings = AppSetting::query()
                     'delivery_base_fee' => (float) $city->delivery_base_fee,
                 ];
             })
-            ->values();
+            ->values()->all();
                 return [
                     'app' => [
                         'name' => 'ZAD Sync',

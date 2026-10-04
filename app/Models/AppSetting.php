@@ -46,11 +46,11 @@ class AppSetting extends Model
     protected static function booted(): void
     {
         static::saved(static function (): void {
-            Cache::forget('app.bootstrap.v1');
+            Cache::forget('app.bootstrap.v2');
         });
 
         static::deleted(static function (): void {
-            Cache::forget('app.bootstrap.v1');
+            Cache::forget('app.bootstrap.v2');
         });
     }
 }

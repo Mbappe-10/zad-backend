@@ -466,7 +466,7 @@ class ControlCenterController extends Controller
     private function forgetRuntimeCaches(): void
     {
         PlatformControl::forgetCachedValues();
-        Cache::forget('app.bootstrap.v1');
+        Cache::forget('app.bootstrap.v2');
     }
 
     private function restartQueue(): array

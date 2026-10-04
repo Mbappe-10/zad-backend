@@ -286,68 +286,6 @@ class ProductiveFamilyController extends Controller
         ]);
     }
 
-    // ZAD_ADMIN_ARCHIVE_CANONICAL_CONTRACT_V6
-    public function archiveContractPdf(Request $request, ProductiveFamily $family): JsonResponse
-    {
-        $acceptance = $this->latestFamilyContractAcceptance($family);
-        abort_unless($acceptance !== null, 404, "\u{644}\u{627} \u{62a}\u{648}\u{62c}\u{62f} \u{646}\u{633}\u{62e}\u{629} \u{639}\u{642}\u{62f} \u{645}\u{648}\u{642}\u{639}\u{629} \u{644}\u{647}\u{630}\u{647} \u{627}\u{644}\u{623}\u{633}\u{631}\u{629} \u{62d}\u{62a}\u{649} \u{627}\u{644}\u{622}\u{646}.");
-
-        $payload = is_array($acceptance->payload) ? $acceptance->payload : [];
-        $existing = $payload['signed_pdf'] ?? null;
-
-        if (is_array($existing) && filled($existing['public_id'] ?? null)) {
-            return response()->json([
-                'data' => [
-                    'archived' => true,
-                    'already_archived' => true,
-                    'sha256' => (string) ($existing['sha256'] ?? ''),
-                ],
-            ]);
-        }
-
-        $data = $request->validate([
-            'pdf' => ['required', 'file', 'mimes:pdf', 'mimetypes:application/pdf', 'max:15360'],
-        ]);
-
-        $file = $data['pdf'];
-        $realPath = $file->getRealPath();
-        abort_unless(
-            is_string($realPath) && $realPath !== '' && is_file($realPath),
-            422,
-            "\u{62a}\u{639}\u{630}\u{631} \u{642}\u{631}\u{627}\u{621}\u{629} \u{645}\u{644}\u{641} \u{627}\u{644}\u{639}\u{642}\u{62f} \u{627}\u{644}\u{645}\u{631}\u{641}\u{648}\u{639}.",
-        );
-
-        $handle = fopen($realPath, 'rb');
-        $magic = is_resource($handle) ? fread($handle, 5) : false;
-        if (is_resource($handle)) fclose($handle);
-        abort_unless($magic === '%PDF-', 422, "\u{627}\u{644}\u{645}\u{644}\u{641} \u{627}\u{644}\u{645}\u{631}\u{641}\u{648}\u{639} \u{644}\u{64a}\u{633} PDF \u{635}\u{627}\u{644}\u{62d}\u{64b}\u{627}.");
-
-        $stored = $this->contractPdfs->upload(
-            $file,
-            'family',
-            (int) $family->id,
-            max(1, (int) $acceptance->version),
-        );
-
-        $payload['signed_pdf'] = [
-            ...$stored,
-            'archived_at' => now()->toIso8601String(),
-            'immutable' => true,
-            'renderer' => 'legacy-original-admin-backfill',
-            'acceptance_id' => (int) $acceptance->id,
-            'acceptance_reference' => (string) $acceptance->reference,
-        ];
-
-        $acceptance->forceFill(['payload' => $payload])->save();
-
-        return response()->json([
-            'data' => [
-                'archived' => true,
-                'already_archived' => false,
-                'sha256' => (string) ($stored['sha256'] ?? ''),
-            ],
-        ], 201);
-    }
     public function downloadContractPdf(ProductiveFamily $family): \Illuminate\Http\Response
     {
         $acceptance = $this->latestFamilyContractAcceptance($family);

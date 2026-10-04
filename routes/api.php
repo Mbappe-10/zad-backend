@@ -628,7 +628,6 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/', [ProductiveFamilyController::class, 'store']);
         Route::get('/{family}/contract', [ProductiveFamilyController::class, 'contract']);
         Route::get('/{family}/contract/pdf', [ProductiveFamilyController::class, 'downloadContractPdf']);
-    Route::post('/{family}/contract/pdf', [ProductiveFamilyController::class, 'archiveContractPdf'])->middleware('throttle:10,1');
         Route::match(
             ['put', 'patch'],
             '/{family}',

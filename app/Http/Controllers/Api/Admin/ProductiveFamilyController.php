@@ -298,64 +298,203 @@ class ProductiveFamilyController extends Controller
             ->orderByDesc('id')
             ->first();
 
-        $title = trim((string) ($payload['contract_title'] ?? $contract?->title ?? 'عقد الأسرة المنتجة'));
-        $content = (string) ($payload['contract_content'] ?? $contract?->content ?? '');
-        $contractReference = (string) ($payload['contract_reference'] ?? $contract?->reference ?? '—');
+        abort_unless($contract !== null, 404, 'تعذر العثور على إصدار العقد المرتبط بهذا التوقيع.');
+
+        $contractPayload = is_array($contract->payload) ? $contract->payload : [];
+        $title = trim((string) ($payload['contract_title'] ?? $contract->title ?? 'عقد الأسرة المنتجة'));
+        $content = (string) ($payload['contract_content'] ?? $contract->content ?? '');
+        $contractReference = (string) ($payload['contract_reference'] ?? $contract->reference ?? '-');
         $acceptanceReference = (string) $acceptance->reference;
-        $signedName = trim((string) ($payload['signed_name'] ?? $family->owner_name));
-        $signedAt = $acceptance->effective_at?->format('Y-m-d H:i:s')
-            ?? $acceptance->created_at?->format('Y-m-d H:i:s')
-            ?? '—';
-        $documentHash = (string) ($payload['document_hash'] ?? '—');
-        $signature = (string) ($payload['signature_base64'] ?? '');
-        $signatureHtml = preg_match('/^data:image\/(png|jpe?g|webp);base64,/i', $signature)
-            ? '<img src="'.e($signature).'" style="max-width:220px;max-height:100px" alt="signature">'
-            : '<strong>'.e($signedName !== '' ? $signedName : 'توقيع إلكتروني موثق').'</strong>';
+        $signedAt = (string) ($payload['accepted_at']
+            ?? $acceptance->effective_at?->toIso8601String()
+            ?? $acceptance->created_at?->toIso8601String()
+            ?? '-');
+        $documentHash = (string) ($payload['document_hash'] ?? '-');
+
+        $defaultLogo = resource_path('contracts/zad_logo.png');
+        $defaultSeal = resource_path('contracts/zad_seal.png');
+        $fontFile = resource_path('contracts/ZADArabic.ttf');
+
+        $resolveBrandImage = static function (?string $url, string $fallback): string {
+            $value = trim((string) $url);
+
+            if ($value !== '' && str_starts_with($value, 'data:image/')) {
+                return $value;
+            }
+
+            if ($value !== '') {
+                $path = parse_url($value, PHP_URL_PATH);
+                if (is_string($path) && str_contains($path, '/storage/')) {
+                    $relative = ltrim((string) substr($path, strpos($path, '/storage/') + 9), '/');
+                    $local = storage_path('app/public/'.$relative);
+                    if (is_file($local)) {
+                        return $local;
+                    }
+                }
+
+                if (is_file($value)) {
+                    return $value;
+                }
+            }
+
+            return is_file($fallback) ? $fallback : '';
+        };
+
+        $logoSource = $resolveBrandImage(
+            is_string($contractPayload['logo_url'] ?? null) ? $contractPayload['logo_url'] : null,
+            $defaultLogo,
+        );
+        $sealSource = $resolveBrandImage(
+            is_string($contractPayload['seal_url'] ?? null) ? $contractPayload['seal_url'] : null,
+            $defaultSeal,
+        );
+
+        $signatureValue = trim((string) ($payload['signature_base64'] ?? ''));
+        $signatureSource = '';
+        if ($signatureValue !== '') {
+            if (preg_match('/^data:image\\/(?:png|jpe?g|webp);base64,/i', $signatureValue)) {
+                $signatureSource = $signatureValue;
+            } else {
+                $decodedSignature = base64_decode($signatureValue, true);
+                if ($decodedSignature !== false && $decodedSignature !== '') {
+                    $imageInfo = function_exists('getimagesizefromstring')
+                        ? @getimagesizefromstring($decodedSignature)
+                        : false;
+                    $mime = is_array($imageInfo) && is_string($imageInfo['mime'] ?? null)
+                        ? $imageInfo['mime']
+                        : 'image/png';
+                    $signatureSource = 'data:'.$mime.';base64,'.base64_encode($decodedSignature);
+                }
+            }
+        }
+
+        $paragraphHtml = '';
+        $paragraphs = preg_split('/\\R+/u', str_replace(["\\r\\n", "\\r"], "\\n", $content)) ?: [];
+        foreach ($paragraphs as $paragraph) {
+            $paragraph = trim($paragraph);
+            if ($paragraph === '') {
+                continue;
+            }
+
+            $isHeading = preg_match(
+                '/^(\\d+[.\\-)؛:]|[٠-٩]+[.\\-)؛:]|تمهيد|الإقرار النهائي|بسم الله|preamble|introduction|final declaration|terms|article|section)/ui',
+                $paragraph,
+            ) === 1 || mb_strlen($paragraph) < 55;
+
+            $paragraphHtml .= '<div class="contract-paragraph'.($isHeading ? ' contract-heading' : '').'">'
+                .e($paragraph)
+                .'</div>';
+        }
 
         $tempDir = storage_path('app/mpdf-temp');
         if (! is_dir($tempDir)) {
             @mkdir($tempDir, 0775, true);
         }
 
-        $mpdf = new Mpdf([
+        $config = [
             'mode' => 'utf-8',
             'format' => 'A4',
             'tempDir' => $tempDir,
             'autoScriptToLang' => true,
             'autoLangToFont' => true,
-            'margin_top' => 14,
-            'margin_right' => 14,
-            'margin_bottom' => 14,
-            'margin_left' => 14,
-        ]);
+            'margin_top' => 31,
+            'margin_right' => 15,
+            'margin_bottom' => 18,
+            'margin_left' => 15,
+            'margin_header' => 7,
+            'margin_footer' => 7,
+        ];
+
+        if (is_file($fontFile)) {
+            $fontConfig = (new \Mpdf\Config\ConfigVariables())->getDefaults();
+            $fontDirs = $fontConfig['fontDir'];
+            $fontVariables = (new \Mpdf\Config\FontVariables())->getDefaults();
+            $fontData = $fontVariables['fontdata'];
+            $config['fontDir'] = array_merge($fontDirs, [dirname($fontFile)]);
+            $config['fontdata'] = $fontData + [
+                'zadarabic' => [
+                    'R' => basename($fontFile),
+                    'B' => basename($fontFile),
+                ],
+            ];
+            $config['default_font'] = 'zadarabic';
+        }
+
+        $mpdf = new Mpdf($config);
         $mpdf->SetDirectionality('rtl');
         $mpdf->SetTitle($title);
+        $mpdf->SetAuthor('منصة زاد سينك');
+        $mpdf->SetCreator('ZADSYNC Contract System');
+
+        $logoHtml = $logoSource !== ''
+            ? '<img src="'.e($logoSource).'" style="width:70px;height:55px" alt="ZAD">'
+            : '';
+
+        $header = '<table width="100%" style="border-collapse:collapse;direction:ltr">'
+            .'<tr>'
+            .'<td width="70" style="width:70px"></td>'
+            .'<td style="text-align:center;direction:rtl">'
+            .'<div style="font-size:15pt;font-weight:bold;color:#111827">منصة زاد سينك</div>'
+            .'<div style="font-size:9pt;color:#6b7280;margin-top:3px">وثيقة إلكترونية موثقة</div>'
+            .'</td>'
+            .'<td width="70" style="width:70px;text-align:right">'.$logoHtml.'</td>'
+            .'</tr></table>'
+            .'<div style="border-bottom:1.5px solid #0b2f61;margin-top:6px"></div>';
+
+        $footer = '<table width="100%" style="border-collapse:collapse;direction:ltr;font-size:8pt">'
+            .'<tr>'
+            .'<td style="text-align:left">صفحة {PAGENO} من {nbpg}</td>'
+            .'<td style="text-align:right;direction:rtl">المرجع: '.e($acceptanceReference).'</td>'
+            .'</tr></table>';
+
+        $mpdf->SetHTMLHeader($header);
+        $mpdf->SetHTMLFooter($footer);
+
+        $signatureHtml = $signatureSource !== ''
+            ? '<img src="'.e($signatureSource).'" style="width:150px;max-height:70px" alt="signature">'
+            : '<div style="font-size:9pt">التوقيع محفوظ إلكترونيًا</div>';
+
+        $sealHtml = $sealSource !== ''
+            ? '<img src="'.e($sealSource).'" style="width:120px;height:120px" alt="ZAD seal">'
+            : '<div style="font-size:9pt">اعتماد منصة زاد سينك</div>';
 
         $html = '<html lang="ar" dir="rtl"><head><style>
-            body{font-family:dejavusans;direction:rtl;text-align:right;color:#111827;font-size:12px;line-height:1.8}
-            .header{text-align:center;border-bottom:2px solid #0B2F61;padding-bottom:12px;margin-bottom:18px}
-            .brand{font-size:22px;font-weight:bold;color:#0B2F61}.sub{color:#6b7280;font-size:10px}
-            .meta{width:100%;border-collapse:collapse;margin:12px 0 18px}.meta td{border:1px solid #d1d5db;padding:7px;vertical-align:top}
-            .label{font-weight:bold;color:#374151;width:25%}.content{white-space:pre-wrap;border:1px solid #d1d5db;padding:14px;border-radius:6px}
-            .sign{margin-top:22px;border-top:1px solid #d1d5db;padding-top:14px}.verified{color:#047857;font-weight:bold}
-            .hash{font-size:9px;word-break:break-all;color:#4b5563}
-        </style></head><body>
-        <div class="header"><div class="brand">ZAD Sync</div><div class="sub">نسخة العقد الإلكتروني الموقعة والمحـفوظة لدى الإدارة</div></div>
-        <h2 style="text-align:center">'.e($title).'</h2>
-        <table class="meta">
-          <tr><td class="label">الأسرة المنتجة</td><td>'.e($family->owner_name).'</td><td class="label">رقم الأسرة</td><td>'.e((string) $family->id).'</td></tr>
-          <tr><td class="label">مرجع العقد</td><td>'.e($contractReference).'</td><td class="label">إصدار العقد</td><td>'.e((string) $acceptance->version).'</td></tr>
-          <tr><td class="label">مرجع التوقيع</td><td>'.e($acceptanceReference).'</td><td class="label">تاريخ التوقيع</td><td>'.e($signedAt).'</td></tr>
-        </table>
-        <div class="content">'.nl2br(e($content)).'</div>
-        <div class="sign"><div class="verified">تم توقيع هذا الإصدار إلكترونيًا وتوثيقه في ZAD Sync.</div>
-        <p>اسم الموقّع: <strong>'.e($signedName).'</strong></p>'.$signatureHtml.'
-        <p class="hash">بصمة المستند: '.e($documentHash).'</p></div>
-        </body></html>';
+            body{direction:rtl;text-align:right;color:#111827;font-size:11.2pt;line-height:1.75}
+            .contract-title{text-align:center;color:#0b2f61;font-size:18pt;font-weight:bold;margin:0 0 8px}
+            .contract-version{text-align:center;font-size:10pt;margin:0 0 18px}
+            .contract-paragraph{margin:0 0 9px;text-align:right;line-height:1.8}
+            .contract-heading{color:#0b2f61;font-size:12.2pt;font-weight:bold}
+            .verification{border:1px solid #9ca3af;border-radius:6px;padding:12px;margin-top:20px}
+            .verification-title{font-size:13pt;font-weight:bold;margin-bottom:8px}
+            .verify-table{width:100%;border-collapse:collapse}
+            .verify-table td{padding:4px 0;vertical-align:top}
+            .verify-label{font-weight:bold;font-size:9.5pt;width:28%;text-align:right}
+            .verify-value{font-size:8.5pt;text-align:left;direction:ltr}
+            .signatures{width:100%;border-collapse:collapse;margin-top:18px;direction:ltr}
+            .signatures td{width:50%;vertical-align:bottom;text-align:center}
+            .sign-label{font-size:10pt;font-weight:bold;direction:rtl;margin-bottom:6px}
+        </style></head><body>'
+        .'<div class="contract-title">'.e($title).'</div>'
+        .'<div class="contract-version">الإصدار '.e((string) ($payload['contract_version'] ?? $contract->version ?? '-')).'</div>'
+        .$paragraphHtml
+        .'<div class="verification">'
+        .'<div class="verification-title">بيانات التوثيق</div>'
+        .'<table class="verify-table">'
+        .'<tr><td class="verify-label">رقم العقد</td><td class="verify-value">'.e($contractReference).'</td></tr>'
+        .'<tr><td class="verify-label">رقم الموافقة</td><td class="verify-value">'.e($acceptanceReference).'</td></tr>'
+        .'<tr><td class="verify-label">تاريخ ووقت التوقيع</td><td class="verify-value">'.e($signedAt).'</td></tr>'
+        .'<tr><td class="verify-label">بصمة المستند SHA-256</td><td class="verify-value" style="word-break:break-all">'.e($documentHash).'</td></tr>'
+        .'</table></div>'
+        .'<table class="signatures"><tr>'
+        .'<td><div class="sign-label">اعتماد منصة زاد سينك</div>'.$sealHtml.'</td>'
+        .'<td><div class="sign-label">توقيع صاحب الحساب</div>'.$signatureHtml.'</td>'
+        .'</tr></table>'
+        .'</body></html>';
 
         $mpdf->WriteHTML($html);
         $pdf = $mpdf->Output('', Destination::STRING_RETURN);
-        $filename = 'zad-family-contract-'.$family->id.'-v'.$acceptance->version.'.pdf';
+        $safeReference = preg_replace('/[^A-Za-z0-9_-]+/', '-', $acceptanceReference) ?: 'contract';
+        $filename = 'ZADSYNC-'.$safeReference.'.pdf';
 
         return response($pdf, 200, [
             'Content-Type' => 'application/pdf',

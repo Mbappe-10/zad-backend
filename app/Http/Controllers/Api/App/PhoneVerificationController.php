@@ -19,7 +19,7 @@ class PhoneVerificationController extends Controller
                 'required',
                 'string',
                 'max:20',
-                'regex:/^05[0-9]{8}$/',
+                'regex:/^05[0-9]+$/',
             ],
             'purpose' => [
                 'nullable',
@@ -61,24 +61,61 @@ class PhoneVerificationController extends Controller
             ]);
         }
 
-        $phone = InternalTesting::normalizePhone($data['phone']);
-        $exposeCode = $purpose === 'checkout'
-            ? true
-            : InternalTesting::exposesOtpFor($phone);
+        // ZAD_PRELAUNCH_ANY_05_OTP_V4
+        $rawPhone = preg_replace(
+            '/\D+/',
+            '',
+            trim((string) $data['phone']),
+        ) ?? '';
+
+        $testAny05 = InternalTesting::enabled()
+            && (bool) config(
+                'internal_testing.otp.expose_code',
+                false,
+            );
 
         /*
-         * لا يوجد مزود SMS فعلي حتى الآن. في الإنتاج العام لا ننشئ رمزًا
-         * صامتًا لن يصل إلى العميل. نسخة الاختبار تسمح فقط بالأرقام الموجودة
-         * في قائمة Render الخاصة.
+         * Prelaunch testing:
+         * Any numeric value beginning with 05 is accepted.
+         * Example: 050000000003
          */
-        if (! $exposeCode) {
+        if (! preg_match('/^05[0-9]+$/', $rawPhone)) {
             throw ValidationException::withMessages([
                 'phone' => [
-                    'هذا الرقم غير مضاف إلى أرقام الاختبار، وخدمة SMS الفعلية لم تُفعّل بعد.',
+                    'Phone number must start with 05 and contain digits only.',
                 ],
             ]);
         }
 
+        /*
+         * When internal testing is disabled,
+         * return to the normal Saudi mobile format.
+         */
+        if (
+            ! $testAny05
+            && ! preg_match('/^05[0-9]{8}$/', $rawPhone)
+        ) {
+            throw ValidationException::withMessages([
+                'phone' => [
+                    'Enter a valid Saudi mobile number.',
+                ],
+            ]);
+        }
+
+        $phone = $testAny05
+            ? $rawPhone
+            : InternalTesting::normalizePhone($rawPhone);
+
+        $exposeCode = $testAny05
+            || InternalTesting::exposesOtpFor($phone);
+
+        if (! $exposeCode) {
+            throw ValidationException::withMessages([
+                'phone' => [
+                    'SMS verification is not enabled yet.',
+                ],
+            ]);
+        }
         $code = (string) random_int(100000, 999999);
         $expiresMinutes = InternalTesting::otpExpiresMinutes();
         $expiresAt = now()->addMinutes($expiresMinutes);

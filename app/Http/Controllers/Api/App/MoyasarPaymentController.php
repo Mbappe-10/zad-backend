@@ -410,23 +410,42 @@ class MoyasarPaymentController extends Controller
 
     private function localTestEnabled(Order $order): bool
     {
-        // ZAD_PRODUCTION_LOCAL_TEST_LOCK
-        if (app()->environment('production')) {
-            return false;
-        }
+        // ZAD_PRELAUNCH_TEST_PAYMENT_V4
 
         if (
             app()->environment(['local', 'testing'])
-            && (bool) config('moyasar.local_test_enabled', false)
+            && (bool) config(
+                'moyasar.local_test_enabled',
+                false,
+            )
         ) {
             return true;
+        }
+
+        /*
+         * Temporary production prelaunch test.
+         *
+         * Requires all internal testing switches.
+         * No real money is charged.
+         *
+         * Disable these switches when Moyasar becomes live.
+         */
+        if (app()->environment('production')) {
+            return InternalTesting::enabled()
+                && (bool) config(
+                    'internal_testing.payment.simulate_success',
+                    false,
+                )
+                && (bool) config(
+                    'internal_testing.otp.expose_code',
+                    false,
+                );
         }
 
         return InternalTesting::simulatesPaymentFor(
             (string) $order->contact_phone,
         );
     }
-
     private function amountHalalas(Order $order): int
     {
         return (int) round(((float) $order->total) * 100);

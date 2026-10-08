@@ -19,7 +19,7 @@ class PhoneVerificationController extends Controller
                 'required',
                 'string',
                 'max:20',
-                'regex:/^[0-9+() -]{6,20}$/',
+                'regex:/^05[0-9]{8}$/',
             ],
             'purpose' => [
                 'nullable',

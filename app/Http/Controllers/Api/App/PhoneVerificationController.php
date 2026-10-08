@@ -19,7 +19,7 @@ class PhoneVerificationController extends Controller
                 'required',
                 'string',
                 'max:20',
-                'regex:/^(?:\+966|00966|966|0)?5[0-9]{8}$/',
+                'regex:/^[0-9+() -]{6,20}$/',
             ],
             'purpose' => [
                 'nullable',
@@ -35,6 +35,21 @@ class PhoneVerificationController extends Controller
 
         $purpose = $data['purpose'] ?? 'checkout';
 
+        // ZAD_CHECKOUT_BACKEND_OTP_DEMO_V2
+        // Checkout accepts a flexible numeric phone for temporary backend OTP.
+        // Login and join keep the normal Saudi mobile format.
+        if (
+            $purpose !== 'checkout'
+            && preg_match(
+                '/^(?:\+966|00966|966|0)?5[0-9]{8}$/',
+                trim((string) $data['phone']),
+            ) !== 1
+        ) {
+            throw ValidationException::withMessages([
+                'phone' => ['Invalid Saudi mobile number.'],
+            ]);
+        }
+
         if (
             $purpose === 'checkout'
             && empty($data['guest_session_id'])
@@ -47,7 +62,9 @@ class PhoneVerificationController extends Controller
         }
 
         $phone = InternalTesting::normalizePhone($data['phone']);
-        $exposeCode = InternalTesting::exposesOtpFor($phone);
+        $exposeCode = $purpose === 'checkout'
+            ? true
+            : InternalTesting::exposesOtpFor($phone);
 
         /*
          * لا يوجد مزود SMS فعلي حتى الآن. في الإنتاج العام لا ننشئ رمزًا

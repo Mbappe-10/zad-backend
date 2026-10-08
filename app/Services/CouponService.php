@@ -51,7 +51,8 @@ class CouponService
         string $code,
         float $subtotal,
         float $deliveryFee = 0,
-        ?int $customerId = null
+        ?int $customerId = null,
+        ?int $currentOrderId = null
     ): array {
         $normalizedCode = strtoupper(trim($code));
 
@@ -190,6 +191,10 @@ class CouponService
             $used = OrderCouponUsage::query()
                 ->where('coupon_code', $normalizedCode)
                 ->whereIn('status', ['applied', 'consumed'])
+                ->when(
+                    $currentOrderId !== null,
+                    fn ($query) => $query->where('order_id', '<>', $currentOrderId)
+                )
                 ->count();
 
             if ($used >= $usageLimit) {
@@ -206,6 +211,10 @@ class CouponService
                 ->where('customer_id', $customerId)
                 ->where('coupon_code', $normalizedCode)
                 ->whereIn('status', ['applied', 'consumed'])
+                ->when(
+                    $currentOrderId !== null,
+                    fn ($query) => $query->where('order_id', '<>', $currentOrderId)
+                )
                 ->count();
 
             if ($customerUses >= $perCustomerLimit) {
@@ -220,6 +229,10 @@ class CouponService
             && $customerId
             && \App\Models\Order::query()
                 ->where('customer_id', $customerId)
+                ->when(
+                    $currentOrderId !== null,
+                    fn ($query) => $query->where('id', '<>', $currentOrderId)
+                )
                 ->whereNotIn('status', [
                     \App\Models\Order::STATUS_CANCELLED,
                     \App\Models\Order::STATUS_REJECTED,
@@ -231,6 +244,39 @@ class CouponService
             ]);
         }
 
+        // ZAD_COUPON_FUNDING_ENGINE_FINAL
+        // Existing ordinary coupons keep subtotal behavior unless a scope exists.
+        // Creator/influencer coupons default to delivery discount.
+        $discountScope = strtolower(trim((string) (
+            $payload['discountScope']
+            ?? ($creatorAssignment !== null ? 'delivery' : 'subtotal')
+        )));
+
+        if (! in_array($discountScope, ['delivery', 'subtotal'], true)) {
+            $discountScope = $creatorAssignment !== null ? 'delivery' : 'subtotal';
+        }
+
+        $discountBase = $discountScope === 'delivery'
+            ? max(0, $deliveryFee)
+            : max(0, $subtotal);
+
+        $zadSharePercent = max(0, min(100, (float) ($payload['zadSharePercent'] ?? 100)));
+        $familySharePercent = max(0, min(100, (float) ($payload['familySharePercent'] ?? 0)));
+        $driverSharePercent = max(0, min(100, (float) ($payload['driverSharePercent'] ?? 0)));
+
+        $fundingTotal = round(
+            $zadSharePercent + $familySharePercent + $driverSharePercent,
+            4
+        );
+
+        if (abs($fundingTotal - 100) > 0.001) {
+            throw ValidationException::withMessages([
+                'coupon_code' => [
+                    'إعداد تمويل الكوبون غير صحيح: مجموع زاد والأسرة والمندوب يجب أن يساوي 100%.',
+                ],
+            ]);
+        }
+
         $discountType = strtolower((string) ($payload['discountType'] ?? ''));
         $value = max(0, (float) ($payload['value'] ?? 0));
         $maxDiscount = max(0, (float) ($payload['maxDiscount'] ?? 0));
@@ -238,9 +284,13 @@ class CouponService
         $discount = $this->calculateDiscount(
             $discountType,
             $value,
-            $subtotal,
+            $discountBase,
             $maxDiscount
         );
+
+        $familyFunded = round($discount * $familySharePercent / 100, 2);
+        $driverFunded = round($discount * $driverSharePercent / 100, 2);
+        $zadFunded = round(max(0, $discount - $familyFunded - $driverFunded), 2);
 
         return [
             'record' => $record,
@@ -250,6 +300,13 @@ class CouponService
             'max_discount' => round($maxDiscount, 2),
             'minimum_order' => round($minimumOrder, 2),
             'discount_amount' => $discount,
+            'discount_scope' => $discountScope,
+            'zad_share_percent' => round($zadSharePercent, 2),
+            'family_share_percent' => round($familySharePercent, 2),
+            'driver_share_percent' => round($driverSharePercent, 2),
+            'zad_funded_amount' => $zadFunded,
+            'family_funded_amount' => $familyFunded,
+            'driver_funded_amount' => $driverFunded,
             'subtotal' => round($subtotal, 2),
             'delivery_fee' => round($deliveryFee, 2),
             'snapshot' => [
@@ -258,6 +315,13 @@ class CouponService
                 'nameAr' => $payload['nameAr'] ?? null,
                 'nameEn' => $payload['nameEn'] ?? null,
                 'discountType' => $discountType,
+                'discountScope' => $discountScope,
+                'zadSharePercent' => round($zadSharePercent, 2),
+                'familySharePercent' => round($familySharePercent, 2),
+                'driverSharePercent' => round($driverSharePercent, 2),
+                'zadFundedAmount' => $zadFunded,
+                'familyFundedAmount' => $familyFunded,
+                'driverFundedAmount' => $driverFunded,
                 'value' => round($value, 2),
                 'maxDiscount' => round($maxDiscount, 2),
                 'minimumOrder' => round($minimumOrder, 2),

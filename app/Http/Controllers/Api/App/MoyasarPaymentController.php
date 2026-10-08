@@ -303,6 +303,10 @@ class MoyasarPaymentController extends Controller
                 return $order;
             }
 
+            // ZAD_PAYMENT_LOCK_RECHECK_FINAL
+            // Close the race between changing a coupon and a payment callback.
+            $this->assertPaymentMatches($order, $payment);
+
             $paymentId = (string) ($payment['id'] ?? '');
             $attempt = PaymentAttempt::query()
                 ->where('order_id', $order->id)
@@ -374,6 +378,12 @@ class MoyasarPaymentController extends Controller
 
             $order->update(['payment_status' => Order::PAYMENT_PAID]);
 
+            // ZAD_COUPON_CONSUME_FINAL
+            \App\Models\OrderCouponUsage::query()
+                ->where('order_id', $order->id)
+                ->where('status', 'applied')
+                ->update(['status' => 'consumed']);
+
             $this->launchAttribution->markOrderPaid($order);
 
             return $order->fresh(['items', 'store']);
@@ -400,6 +410,11 @@ class MoyasarPaymentController extends Controller
 
     private function localTestEnabled(Order $order): bool
     {
+        // ZAD_PRODUCTION_LOCAL_TEST_LOCK
+        if (app()->environment('production')) {
+            return false;
+        }
+
         if (
             app()->environment(['local', 'testing'])
             && (bool) config('moyasar.local_test_enabled', false)

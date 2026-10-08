@@ -1,9 +1,21 @@
 <?php
 
 use App\Http\Controllers\Api\App\MoyasarPaymentController;
+use App\Http\Controllers\Api\App\OrderCouponController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1/app')->group(function (): void {
+    // ZAD_COUPON_CHECKOUT_ROUTES_FINAL
+    Route::post(
+        'orders/{order}/coupon/apply',
+        [OrderCouponController::class, 'apply'],
+    )->middleware('throttle:payment-action');
+
+    Route::post(
+        'orders/{order}/coupon/remove',
+        [OrderCouponController::class, 'remove'],
+    )->middleware('throttle:payment-action');
+
     Route::post(
         'orders/{order}/payment/attempt',
         [MoyasarPaymentController::class, 'attempt'],

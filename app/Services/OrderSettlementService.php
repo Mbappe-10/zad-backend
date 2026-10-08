@@ -6,6 +6,7 @@ use App\Models\CommissionRule;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderCommission;
+use App\Models\OrderCouponUsage;
 use App\Models\OrderSettlement;
 use App\Models\OrderStatusHistory;
 use App\Models\ProductiveFamily;
@@ -45,10 +46,54 @@ class OrderSettlementService
             }
 
             $familyId = $order->store?->productive_family_id;
-            $familyGross = max(
-                round((float) $order->subtotal - (float) $order->discount, 2),
+
+            // ZAD_COUPON_SETTLEMENT_FINAL
+            // Commission bases stay original. Coupon contribution is deducted
+            // afterwards from each party's net, according to the coupon snapshot.
+            $couponUsage = OrderCouponUsage::query()
+                ->where('order_id', $order->id)
+                ->whereIn('status', ['applied', 'consumed'])
+                ->latest('id')
+                ->first();
+
+            $couponSnapshot = (array) ($couponUsage?->coupon_snapshot ?? []);
+
+            $zadSharePercent = max(
                 0,
+                min(100, (float) ($couponSnapshot['zadSharePercent'] ?? 100))
             );
+            $familySharePercent = max(
+                0,
+                min(100, (float) ($couponSnapshot['familySharePercent'] ?? 0))
+            );
+            $driverSharePercent = max(
+                0,
+                min(100, (float) ($couponSnapshot['driverSharePercent'] ?? 0))
+            );
+
+            $customerDiscount = max(0, (float) $order->discount);
+
+            $familyFundedDiscount = round(
+                $customerDiscount * $familySharePercent / 100,
+                2
+            );
+
+            $driverFundedDiscount = round(
+                $customerDiscount * $driverSharePercent / 100,
+                2
+            );
+
+            $zadFundedDiscount = round(
+                max(
+                    0,
+                    $customerDiscount
+                    - $familyFundedDiscount
+                    - $driverFundedDiscount
+                ),
+                2
+            );
+
+            $familyGross = max(round((float) $order->subtotal, 2), 0);
             $driverGross = max(round((float) $order->delivery_fee, 2), 0);
 
             [$familyCommission, $familyRule] = $this->commission(
@@ -65,8 +110,25 @@ class OrderSettlementService
                 (float) $this->setting('settlements.driver_commission_percentage', 0),
             );
 
-            $familyNet = max(round($familyGross - $familyCommission, 2), 0);
-            $driverNet = max(round($driverGross - $driverCommission, 2), 0);
+            $familyNet = max(
+                round(
+                    $familyGross
+                    - $familyCommission
+                    - $familyFundedDiscount,
+                    2
+                ),
+                0
+            );
+
+            $driverNet = max(
+                round(
+                    $driverGross
+                    - $driverCommission
+                    - $driverFundedDiscount,
+                    2
+                ),
+                0
+            );
             $delayHours = max((int) $this->setting('settlements.release_delay_hours', 24), 0);
             $releaseDueAt = ($order->delivered_at ?? now())->copy()->addHours($delayHours);
 
@@ -83,11 +145,23 @@ class OrderSettlementService
                 'driver_gross' => $driverGross,
                 'driver_commission' => $driverCommission,
                 'driver_net' => $driverNet,
-                'platform_total' => round($familyCommission + $driverCommission, 2),
+                'platform_total' => round(
+                    $familyCommission
+                    + $driverCommission
+                    - $zadFundedDiscount,
+                    2
+                ),
                 'status' => OrderSettlement::STATUS_PENDING,
                 'release_due_at' => $releaseDueAt,
                 'calculation_snapshot' => [
                     'prepared_by' => $userId,
+                    'coupon_discount' => $customerDiscount,
+                    'zad_share_percent' => $zadSharePercent,
+                    'family_share_percent' => $familySharePercent,
+                    'driver_share_percent' => $driverSharePercent,
+                    'zad_funded_discount' => $zadFundedDiscount,
+                    'family_funded_discount' => $familyFundedDiscount,
+                    'driver_funded_discount' => $driverFundedDiscount,
                     'prepared_at' => now()->toISOString(),
                     'family_rule_id' => $familyRule?->id,
                     'driver_rule_id' => $driverRule?->id,

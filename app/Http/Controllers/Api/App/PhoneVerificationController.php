@@ -18,8 +18,7 @@ class PhoneVerificationController extends Controller
             'phone' => [
                 'required',
                 'string',
-                'max:20',
-                'regex:/^05[0-9]+$/',
+                'regex:/^05[0-9]{8}$/',
             ],
             'purpose' => [
                 'nullable',
@@ -35,87 +34,36 @@ class PhoneVerificationController extends Controller
 
         $purpose = $data['purpose'] ?? 'checkout';
 
-        // ZAD_CHECKOUT_BACKEND_OTP_DEMO_V2
-        // Checkout accepts a flexible numeric phone for temporary backend OTP.
-        // Login and join keep the normal Saudi mobile format.
-        if (
-            $purpose !== 'checkout'
-            && preg_match(
-                '/^(?:\+966|00966|966|0)?5[0-9]{8}$/',
-                trim((string) $data['phone']),
-            ) !== 1
-        ) {
-            throw ValidationException::withMessages([
-                'phone' => ['Invalid Saudi mobile number.'],
-            ]);
-        }
-
         if (
             $purpose === 'checkout'
             && empty($data['guest_session_id'])
         ) {
             throw ValidationException::withMessages([
                 'guest_session_id' => [
-                    'جلسة الجهاز مطلوبة لإرسال رمز الطلب.',
+                    'جلسة الجهاز مطلوبة لإتمام الطلب.',
                 ],
             ]);
         }
 
-        // ZAD_PRELAUNCH_ANY_05_OTP_V4
-        $rawPhone = preg_replace(
-            '/\D+/',
-            '',
-            trim((string) $data['phone']),
-        ) ?? '';
-
-        $testAny05 = InternalTesting::enabled()
-            && (bool) config(
-                'internal_testing.otp.expose_code',
-                false,
-            );
+        $phone = InternalTesting::normalizePhone($data['phone']);
 
         /*
-         * Prelaunch testing:
-         * Any numeric value beginning with 05 is accepted.
-         * Example: 050000000003
-         */
-        if (! preg_match('/^05[0-9]+$/', $rawPhone)) {
-            throw ValidationException::withMessages([
-                'phone' => [
-                    'Phone number must start with 05 and contain digits only.',
-                ],
-            ]);
-        }
-
-        /*
-         * When internal testing is disabled,
-         * return to the normal Saudi mobile format.
+         * Checkout currently uses Laravel internal OTP until
+         * the real SMS provider is activated.
+         *
+         * Login/join remain protected by the existing test gate.
          */
         if (
-            ! $testAny05
-            && ! preg_match('/^05[0-9]{8}$/', $rawPhone)
+            $purpose !== 'checkout'
+            && ! InternalTesting::exposesOtpFor($phone)
         ) {
-            throw ValidationException::withMessages([
-                'phone' => [
-                    'Enter a valid Saudi mobile number.',
-                ],
-            ]);
-        }
-
-        $phone = $testAny05
-            ? $rawPhone
-            : InternalTesting::normalizePhone($rawPhone);
-
-        $exposeCode = $testAny05
-            || InternalTesting::exposesOtpFor($phone);
-
-        if (! $exposeCode) {
             throw ValidationException::withMessages([
                 'phone' => [
                     'SMS verification is not enabled yet.',
                 ],
             ]);
         }
+
         $code = (string) random_int(100000, 999999);
         $expiresMinutes = InternalTesting::otpExpiresMinutes();
         $expiresAt = now()->addMinutes($expiresMinutes);
@@ -131,21 +79,30 @@ class PhoneVerificationController extends Controller
             'purpose' => $purpose,
             'code_hash' => Hash::make($code),
             'expires_at' => $expiresAt,
-            'guest_session_id' =>
-                $data['guest_session_id'] ?? null,
+            'guest_session_id' => $data['guest_session_id'] ?? null,
         ]);
 
-        return response()->json([
+        $payload = [
             'verification_id' => $verification->id,
             'expires_in_seconds' => $expiresMinutes * 60,
-            'channel' => 'internal_test',
-            'test_mode' => true,
-            'development_code' => $code,
-            'message' =>
-                'تم إنشاء رمز اختبار مؤقت داخل Laravel.',
-        ], 201);
-    }
+            'channel' => $purpose === 'checkout'
+                ? 'internal_test'
+                : 'sms',
+            'test_mode' => $purpose === 'checkout',
+            'message' => $purpose === 'checkout'
+                ? 'تم إنشاء رمز التحقق التجريبي.'
+                : 'تم إنشاء رمز التحقق.',
+        ];
 
+        if (
+            $purpose === 'checkout'
+            || InternalTesting::exposesOtpFor($phone)
+        ) {
+            $payload['development_code'] = $code;
+        }
+
+        return response()->json($payload, 201);
+    }
     public function verify(Request $request): JsonResponse
     {
         $data = $request->validate([

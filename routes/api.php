@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\PayoutAdminController;
 use App\Http\Controllers\Api\Admin\AdminWalletController;
 use App\Http\Controllers\Api\Admin\AdminPaymentController;
 use App\Http\Controllers\Api\Admin\LaunchAnalyticsController;
+use App\Http\Controllers\Api\Admin\CreatorCouponLinkController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\Admin\PolicyCenterController;
 use App\Http\Controllers\Api\App\PublicPolicyController;
@@ -791,6 +792,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
                 Route::get('/links', [LaunchAnalyticsController::class, 'links']);
                 Route::get('/realtime', [LaunchAnalyticsController::class, 'realtime']);
                 Route::get('/options', [LaunchAnalyticsController::class, 'options']);
+                // Read-only coupon options and dated attribution history.
+                Route::get('/coupon-options', [CreatorCouponLinkController::class, 'coupons']);
+                Route::get('/creator-coupon-links', [CreatorCouponLinkController::class, 'index']);
                 Route::get('/export', [LaunchAnalyticsController::class, 'export']);
             });
 
@@ -802,6 +806,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
                 Route::match(['put', 'patch'], '/creators/{creator}', [LaunchAnalyticsController::class, 'updateCreator']);
                 Route::delete('/creators/{creator}', [LaunchAnalyticsController::class, 'destroyCreator']);
                 Route::post('/campaigns/{campaign}/creators', [LaunchAnalyticsController::class, 'assignCreator']);
+                Route::post('/creator-coupon-links', [CreatorCouponLinkController::class, 'store']);
+                Route::patch('/creator-coupon-links/{link}/signature', [CreatorCouponLinkController::class, 'signature'])->whereNumber('link');
+                Route::patch('/creator-coupon-links/{link}/close', [CreatorCouponLinkController::class, 'close'])->whereNumber('link');
 
                 Route::match(
                     ['put', 'patch'],

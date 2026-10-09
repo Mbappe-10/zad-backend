@@ -430,16 +430,24 @@ class MoyasarPaymentController extends Controller
          *
          * Disable these switches when Moyasar becomes live.
          */
+        // ZAD_TEMP_PRODUCTION_TEST_PHONE_20261009
         if (app()->environment('production')) {
-            return InternalTesting::enabled()
-                && (bool) config(
-                    'internal_testing.payment.simulate_success',
-                    false,
-                )
-                && (bool) config(
-                    'internal_testing.otp.expose_code',
-                    false,
-                );
+            $zadTestPhone = preg_replace(
+                '/\D+/',
+                '',
+                (string) $order->contact_phone
+            ) ?? '';
+
+            return in_array(
+                $zadTestPhone,
+                [
+                    '0510106929',
+                    '510106929',
+                    '966510106929',
+                    '00966510106929',
+                ],
+                true
+            );
         }
 
         return InternalTesting::simulatesPaymentFor(

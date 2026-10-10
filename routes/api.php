@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\Admin\AdminWalletController;
 use App\Http\Controllers\Api\Admin\AdminPaymentController;
 use App\Http\Controllers\Api\Admin\LaunchAnalyticsController;
 use App\Http\Controllers\Api\Admin\CreatorCouponLinkController;
+use App\Http\Controllers\Api\Admin\MarketingHubController;
 use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\Admin\PolicyCenterController;
 use App\Http\Controllers\Api\App\PublicPolicyController;
@@ -794,6 +795,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
                 Route::get('/options', [LaunchAnalyticsController::class, 'options']);
                 // Read-only coupon options and dated attribution history.
                 Route::get('/coupon-options', [CreatorCouponLinkController::class, 'coupons']);
+                Route::get('/marketing-hub/partners', [MarketingHubController::class, 'partners']);
+                Route::get('/marketing-hub/coupon-options', [MarketingHubController::class, 'couponOptions']);
+                Route::get('/marketing-hub/links', [MarketingHubController::class, 'links']);
+                Route::get('/marketing-hub/coupon-reports/{coupon}', [MarketingHubController::class, 'couponReport'])->whereNumber('coupon');
                 Route::get('/creator-coupon-links', [CreatorCouponLinkController::class, 'index']);
                 Route::get('/export', [LaunchAnalyticsController::class, 'export']);
             });
@@ -807,6 +812,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
                 Route::delete('/creators/{creator}', [LaunchAnalyticsController::class, 'destroyCreator']);
                 Route::post('/campaigns/{campaign}/creators', [LaunchAnalyticsController::class, 'assignCreator']);
                 Route::post('/creator-coupon-links', [CreatorCouponLinkController::class, 'store']);
+                Route::post('/marketing-hub/links', [MarketingHubController::class, 'storeLink']);
+                Route::patch('/marketing-hub/links/{link}/signature', [MarketingHubController::class, 'updateSignature'])->whereNumber('link');
+                Route::patch('/marketing-hub/links/{link}/close', [MarketingHubController::class, 'closeLink'])->whereNumber('link');
                 Route::patch('/creator-coupon-links/{link}/signature', [CreatorCouponLinkController::class, 'signature'])->whereNumber('link');
                 Route::patch('/creator-coupon-links/{link}/close', [CreatorCouponLinkController::class, 'close'])->whereNumber('link');
 

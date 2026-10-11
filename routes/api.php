@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\App\BootstrapController;
 use App\Http\Controllers\Api\App\AppVersionController;
 use App\Http\Controllers\Api\App\PublicMediaController;
 use App\Http\Controllers\Api\App\DriverOrderController;
+use App\Http\Controllers\Api\App\DriverTaskOfferController;
 use App\Http\Controllers\Api\App\DriverProfileController;
 use App\Http\Controllers\Api\App\FamilyOrderController;
 use App\Http\Controllers\Api\App\FamilyProductController;
@@ -399,6 +400,20 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     | ظ…ظ‡ط§ظ… ط§ظ„ظ…ظ†ط¯ظˆط¨
     |--------------------------------------------------------------------------
     */
+
+    // ZAD_DRIVER_TASK_FIRST_ACCEPT_V1
+    Route::get(
+        '/task-offers',
+        [DriverTaskOfferController::class, 'index'],
+    )->middleware('throttle:30,1');
+    Route::post(
+        '/task-offers/{order}/accept',
+        [DriverTaskOfferController::class, 'accept'],
+    )->middleware('throttle:20,1');
+    Route::post(
+        '/task-offers/{order}/decline',
+        [DriverTaskOfferController::class, 'decline'],
+    )->middleware('throttle:20,1');
 
     Route::get(
         '/orders',

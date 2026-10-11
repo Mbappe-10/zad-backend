@@ -209,8 +209,8 @@ class DeliveryOperationsService
             $driver,
             $userId,
         ): DeliveryAssignment {
-            $order->refresh();
-
+            // Serialize all task ownership changes at the order row.
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $fromStatus = $order->status;
 
             if (

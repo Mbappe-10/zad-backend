@@ -292,47 +292,53 @@ class DeliveryOperationsService
         });
     }
 
+    /**
+     * When a paid READY order is offered to drivers, the implicit family
+     * call stays disabled. Only an explicit admin operation can rescue it.
+     * The order lock prevents overwriting a driver who just accepted.
+     */
     public function autoAssign(
         Order $order,
         ?int $userId,
+        bool $operationsRescue = false,
+        ?string $vehicleType = null,
     ): DeliveryAssignment {
-        // The family READY and live-stream completion paths both invoke autoAssign.
-        // In a scoped pilot, keep the order READY and let a driver explicitly claim it.
-        if (DriverTaskOfferService::enabledForOrder($order)) {
+        if (DriverTaskOfferService::enabledForOrder($order) && ! $operationsRescue) {
             throw ValidationException::withMessages([
                 'driver_id' => ['الطلب جاهز، وجارٍ عرض المهمة على المندوبين المتاحين.'],
             ]);
         }
 
-        $driver = Driver::query()
-            ->whereIn('status', [
-                'active',
-                'approved',
-            ])
-            ->where('is_online', true)
-            ->when(
-                $order->city_id,
-                fn ($query) => $query->where(
-                    'city_id',
-                    $order->city_id,
-                ),
-            )
-            ->orderBy('active_orders_count')
-            ->orderByDesc('rating')
-            ->first();
+        return DB::transaction(function () use ($order, $userId, $operationsRescue, $vehicleType): DeliveryAssignment {
+            if ($operationsRescue) {
+                // Both courier ACCEPT and this action lock the same order row.
+                $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+                if ($order->driver_id !== null ||
+                    (string) $order->status !== Order::STATUS_READY ||
+                    (string) $order->payment_status !== Order::PAYMENT_PAID) {
+                    throw ValidationException::withMessages([
+                        'order' => ['لا يمكن إسناد هذا الطلب: ربما قبله مندوب أو تغيرت حالته. قم بالتحديث.'],
+                    ]);
+                }
+            }
 
-        if ($driver === null) {
-            throw ValidationException::withMessages([
-                'driver_id' => [
-                    'لا يوجد مندوب متاح حاليًا.',
-                ],
-            ]);
-        }
+            $driver = Driver::query()
+                ->whereIn('status', ['active', 'approved'])
+                ->where('is_online', true)
+                ->when($order->city_id, fn ($query) => $query->where('city_id', $order->city_id))
+                ->when($vehicleType !== null && trim($vehicleType) !== '',
+                    fn ($query) => $query->where('vehicle_type', trim($vehicleType)))
+                ->orderBy('active_orders_count')
+                ->orderByDesc('rating')
+                ->first();
 
-        return $this->assign(
-            $order,
-            $driver,
-            $userId,
-        );
+            if ($driver === null) {
+                throw ValidationException::withMessages([
+                    'driver_id' => ['لا يوجد مندوب متاح مطابق للمدينة ونوع المركبة المختار.'],
+                ]);
+            }
+
+            return $this->assign($order, $driver, $userId);
+        }, 3);
     }
 }

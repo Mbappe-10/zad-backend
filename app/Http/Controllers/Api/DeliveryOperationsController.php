@@ -22,6 +22,9 @@ class DeliveryOperationsController extends Controller
         return response()->json(['data' => [
             'orders' => [
                 'pending' => Order::where('status', 'pending')->count(),
+                'awaiting_driver' => Order::where('status', Order::STATUS_READY)
+                    ->where('payment_status', Order::PAYMENT_PAID)
+                    ->whereNull('driver_id')->count(),
                 'preparing' => Order::whereIn('status', ['accepted', 'preparing', 'ready'])->count(),
                 'on_delivery' => Order::whereIn('status', ['picked_up', 'delivering'])->count(),
                 'delivered_today' => Order::where('status', 'delivered')->whereDate('delivered_at', today())->count(),
@@ -72,9 +75,16 @@ class DeliveryOperationsController extends Controller
 
     public function autoAssign(Request $request, Order $order): JsonResponse
     {
-        $assignment = $this->service->autoAssign($order, $request->user()?->id);
+        $data = $request->validate(['vehicle_type' => 'nullable|string|max:60']);
+        // This route is an explicit operations action, never the family READY trigger.
+        $assignment = $this->service->autoAssign(
+            $order,
+            $request->user()?->id,
+            true,
+            $data['vehicle_type'] ?? null,
+        );
 
-        return response()->json(['message' => 'تم الإسناد الذكي لأفضل مندوب متاح.', 'data' => $assignment], 201);
+        return response()->json(['message' => 'تم الإسناد الذكي بأمر غرفة العمليات.', 'data' => $assignment], 201);
     }
 
     // ZAD_DELIVERY_OTP_V1

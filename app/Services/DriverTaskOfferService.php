@@ -16,6 +16,14 @@ class DriverTaskOfferService
         return (bool) config('zad_driver_offers.enabled', false);
     }
 
+    /** Only orders explicitly selected for pilot receive first-accept offers. */
+    public static function enabledForOrder(Order $order): bool
+    {
+        if (! self::enabled()) return false;
+        if ((bool) config('zad_driver_offers.all_orders', false)) return true;
+        return in_array((int) $order->id, (array) config('zad_driver_offers.test_order_ids', []), true);
+    }
+
     public static function windowExpiresAt(\DateTimeInterface $readyAt, \DateTimeInterface $current, int $seconds = 20): CarbonImmutable
     {
         $seconds = max(5, min(120, $seconds));
@@ -33,7 +41,7 @@ class DriverTaskOfferService
 
     private function eligible(Driver $driver, Order $order): bool
     {
-        if (! $this->approved($driver)) return false;
+        if (! self::enabledForOrder($order) || ! $this->approved($driver)) return false;
         if ((string) $order->status !== Order::STATUS_READY || $order->driver_id !== null) return false;
         if ((string) $order->payment_status !== Order::PAYMENT_PAID) return false;
         if ($driver->city_id !== null && $order->city_id !== null && (int) $driver->city_id !== (int) $order->city_id) return false;
@@ -49,6 +57,10 @@ class DriverTaskOfferService
     {
         if (! self::enabled() || ! $this->approved($driver)) return [];
 
+        $pilotIds = (array) config('zad_driver_offers.test_order_ids', []);
+        $allOrders = (bool) config('zad_driver_offers.all_orders', false);
+        if (! $allOrders && count($pilotIds) === 0) return [];
+
         $declined = DB::table('driver_task_declines')
             ->where('driver_id', $driver->id)
             ->select('order_id');
@@ -57,6 +69,7 @@ class DriverTaskOfferService
             ->where('status', Order::STATUS_READY)
             ->where('payment_status', Order::PAYMENT_PAID)
             ->whereNull('driver_id')
+            ->when(! $allOrders, fn ($query) => $query->whereIn('id', $pilotIds))
             ->whereNotIn('id', $declined)
             ->when($driver->city_id, fn ($query) => $query->where('city_id', $driver->city_id))
             ->with('store:id,name_ar,name_en')
@@ -71,7 +84,7 @@ class DriverTaskOfferService
 
     public function decline(Order $order, Driver $driver): void
     {
-        if (! self::enabled()) abort(409, 'نظام قبول المهام غير مفعل.');
+        if (! self::enabledForOrder($order)) abort(409, 'المهمة ليست متاحة للقبول في وضع الاختبار.');
         DB::transaction(function () use ($order, $driver): void {
             $lockedOrder = Order::query()->lockForUpdate()->findOrFail($order->id);
             $freshDriver = Driver::query()->findOrFail($driver->id);
@@ -87,7 +100,7 @@ class DriverTaskOfferService
 
     public function accept(Order $order, Driver $driver, DeliveryOperationsService $operations, int $userId, string $offerExpiresAt): array
     {
-        if (! self::enabled()) abort(409, 'نظام قبول المهام غير مفعل.');
+        if (! self::enabledForOrder($order)) abort(409, 'المهمة ليست متاحة للقبول في وضع الاختبار.');
 
         return DB::transaction(function () use ($order, $driver, $operations, $userId, $offerExpiresAt): array {
             // The order lock serializes simultaneous acceptance by any two drivers.

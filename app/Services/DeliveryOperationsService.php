@@ -296,6 +296,14 @@ class DeliveryOperationsService
         Order $order,
         ?int $userId,
     ): DeliveryAssignment {
+        // The family READY and live-stream completion paths both invoke autoAssign.
+        // In a scoped pilot, keep the order READY and let a driver explicitly claim it.
+        if (DriverTaskOfferService::enabledForOrder($order)) {
+            throw ValidationException::withMessages([
+                'driver_id' => ['الطلب جاهز، وجارٍ عرض المهمة على المندوبين المتاحين.'],
+            ]);
+        }
+
         $driver = Driver::query()
             ->whereIn('status', [
                 'active',

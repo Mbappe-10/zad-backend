@@ -22,6 +22,10 @@ class DriverDocument extends Model
 
     public function getUrlAttribute(): ?string
     {
+        // Sensitive Cloudinary assets must never resolve to public /storage URLs.
+        if (is_string($this->path) && str_starts_with($this->path, 'cld-auth:')) {
+            return null;
+        }
         return $this->path ? url(Storage::url($this->path)) : null;
     }
 }

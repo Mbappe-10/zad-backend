@@ -8,10 +8,10 @@ use App\Models\Driver;
 use App\Models\DriverDocument;
 use App\Models\DriverProfileFieldSetting;
 use App\Services\App\PlatformOperationGate;
+use App\Services\DriverMediaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -21,10 +21,12 @@ class DriverProfileController extends Controller
     private const TYPES = ['scooter', 'motorcycle', 'car'];
 
     /**
-     * أربع صور للمركبة. في السكوتر والدباب يجب أن تُظهر صورة الخلف الصندوق.
+     * Canonical driver document contract: scooter 6, motorcycle 7, car 4.
+     * A fixed food delivery box remains required for scooter/motorcycle.
      */
     private const DOCUMENTS = [
         'scooter' => [
+            'face_photo',
             'identity_photo',
             'scooter_front',
             'scooter_rear_box',
@@ -32,25 +34,25 @@ class DriverProfileController extends Controller
             'scooter_left',
         ],
         'motorcycle' => [
+            'face_photo',
             'identity_photo',
             'motorcycle_license',
-            'vehicle_registration',
             'motorcycle_front',
             'motorcycle_rear_box',
             'motorcycle_right',
             'motorcycle_left',
         ],
         'car' => [
+            'face_photo',
             'identity_photo',
             'driving_license',
-            'vehicle_registration',
-            'car_exterior',
             'cargo_interior',
         ],
     ];
 
     public function __construct(
         private readonly PlatformOperationGate $operations,
+        private readonly DriverMediaService $media,
     ) {
     }
 
@@ -179,12 +181,33 @@ class DriverProfileController extends Controller
             ['roles' => ['driver'], 'active_mode' => 'driver'],
         );
 
+        // Upload all new images first. If a DB transaction fails, delete only the new assets.
+        $newMedia = [];
+        try {
+            foreach ($this->requiredDocuments($vehicleType) as $type) {
+                $newMedia[$type] = $this->media->upload(
+                    $request->file("documents.$type"),
+                    $type,
+                    'user-'.(int) $request->user()->id,
+                );
+            }
+        } catch (\Throwable $exception) {
+            foreach ($newMedia as $uploaded) {
+                try { $this->media->delete($uploaded['path']); } catch (\Throwable $cleanup) { report($cleanup); }
+            }
+            throw $exception;
+        }
+
+        $oldMedia = [];
+        try {
         $driver = DB::transaction(function () use (
             $request,
             $data,
             $profile,
             $vehicleType,
             $boxRequired,
+            $newMedia,
+            &$oldMedia,
         ): Driver {
             $existingDriver = Driver::query()
                 ->where('user_id', $request->user()->id)
@@ -229,44 +252,26 @@ class DriverProfileController extends Controller
             $requiredDocuments = $this->requiredDocuments($vehicleType);
 
             foreach ($requiredDocuments as $documentType) {
-                $file = $request->file("documents.$documentType");
-
-                if ($file === null) {
-                    continue;
-                }
-
+                $uploaded = $newMedia[$documentType];
                 $oldDocument = DriverDocument::query()
                     ->where('driver_id', $driver->id)
                     ->where('type', $documentType)
                     ->first();
-
-                $path = $file->store("drivers/{$driver->id}/documents", 'public');
-
-                if ($oldDocument?->path && Storage::disk('public')->exists($oldDocument->path)) {
-                    Storage::disk('public')->delete($oldDocument->path);
+                if ($oldDocument?->path) {
+                    $oldMedia[] = $oldDocument->path;
                 }
-
                 DriverDocument::query()->updateOrCreate(
                     ['driver_id' => $driver->id, 'type' => $documentType],
-                    ['path' => $path, 'status' => 'pending', 'rejection_reason' => null],
+                    [
+                        'path' => $uploaded['path'],
+                        'metadata' => $uploaded['metadata'],
+                        'status' => 'pending',
+                        'rejection_reason' => null,
+                    ],
                 );
             }
-
-            $obsoleteDocuments = DriverDocument::query()
-                ->where('driver_id', $driver->id)
-                ->whereNotIn('type', $requiredDocuments)
-                ->get();
-
-            foreach ($obsoleteDocuments as $obsoleteDocument) {
-                if (
-                    $obsoleteDocument->path
-                    && Storage::disk('public')->exists($obsoleteDocument->path)
-                ) {
-                    Storage::disk('public')->delete($obsoleteDocument->path);
-                }
-
-                $obsoleteDocument->delete();
-            }
+            // Keep historical document types (e.g. old car exterior/licences) until
+            // a separately authorised retention/migration workflow removes them.
 
             $roles = is_array($profile->roles) ? $profile->roles : [];
             $roles[] = 'driver';
@@ -279,6 +284,17 @@ class DriverProfileController extends Controller
 
             return $driver->load(['documents', 'city']);
         });
+
+        } catch (\Throwable $exception) {
+            foreach ($newMedia as $uploaded) {
+                try { $this->media->delete($uploaded['path']); } catch (\Throwable $cleanup) { report($cleanup); }
+            }
+            throw $exception;
+        }
+        // After a committed replacement, clean only superseded authenticated assets.
+        foreach ($oldMedia as $path) {
+            try { $this->media->delete($path); } catch (\Throwable $cleanup) { report($cleanup); }
+        }
 
         return response()->json([
             'message' => 'تم إرسال بيانات المندوب للمراجعة.',

@@ -532,7 +532,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/settlements/{settlement}/hold', [FinanceController::class, 'holdSettlement']);
     });
      
-    Route::prefix('admin/drivers')->group(function (): void {
+    Route::prefix('admin/drivers')->middleware('permission:drivers.manage')->group(function (): void {
+        Route::post('/document-upload', [DriverController::class, 'uploadDocument'])
+            ->middleware('throttle:30,1');
         Route::get('/stats', [DriverController::class, 'stats']);
         Route::get('/export', [DriverController::class, 'export']);
 

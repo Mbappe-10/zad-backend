@@ -7,6 +7,8 @@ use App\Models\City;
 use App\Models\Driver;
 use App\Models\DriverDocument;
 use App\Models\Wallet;
+use App\Models\Order;
+use App\Services\DriverMediaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +24,7 @@ class DriverController extends Controller
 
     private const REQUIRED_DOCUMENTS = [
         'scooter' => [
+            'face_photo',
             'identity_photo',
             'scooter_front',
             'scooter_rear_box',
@@ -29,22 +32,37 @@ class DriverController extends Controller
             'scooter_left',
         ],
         'motorcycle' => [
+            'face_photo',
             'identity_photo',
             'motorcycle_license',
-            'vehicle_registration',
             'motorcycle_front',
             'motorcycle_rear_box',
             'motorcycle_right',
             'motorcycle_left',
         ],
         'car' => [
+            'face_photo',
             'identity_photo',
             'driving_license',
-            'vehicle_registration',
-            'car_exterior',
             'cargo_interior',
         ],
     ];
+
+    public function uploadDocument(Request $request, DriverMediaService $media): JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => ['required', 'string', Rule::in(array_values(array_unique(array_merge(
+                ...array_values(self::REQUIRED_DOCUMENTS)
+            ))))],
+            'file' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+        ]);
+        $stored = $media->upload($validated['file'], $validated['type'],
+            'admin-staging-'.(int) $request->user()->id);
+        return response()->json(['data' => [
+            'path' => $stored['path'],
+            'url' => $media->temporaryUrl($stored['path']),
+        ]], 201);
+    }
 
     public function index(Request $request): JsonResponse
     {
@@ -98,7 +116,7 @@ class DriverController extends Controller
         $validated = $this->validated($request);
 
         $driver = DB::transaction(function () use ($validated): Driver {
-            $status = $validated['status'] ?? 'pending';
+            $status = 'pending'; // Activation is only allowed via the review action.
             $driver = Driver::query()->create([
                 'code' => $this->generateCode(),
                 'name' => trim($validated['name']),
@@ -134,7 +152,7 @@ class DriverController extends Controller
         $validated = $this->validated($request, $driver);
 
         DB::transaction(function () use ($driver, $validated): void {
-            $status = $validated['status'] ?? $driver->status;
+            $status = $driver->status; // Editing profile data must not bypass the review action.
             $metadata = array_merge(
                 is_array($driver->metadata) ? $driver->metadata : [],
                 $this->metadata($validated),
@@ -179,11 +197,27 @@ class DriverController extends Controller
 
         $requested = $validated['status'];
         $status = $requested === 'approved' ? 'active' : $requested;
+        if ($status === 'active') {
+            $required = self::REQUIRED_DOCUMENTS[$driver->vehicle_type ?? 'scooter'] ?? [];
+            $present = $driver->documents()->whereIn('type', $required)->pluck('type')->all();
+            $missing = array_values(array_diff($required, $present));
+            if ($missing !== []) {
+                return response()->json([
+                    'message' => 'لا يمكن الاعتماد قبل استكمال صور المندوب: '.implode(', ', $missing),
+                ], 422);
+            }
+        }
+        if (in_array($status, ['suspended', 'rejected'], true)
+            && Order::query()->where('driver_id', $driver->id)
+                ->whereIn('status', ['assigned', 'picked_up', 'delivering'])->exists()) {
+            return response()->json(['message' => 'يجب معالجة الطلبات الجارية أولاً قبل إيقاف المندوب.'], 422);
+        }
         $approved = in_array($status, ['active', 'offline', 'busy'], true);
 
+        $beforeStatus = $driver->status;
         $driver->forceFill([
             'status' => $status,
-            'application_status' => $approved ? 'approved' : ($status === 'rejected' ? 'rejected' : 'pending'),
+            'application_status' => $approved ? 'approved' : ($status === 'rejected' ? 'rejected' : ($status === 'suspended' ? 'suspended' : 'pending')),
             'is_online' => $status === 'busy' ? $driver->is_online : false,
             'reviewed_by' => $request->user()?->id,
             'reviewed_at' => now(),
@@ -191,6 +225,12 @@ class DriverController extends Controller
                 ? ($validated['rejection_reason'] ?? 'يرجى مراجعة بيانات طلب الانضمام.')
                 : null,
         ])->save();
+        \Illuminate\Support\Facades\Log::info('driver.review.action', [
+            'driver_id' => $driver->id,
+            'actor_id' => $request->user()?->id,
+            'previous_status' => $beforeStatus,
+            'new_status' => $status,
+        ]);
 
         return response()->json([
             'message' => 'تم تحديث حالة المندوب.',
@@ -200,7 +240,9 @@ class DriverController extends Controller
 
     public function destroy(Driver $driver): JsonResponse
     {
-        if ((int) $driver->active_orders_count > 0) {
+        if ((int) $driver->active_orders_count > 0
+            || Order::query()->where('driver_id', $driver->id)
+                ->whereIn('status', ['assigned', 'picked_up', 'delivering'])->exists()) {
             return response()->json([
                 'message' => 'لا يمكن حذف المندوب لوجود طلبات نشطة مسندة إليه.',
             ], 422);
@@ -209,7 +251,8 @@ class DriverController extends Controller
         $driver->update(['is_online' => false, 'status' => 'suspended']);
         $driver->delete();
 
-        return response()->json(['message' => 'تم حذف المندوب بنجاح.']);
+        // Soft-delete/archive only. Keep orders, wallets and media pending retention review.
+        return response()->json(['message' => 'تمت أرشفة المندوب. لم تُحذف سجلات الطلبات أو المستندات.']);
     }
 
     public function stats(): JsonResponse
@@ -317,11 +360,7 @@ class DriverController extends Controller
     {
         $allowed = self::REQUIRED_DOCUMENTS[$vehicleType] ?? [];
 
-        DriverDocument::query()
-            ->where('driver_id', $driver->id)
-            ->whereNotIn('type', $allowed)
-            ->delete();
-
+        // Preserve historical documents for manual review/retention; never silently delete.
         foreach ($allowed as $type) {
             $payload = $documents[$type] ?? [];
             $path = is_array($payload) ? ($payload['path'] ?? null) : $payload;
@@ -329,11 +368,24 @@ class DriverController extends Controller
             if (blank($path)) {
                 continue;
             }
+            $previous = DriverDocument::query()->where('driver_id', $driver->id)
+                ->where('type', $type)->first();
+            $isExisting = $previous !== null && hash_equals((string) $previous->path, (string) $path);
+            $isNew = str_starts_with((string) $path, 'cld-auth:')
+                && str_contains((string) $path, '/secure/driver-documents/admin-staging-'.(int) auth()->id().'/');
+            if (! $isExisting && ! $isNew) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    "documents.$type" => ['Upload this document using the secure driver upload field.'],
+                ]);
+            }
 
             DriverDocument::query()->updateOrCreate(
                 ['driver_id' => $driver->id, 'type' => $type],
                 [
                     'path' => $path,
+                    'metadata' => str_starts_with((string) $path, 'cld-auth:')
+                        ? ['storage' => 'cloudinary_authenticated', 'format' => 'webp']
+                        : ($previous?->metadata ?? []),
                     'status' => 'pending',
                     'rejection_reason' => null,
                     'reviewed_by' => null,
@@ -387,7 +439,9 @@ class DriverController extends Controller
                 'id' => $document->id,
                 'type' => $document->type,
                 'path' => $document->path,
-                'url' => $document->url ?: Storage::disk('public')->url($document->path),
+                'url' => app(DriverMediaService::class)->isProtected($document->path)
+                    ? app(DriverMediaService::class)->temporaryUrl($document->path)
+                    : $document->url,
                 'status' => $document->status,
                 'rejection_reason' => $document->rejection_reason,
             ])->values(),

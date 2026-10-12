@@ -209,6 +209,10 @@ class CoreResourceController extends Controller
 
     public function upload(Request $request, string $resource): JsonResponse
     {
+        // Identity documents must never be uploaded to the public core resource disk.
+        if ($resource === 'drivers') {
+            return response()->json(['message' => 'Use the protected driver document upload endpoint.'], 410);
+        }
         $this->config($resource);
         $data = $request->validate(['file' => 'required|file|max:10240|mimes:jpg,jpeg,png,webp,pdf,doc,docx,xls,xlsx,csv']);
         $path = $data['file']->store("uploads/{$resource}", 'public');
@@ -218,6 +222,11 @@ class CoreResourceController extends Controller
 
     private function config(string $resource): array
     {
+        // Deprecated generic driver CRUD: bypasses document reviews and driver approval checks.
+        // Use /api/admin/drivers instead (permission:drivers.manage).
+        if ($resource === 'drivers') {
+            abort(410, 'Driver operations moved to secured admin/drivers endpoints.');
+        }
         abort_unless(isset(self::CONFIG[$resource]), 404, 'المورد غير معروف.');
 
         return self::CONFIG[$resource];

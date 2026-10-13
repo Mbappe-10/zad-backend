@@ -431,23 +431,9 @@ class MoyasarPaymentController extends Controller
          * Disable these switches when Moyasar becomes live.
          */
         // ZAD_TEMP_PRODUCTION_TEST_PHONE_20261009
+        // Production payment simulation disabled for security.
         if (app()->environment('production')) {
-            $zadTestPhone = preg_replace(
-                '/\D+/',
-                '',
-                (string) $order->contact_phone
-            ) ?? '';
-
-            return in_array(
-                $zadTestPhone,
-                [
-                    '0510106929',
-                    '510106929',
-                    '966510106929',
-                    '00966510106929',
-                ],
-                true
-            );
+            return false;
         }
 
         return InternalTesting::simulatesPaymentFor(

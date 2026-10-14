@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\ControlCenterActionRequest;
 use App\Http\Requests\Admin\UpdatePlatformControlRequest;
 use App\Http\Resources\PlatformControlResource;
 use App\Models\PlatformControl;
+use App\Services\App\MoyasarModeResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -62,6 +63,7 @@ class ControlCenterController extends Controller
             'firebaseEnabled' => false,
             'mapsEnabled' => true,
             'paymentGatewayEnabled' => false,
+            'paymentMode' => 'disabled',
             'cloudStorageEnabled' => false,
         ],
         'operations' => [
@@ -272,8 +274,9 @@ class ControlCenterController extends Controller
             ->where('section', $section)
             ->first();
 
-        $isSensitive = $control?->is_sensitive
-            ?? $this->isSensitiveSection($section);
+        $isSensitive = $section === 'services' || (
+            $control?->is_sensitive ?? $this->isSensitiveSection($section)
+        );
 
         if ($isSensitive && ! $request->boolean('confirmation')) {
             return response()->json([
@@ -297,6 +300,40 @@ class ControlCenterController extends Controller
             $incomingValue,
         );
 
+        if ($section === 'services') {
+            $mode = (string) ($mergedValue['paymentMode'] ?? 'disabled');
+            $enabled = filter_var(
+                $mergedValue['paymentGatewayEnabled'] ?? false,
+                FILTER_VALIDATE_BOOLEAN,
+            );
+
+            abort_unless(
+                in_array($mode, ['disabled', 'sandbox', 'live', 'simulation'], true),
+                422,
+                'وضع الدفع غير صالح.',
+            );
+
+            if ($enabled) {
+                // A safe disabled mode never enables payment even with the switch on.
+                if ($mode !== 'disabled') {
+                    $resolver = app(MoyasarModeResolver::class);
+                    $resolver->assertPermitted($mode);
+
+                    if (in_array($mode, ['sandbox', 'live'], true)) {
+                        $resolver->credentials($mode);
+                    }
+                }
+
+                if ($mode === 'live') {
+                    abort_unless(
+                        filled(trim((string) ($validated['reason'] ?? ''))),
+                        422,
+                        'تفعيل الدفع الحقيقي يتطلب كتابة سبب القرار.',
+                    );
+                }
+            }
+        }
+
         $control = DB::transaction(function () use (
             $request,
             $section,
@@ -310,8 +347,9 @@ class ControlCenterController extends Controller
                     'value' => $mergedValue,
                     'description' => $validated['description']
                         ?? $this->sectionDescription($section),
-                    'is_sensitive' => $validated['is_sensitive']
-                        ?? $isSensitive,
+                    'is_sensitive' => $section === 'services'
+                        ? true
+                        : ($validated['is_sensitive'] ?? $isSensitive),
                     'updated_by' => $request->user()->getKey(),
                 ],
             );

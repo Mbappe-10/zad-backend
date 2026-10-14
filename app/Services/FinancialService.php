@@ -398,6 +398,19 @@ class FinancialService
     }
     public function refund(Payment $payment, array $data, ?int $userId): Refund
     {
+        // Never mark a Moyasar refund completed without calling Moyasar's refund API.
+        // Keep manual/other provider handling untouched until real refund flow is added.
+        $providerCode = (string) ($payment->provider?->code ?? '');
+        $paymentMode = (string) data_get($payment->metadata, 'payment_mode', '');
+        if (
+            in_array($providerCode, ['moyasar', 'moyasar_sandbox', 'local_test'], true)
+            || in_array($paymentMode, ['live', 'sandbox', 'simulation'], true)
+        ) {
+            throw ValidationException::withMessages([
+                'refund' => ['استرداد ميسر البنكي غير مفعّل من هذه الصفحة؛ استخدم لوحة ميسر أولًا ثم طابق السجلات يدويًا.'],
+            ]);
+        }
+
         return DB::transaction(function () use ($payment, $data, $userId) {
             $refunded = (float) Refund::where('payment_id', $payment->id)->whereIn('status', ['approved', 'completed'])->sum('amount');
             $amount = (float) $data['amount'];

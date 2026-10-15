@@ -989,6 +989,29 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             [PlatformSettingsController::class, 'update'],
         )->name('api.admin.platform-settings.update');
 
+        /* Dedicated notification center. Keep above generic admin resources. */
+        Route::middleware('permission:notifications.view')->group(function (): void {
+            Route::get('/notification-recipients', \App\Http\Controllers\Api\Admin\NotificationRecipientOptionController::class);
+            Route::get('/notification-templates', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'index']);
+            Route::get('/notification-templates/{notificationTemplate}', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'show'])->whereNumber('notificationTemplate');
+            Route::get('/notifications', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'index']);
+            Route::get('/notifications/{notification}', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'show'])->whereNumber('notification');
+            Route::get('/notifications/{notification}/history', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'history'])->whereNumber('notification');
+        });
+
+        Route::middleware('permission:notifications.manage')->group(function (): void {
+            Route::post('/notification-templates', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'store']);
+            Route::match(['put', 'patch'], '/notification-templates/{notificationTemplate}', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'update'])->whereNumber('notificationTemplate');
+            Route::delete('/notification-templates/{notificationTemplate}', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'destroy'])->whereNumber('notificationTemplate');
+            Route::post('/notifications/preview', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'previewDraft']);
+            Route::post('/notifications', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'store']);
+            Route::match(['put', 'patch'], '/notifications/{notification}', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'update'])->whereNumber('notification');
+            Route::delete('/notifications/{notification}', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'destroy'])->whereNumber('notification');
+            Route::post('/notifications/{notification}/preview', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'preview'])->whereNumber('notification');
+            Route::post('/notifications/{notification}/test-send', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'testSend'])->whereNumber('notification');
+            Route::post('/notifications/{notification}/send', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'send'])->whereNumber('notification');
+        });
+
         Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
             ->where('resource', 'support');
         Route::post('/{resource}/tickets', [AdminResourceController::class, 'store'])
@@ -1073,6 +1096,12 @@ Route::prefix('v1/app')->group(function (): void {
         [SocialAuthController::class, 'exchangeGoogleRedirect'],
     )->middleware('throttle:social-auth');
 
+    // Read-only phone verification status
+    Route::post(
+        '/phone-verifications/status',
+        [PhoneVerificationController::class, 'status'],
+    )->middleware('throttle:30,1');
+
     Route::post(
         '/phone-verifications/send',
         [PhoneVerificationController::class, 'send'],
@@ -1133,6 +1162,27 @@ Route::prefix('v1/app')->group(function (): void {
         '/guest-sessions/{guest}',
         [GuestSessionController::class, 'update'],
     );
+
+    /* Authenticated users and securely-bound guest sessions share this API. */
+    Route::post('/notification-devices', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'store'])
+        ->middleware('throttle:30,1');
+    Route::patch('/notification-devices/{device}', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'update'])
+        ->whereNumber('device')
+        ->middleware('throttle:30,1');
+    Route::delete('/notification-devices', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'destroyCurrent'])
+        ->middleware('throttle:30,1');
+    Route::delete('/notification-devices/{device}', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'destroy'])
+        ->whereNumber('device')
+        ->middleware('throttle:30,1');
+    Route::get('/notifications', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'index'])
+        ->middleware('throttle:120,1');
+    Route::post('/notifications/{notification}/open', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'open'])
+        ->whereNumber('notification')
+        ->middleware('throttle:120,1');
+    Route::get('/notifications/preferences', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'preferences'])
+        ->middleware('throttle:60,1');
+    Route::patch('/notifications/preferences', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'updatePreferences'])
+        ->middleware('throttle:30,1');
 
     Route::get(
         '/orders/{order}/live',

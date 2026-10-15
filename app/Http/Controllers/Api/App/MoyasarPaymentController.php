@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentProvider;
+use App\Services\App\GuestSessionAuthenticator;
 use App\Services\App\MoyasarModeResolver;
 use App\Services\App\PlatformOperationGate;
 use App\Services\LaunchAttributionService;
@@ -24,6 +25,7 @@ class MoyasarPaymentController extends Controller
         private readonly LaunchAttributionService $launchAttribution,
         private readonly PlatformOperationGate $operations,
         private readonly MoyasarModeResolver $modes,
+        private readonly GuestSessionAuthenticator $guestSessionAuthenticator,
     ) {
     }
 
@@ -437,20 +439,28 @@ class MoyasarPaymentController extends Controller
 
     private function authorizeOrder(Request $request, Order $order): void
     {
-        $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
-        $guestAllowed = $guestSessionId !== '' &&
-            hash_equals((string) $order->guest_session_id, $guestSessionId);
-
+        // Authenticated customer keeps the existing customer ownership rule.
         $user = $request->user();
         $customerAllowed = $user !== null &&
             $order->customer_id !== null &&
             $order->customer_id === $user->appProfile?->customer_id;
 
+        if ($customerAllowed) {
+            return;
+        }
+
+        $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
         abort_unless(
-            $guestAllowed || $customerAllowed,
+            $guestSessionId !== '' &&
+            $order->guest_session_id !== null &&
+            hash_equals((string) $order->guest_session_id, $guestSessionId),
             403,
-            'لا يمكنك الوصول إلى دفع هذا الطلب.',
+            'ظ„ط§ ظٹظ…ظƒظ†ظƒ ط§ظ„ظˆطµظˆظ„ ط¥ظ„ظ‰ ط¯ظپط¹ ظ‡ط°ط§ ط§ظ„ط·ظ„ط¨.',
         );
+
+        // Session ID alone never authorizes payment. Check the secret guest token.
+        $guestSessionToken = $this->guestSessionAuthenticator->tokenFromRequest($request);
+        $this->guestSessionAuthenticator->authenticate($guestSessionId, $guestSessionToken);
     }
 
     private function amountHalalas(Order $order): int

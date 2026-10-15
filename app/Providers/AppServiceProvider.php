@@ -2,7 +2,10 @@
 
 namespace App\Providers;
 
+use App\Contracts\OtpDeliveryProvider;
 use App\Filesystems\CloudinaryStorageAdapter;
+use App\Services\PhoneVerification\InternalTestOtpProvider;
+use App\Services\PhoneVerification\MetaWhatsAppOtpProvider;
 use Cloudinary\Cloudinary;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Filesystem\FilesystemAdapter as LaravelFilesystemAdapter;
@@ -12,13 +15,25 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use League\Flysystem\Filesystem;
+use InvalidArgumentException;
 use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $this->app->singleton(
+            OtpDeliveryProvider::class,
+            function (): OtpDeliveryProvider {
+                return match ((string) config('phone_verification.provider')) {
+                    'internal_test' => new InternalTestOtpProvider(),
+                    'meta_whatsapp' => new MetaWhatsAppOtpProvider(),
+                    default => throw new InvalidArgumentException(
+                        'Unsupported phone verification provider.',
+                    ),
+                };
+            },
+        );
     }
 
     public function boot(): void

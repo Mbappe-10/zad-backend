@@ -9,6 +9,7 @@ use App\Models\PhoneVerification;
 use App\Services\App\GuestSessionAuthenticator;
 use App\Services\Notifications\TransactionalNotificationService;
 use App\Support\InternalTesting;
+use App\Services\PhoneVerification\StagingTestOtpGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,15 @@ class PhoneVerificationController extends Controller
         $guest = $this->authenticate($request, $data);
         $phone = InternalTesting::normalizePhone($data['phone']);
         $requestKey = hash('sha256', $phone.'|'.$guest->id.'|'.strtolower((string) $request->input('request_id')));
+
+        // Staging test OTP is strictly isolated and allow-listed.
+        if (config('phone_verification.provider') === 'staging_test'
+            && ! StagingTestOtpGuard::allowedPhone($phone)) {
+            return response()->json([
+                'message' => 'رمز الاختبار غير مفعل لهذا الرقم في Staging.',
+                'code' => 'staging_test_otp_blocked',
+            ], 503);
+        }
 
         // Enabling real sends requires an approved Meta Authentication template.
         // Never fall back to publicly displayed test codes.
@@ -122,13 +132,16 @@ class PhoneVerificationController extends Controller
             if ($length !== 6) {
                 $this->reject('unsupported_code_length', 'قالب التوثيق الحالي يتطلب ستة أرقام.', 503);
             }
-            $otp = (string) random_int(100000, 999999);
+            $otp = config('phone_verification.provider') === 'staging_test'
+                ? StagingTestOtpGuard::codeForRequest($requestKey)
+                : (string) random_int(100000, 999999);
             $now = now();
             $verification = PhoneVerification::query()->create([
                 'phone' => $phone,
                 'purpose' => 'checkout',
                 'guest_session_id' => $guest->id,
                 'status' => PhoneVerification::STATUS_DISPATCHING,
+                'provider' => (string) config('phone_verification.provider', 'meta_whatsapp'),
                 'code_hash' => Hash::make($otp),
                 'code_length' => $length,
                 'attempts' => 0,
@@ -173,6 +186,49 @@ class PhoneVerificationController extends Controller
         ])->save();
 
         return response()->json($this->challengeState($verification, true, false), 201);
+    }
+
+    /**
+     * Test-operator access only. Never exposed on Production; never enabled
+     * without an isolated staging DB, a 32+ character secret, and phone allowlist.
+     */
+    public function stagingTestCode(Request $request): JsonResponse
+    {
+        if (! StagingTestOtpGuard::enabled()) {
+            abort(404);
+        }
+        $provided = $request->header('X-ZAD-Staging-Test-Secret');
+        $expected = (string) config('phone_verification.staging_test_secret', '');
+        if (! is_string($provided) || ! hash_equals($expected, $provided)) {
+            abort(404);
+        }
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^05[0-9]{8}$/'],
+        ]);
+        $phone = InternalTesting::normalizePhone($data['phone']);
+        if (! StagingTestOtpGuard::allowedPhone($phone)) {
+            abort(404);
+        }
+        $verification = PhoneVerification::query()
+            ->where('phone', $phone)
+            ->where('purpose', 'checkout')
+            ->where('provider', 'staging_test')
+            ->where('status', PhoneVerification::STATUS_PENDING)
+            ->where('expires_at', '>', now())
+            ->latest('id')
+            ->first();
+        if ($verification === null || ! is_string($verification->send_idempotency_key)) {
+            abort(404);
+        }
+        $code = StagingTestOtpGuard::codeForRequest($verification->send_idempotency_key);
+        if (! Hash::check($code, $verification->code_hash)) {
+            abort(404);
+        }
+        return response()->json([
+            'code' => $code,
+            'expires_in_seconds' => max(0, $verification->expires_at->timestamp - now()->timestamp),
+        ])->header('Cache-Control', 'no-store, private')
+          ->header('Pragma', 'no-cache');
     }
 
     public function verify(Request $request): JsonResponse
@@ -338,7 +394,7 @@ class PhoneVerificationController extends Controller
             'challenge' => [
                 'verification_id' => $verification->id,
                 'code_length' => (int) $verification->code_length,
-                'channel' => 'whatsapp',
+                'channel' => $verification->provider === 'staging_test' ? 'staging_test' : 'whatsapp',
                 'expires_in_seconds' => $this->secondsUntil($verification->expires_at),
                 'resend_after_seconds' => $this->secondsUntil($verification->resend_available_at),
                 'attempts_remaining' => max(0, (int) config('phone_verification.max_attempts', 3) - (int) $verification->attempts),

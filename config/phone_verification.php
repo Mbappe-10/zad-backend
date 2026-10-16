@@ -2,6 +2,9 @@
 
 return [
     'provider' => env('PHONE_VERIFICATION_PROVIDER', 'meta_whatsapp'),
+    'staging_test_enabled' => env('ZAD_STAGING_TEST_OTP_ENABLED', false),
+    'staging_test_secret' => env('ZAD_STAGING_TEST_OTP_SECRET', ''),
+    'staging_test_phones' => env('ZAD_STAGING_TEST_OTP_PHONES', ''),
 
     // Keep six digits until the approved Meta authentication template is
     // explicitly verified to support a different length.

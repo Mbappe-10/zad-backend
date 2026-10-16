@@ -1112,6 +1112,12 @@ Route::prefix('v1/app')->group(function (): void {
         [PhoneVerificationController::class, 'verify'],
     )->middleware('throttle:10,1');
 
+    // Staging-only operator endpoint: disabled unless all isolation gates pass.
+    Route::post(
+        '/phone-verifications/staging-test-code',
+        [PhoneVerificationController::class, 'stagingTestCode'],
+    )->middleware('throttle:4,1');
+
     Route::get(
         '/orders',
         [AppOrderController::class, 'index'],

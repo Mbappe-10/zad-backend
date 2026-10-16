@@ -36,7 +36,72 @@ class PhoneVerificationController extends Controller
         $guest = $this->authenticate($request, $data);
         $phone = InternalTesting::normalizePhone($data['phone']);
 
+        if ($qaVerification = $this->stagingQaAutoVerification($request, $guest, $phone)) {
+            return response()->json($this->verifiedState($qaVerification, $phone));
+        }
+
         return response()->json($this->state($guest, $phone, false));
+    }
+
+    /**
+     * Temporary checkout QA only. This is NOT proof of phone ownership.
+     * Never works against Production or another database, even if enabled.
+     */
+    private function stagingQaAutoVerification(Request $request, AppGuestSession $guest, string $phone): ?PhoneVerification
+    {
+        if (! app()->environment('staging')
+            || config('phone_verification.provider') !== 'staging_test'
+            || ! (bool) config('phone_verification.qa_auto_verify', false)) {
+            return null;
+        }
+
+        $connection = DB::connection();
+        if ($connection->getDriverName() !== 'pgsql'
+            || (string) $connection->getConfig('host') !== 'dpg-db783kqj9qps73bdatn0-a'
+            || $connection->getDatabaseName() !== 'zad_staging'
+            || (DB::selectOne('SELECT current_database() AS name')->name ?? null) !== 'zad_staging') {
+            return null;
+        }
+
+        $rawPhones = preg_split('/[,;\s]+/', trim((string) config('phone_verification.staging_test_phones', '')));
+        $allowedPhones = is_array($rawPhones)
+            ? array_map(static fn (string $p): string => InternalTesting::normalizePhone($p),
+                array_filter($rawPhones, static fn (string $p): bool => $p !== ''))
+            : [];
+        if (! in_array($phone, $allowedPhones, true)) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($request, $guest, $phone): PhoneVerification {
+            // The normal guest-session authentication already ran before this helper.
+            AppGuestSession::query()->whereKey($guest->id)->lockForUpdate()->firstOrFail();
+            if ($existing = $this->activeVerified($guest, $phone)) {
+                return $existing;
+            }
+
+            $now = now();
+            $verification = PhoneVerification::query()->create([
+                'phone' => $phone,
+                'purpose' => 'checkout',
+                'guest_session_id' => $guest->id,
+                'status' => PhoneVerification::STATUS_VERIFIED,
+                'provider' => 'staging_qa_auto',
+                'code_hash' => Hash::make(Str::random(64)),
+                'code_length' => 6,
+                'attempts' => 0,
+                'expires_at' => $now->copy()->addMinutes(5),
+                'verified_at' => $now,
+                'verification_expires_at' => $now->copy()->addMinutes(30),
+                'send_idempotency_key' => hash('sha256', 'staging-qa-auto:'.(string) Str::uuid()),
+                'device_hash' => hash('sha256', (string) $request->input('device_id')),
+                'request_ip_hash' => hash_hmac('sha256', (string) $request->ip(), (string) config('app.key')),
+            ]);
+            logger()->notice('STAGING QA ONLY: mock phone verification granted', [
+                'verification_id' => $verification->id,
+                'guest_id' => $guest->id,
+            ]);
+            return $verification;
+        }, 3);
     }
 
     public function send(Request $request): JsonResponse

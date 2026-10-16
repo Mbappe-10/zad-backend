@@ -5,6 +5,7 @@ return [
     'staging_test_enabled' => env('ZAD_STAGING_TEST_OTP_ENABLED', false),
     'staging_test_secret' => env('ZAD_STAGING_TEST_OTP_SECRET', ''),
     'staging_test_phones' => env('ZAD_STAGING_TEST_OTP_PHONES', ''),
+    'qa_auto_verify' => env('ZAD_STAGING_QA_AUTO_VERIFY', false),
 
     // Keep six digits until the approved Meta authentication template is
     // explicitly verified to support a different length.

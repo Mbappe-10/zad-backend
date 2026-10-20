@@ -67,4 +67,4 @@ RUN mkdir -p \
 
 EXPOSE 10000
 
-CMD ["/bin/sh", "-c", "set -e; php artisan optimize:clear; php scripts/zad_staging_db_guard.php; php artisan migrate --force; php artisan schedule:work >> storage/logs/scheduler.log 2>&1 & exec php artisan serve --no-reload --host=0.0.0.0 --port=${PORT:-10000}"]
+CMD ["/bin/sh", "-c", "set -e; php scripts/zad_staging_db_guard.php; php artisan optimize:clear; php artisan migrate --force; php artisan schedule:work >> storage/logs/scheduler.log 2>&1 & exec php artisan serve --no-reload --host=0.0.0.0 --port=${PORT:-10000}"]

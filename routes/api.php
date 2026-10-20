@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\App\DriverOrderController;
 use App\Http\Controllers\Api\App\DriverTaskOfferController;
 use App\Http\Controllers\Api\App\DriverProfileController;
 use App\Http\Controllers\Api\App\FamilyOrderController;
+use App\Http\Controllers\Api\App\OrderPreparationDecisionController;
 use App\Http\Controllers\Api\App\FamilyProductController;
 use App\Http\Controllers\Api\App\GuestSessionController;
 use App\Http\Controllers\Api\App\OrderLiveController;
@@ -295,6 +296,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::prefix('v1/app/family')->group(function (): void {
         Route::get('/overview', [FamilyOrderController::class, 'overview']);
         Route::get('/orders', [FamilyOrderController::class, 'index']);
+        Route::get('/preparation-options', [OrderPreparationDecisionController::class, 'options']);
+        Route::post('/orders/{order}/preparation-decision', [OrderPreparationDecisionController::class, 'familyRequest'])->middleware('throttle:5,1');
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
         Route::post(
@@ -1096,7 +1099,7 @@ Route::prefix('v1/app')->group(function (): void {
         [SocialAuthController::class, 'exchangeGoogleRedirect'],
     )->middleware('throttle:social-auth');
 
-    // Read-only phone verification status
+    // Read-only check: never sends a paid OTP.
     Route::post(
         '/phone-verifications/status',
         [PhoneVerificationController::class, 'status'],
@@ -1112,11 +1115,23 @@ Route::prefix('v1/app')->group(function (): void {
         [PhoneVerificationController::class, 'verify'],
     )->middleware('throttle:10,1');
 
-    // Staging-only operator endpoint: disabled unless all isolation gates pass.
-    Route::post(
-        '/phone-verifications/staging-test-code',
-        [PhoneVerificationController::class, 'stagingTestCode'],
-    )->middleware('throttle:4,1');
+    // Preserve pre-existing staging-only guarded test endpoint.
+    Route::post('/phone-verifications/staging-test-code',
+        [PhoneVerificationController::class, 'stagingTestCode'])->middleware('throttle:4,1');
+
+    // ZAD_POSTPAY_ORDER_CONTACT_V1 (all handlers validate token + device + order ownership).
+    Route::get('/orders/{order}/contact-verification',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'status'])
+        ->middleware('throttle:30,1');
+    Route::post('/orders/{order}/contact-verification/start',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'start'])
+        ->middleware('throttle:5,1');
+    Route::patch('/orders/{order}/contact-verification/phone',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'changePhone'])
+        ->middleware('throttle:5,1');
+    Route::post('/orders/{order}/contact-verification/check',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'check'])
+        ->middleware('throttle:10,1');
 
     Route::get(
         '/orders',
@@ -1132,6 +1147,8 @@ Route::prefix('v1/app')->group(function (): void {
         '/orders/{order}',
         [AppOrderController::class, 'show'],
     );
+    Route::get('/orders/{order}/preparation-decision', [OrderPreparationDecisionController::class,'customerShow'])->middleware('throttle:30,1');
+    Route::post('/orders/{order}/preparation-decision/response', [OrderPreparationDecisionController::class,'respond'])->middleware('throttle:10,1');
 
     Route::post(
         '/orders/{order}/confirm-delivery',

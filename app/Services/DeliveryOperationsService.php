@@ -51,6 +51,12 @@ class DeliveryOperationsService
                 ->lockForUpdate()
                 ->findOrFail($order->getKey());
 
+            app(\App\Services\OrderPreparationDecisionGuard::class)->assertOperational($order);
+            if ($status !== Order::STATUS_CANCELLED && ! $order->isPaidAndContactVerified()) {
+                throw ValidationException::withMessages([
+                    'payment' => ['لا يمكن تجهيز الطلب أو نقله قبل الدفع وتوثيق رقم الجوال.'],
+                ]);
+            }
             $from = $order->status;
 
             /*
@@ -211,6 +217,12 @@ class DeliveryOperationsService
         ): DeliveryAssignment {
             // Serialize all task ownership changes at the order row.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            app(\App\Services\OrderPreparationDecisionGuard::class)->assertOperational($order);
+            if (! $order->isPaidAndContactVerified()) {
+                throw ValidationException::withMessages([
+                    'payment' => ['لا يمكن إسناد طلب قبل الدفع وتوثيق رقم الجوال.'],
+                ]);
+            }
             $fromStatus = $order->status;
 
             if (
@@ -303,6 +315,7 @@ class DeliveryOperationsService
         bool $operationsRescue = false,
         ?string $vehicleType = null,
     ): DeliveryAssignment {
+        app(\App\Services\OrderPreparationDecisionGuard::class)->assertOperational($order);
         if (DriverTaskOfferService::enabledForOrder($order) && ! $operationsRescue) {
             throw ValidationException::withMessages([
                 'driver_id' => ['الطلب جاهز، وجارٍ عرض المهمة على المندوبين المتاحين.'],
@@ -315,7 +328,7 @@ class DeliveryOperationsService
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
                 if ($order->driver_id !== null ||
                     (string) $order->status !== Order::STATUS_READY ||
-                    (string) $order->payment_status !== Order::PAYMENT_PAID) {
+                    ! $order->isPaidAndContactVerified()) {
                     throw ValidationException::withMessages([
                         'order' => ['لا يمكن إسناد هذا الطلب: ربما قبله مندوب أو تغيرت حالته. قم بالتحديث.'],
                     ]);

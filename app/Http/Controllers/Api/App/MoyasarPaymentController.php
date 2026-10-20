@@ -480,6 +480,8 @@ class MoyasarPaymentController extends Controller
             'tax' => (float) $order->tax,
             'total' => (float) $order->total,
             'contact_phone' => $order->contact_phone,
+            'contact_verification_state' => $order->contact_verification_state,
+            'requires_contact_verification' => $order->isPaid() && ! $order->contactIsOperationallyVerified(),
             'store' => $order->store !== null
                 ? [
                     'id' => $order->store->id,
@@ -493,7 +495,7 @@ class MoyasarPaymentController extends Controller
     private function paidResponse(Order $order): JsonResponse
     {
         return response()->json([
-            'message' => 'تم الدفع وتأكيد الطلب بنجاح.',
+            'message' => 'تم الدفع بنجاح، وقد يلزم توثيق رقم الجوال قبل التجهيز.',
             'data' => ['paid' => true, 'order' => $this->orderSummary($order)],
         ]);
     }

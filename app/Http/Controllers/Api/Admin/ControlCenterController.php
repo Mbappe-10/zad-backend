@@ -85,6 +85,8 @@ class ControlCenterController extends Controller
             'minimumOrderAmount' => 0,
             'cancellationWindowMinutes' => 5,
             'automaticOrderExpiryMinutes' => 15,
+            'extensionMinutesCsv' => '5,10,12,15',
+            'compensationSarCsv' => '3,4,5',
         ],
 
         'productive_families' => [
@@ -299,6 +301,16 @@ class ControlCenterController extends Controller
             $existingValue,
             $incomingValue,
         );
+
+        if ($section === 'orders_sales') {
+            foreach (['extensionMinutesCsv'=>[5,60], 'compensationSarCsv'=>[3,100]] as $field=>$bounds) {
+                $raw=(string)($mergedValue[$field] ?? '');
+                abort_unless(preg_match('/^[0-9, ]{1,100}$/',$raw),422,'صيغة خيارات التمديد أو التعويض غير صالحة.');
+                $values=array_map('intval',explode(',',$raw));
+                abort_unless(count($values)>0 && count($values)<=20 && count($values)===count(array_unique($values)),422,'خيارات مكررة أو كثيرة.');
+                foreach ($values as $n) abort_unless($n >= $bounds[0] && $n <= $bounds[1],422,'مدة أو تعويض خارج الحدود.');
+            }
+        }
 
         if ($section === 'services') {
             $mode = (string) ($mergedValue['paymentMode'] ?? 'disabled');

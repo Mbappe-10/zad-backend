@@ -8,6 +8,8 @@ use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentProvider;
 use App\Services\App\PlatformOperationGate;
+use App\Services\App\OrderGuestAccess;
+use App\Services\App\MoyasarV5LivePaymentPolicy;
 use App\Services\LaunchAttributionService;
 use App\Support\InternalTesting;
 use Illuminate\Http\Client\ConnectionException;
@@ -23,6 +25,7 @@ class MoyasarPaymentController extends Controller
     public function __construct(
         private readonly LaunchAttributionService $launchAttribution,
         private readonly PlatformOperationGate $operations,
+        private readonly OrderGuestAccess $orderGuestAccess,
     ) {
     }
 
@@ -51,6 +54,12 @@ class MoyasarPaymentController extends Controller
         $publishableKey = trim((string) config('moyasar.publishable_key'));
         $localTestEnabled = $this->localTestEnabled($order);
 
+        // V5 postpay orders must be paid with verified LIVE credentials only.
+        $v5Postpay = $this->isV5PostpayOrder($order);
+        if ($v5Postpay) {
+            $this->assertV5LiveCredentials();
+        }
+
         if ($publishableKey === '' && ! $localTestEnabled) {
             throw ValidationException::withMessages([
                 'payment' => [
@@ -62,7 +71,7 @@ class MoyasarPaymentController extends Controller
         $amountHalalas = $this->amountHalalas($order);
         $attempt = PaymentAttempt::query()
             ->where('order_id', $order->id)
-            ->where('gateway', 'moyasar')
+            ->where('gateway', $v5Postpay ? 'moyasar_live' : 'moyasar')
             ->where('status', 'created')
             ->where('amount_halalas', $amountHalalas)
             ->where('currency', 'SAR')
@@ -74,7 +83,7 @@ class MoyasarPaymentController extends Controller
             $attempt = PaymentAttempt::query()->create([
                 'order_id' => $order->id,
                 'idempotency_key' => (string) Str::uuid(),
-                'gateway' => 'moyasar',
+                'gateway' => $v5Postpay ? 'moyasar_live' : 'moyasar',
                 'status' => 'created',
                 'amount_halalas' => $amountHalalas,
                 'currency' => 'SAR',
@@ -128,8 +137,13 @@ class MoyasarPaymentController extends Controller
             return $this->paidResponse($order->fresh());
         }
 
+        if ($this->isV5PostpayOrder($order)) {
+            $this->assertV5LiveCredentials();
+        }
+        // fetchPayment uses the SERVER secret and contacts the provider.
         $payment = $this->fetchPayment($data['payment_id']);
         $this->assertPaymentMatches($order, $payment);
+        $this->assertV5LiveProof($order, $payment);
         $order = $this->markPaid($order, $payment);
 
         return $this->paidResponse($order);
@@ -205,7 +219,16 @@ class MoyasarPaymentController extends Controller
         }
 
         if ($type === 'payment_paid') {
+            // For V5, webhook JSON alone cannot establish real-money provenance.
+            // Validate the provider payment with the live SERVER secret before crediting.
+            if ($this->isV5PostpayOrder($order)) {
+                $this->assertV5LiveCredentials();
+                $providerPaymentId = trim((string) ($payment['id'] ?? ''));
+                abort_unless($providerPaymentId !== '' && ! str_starts_with($providerPaymentId, 'local_'), 422);
+                $payment = $this->fetchPayment($providerPaymentId);
+            }
             $this->assertPaymentMatches($order, $payment);
+            $this->assertV5LiveProof($order, $payment);
             $this->markPaid($order, $payment);
         }
 
@@ -306,6 +329,7 @@ class MoyasarPaymentController extends Controller
             // ZAD_PAYMENT_LOCK_RECHECK_FINAL
             // Close the race between changing a coupon and a payment callback.
             $this->assertPaymentMatches($order, $payment);
+            $this->assertV5LiveProof($order, $payment);
 
             $paymentId = (string) ($payment['id'] ?? '');
             $attempt = PaymentAttempt::query()
@@ -326,13 +350,16 @@ class MoyasarPaymentController extends Controller
                     'idempotency_key' => Str::isUuid($paymentId)
                         ? $paymentId
                         : (string) Str::uuid(),
-                    'gateway' => str_starts_with($paymentId, 'local_') ? 'local_test' : 'moyasar',
+                    'gateway' => $this->isV5PostpayOrder($order) ? 'moyasar_live'
+                        : (str_starts_with($paymentId, 'local_') ? 'local_test' : 'moyasar'),
                     'amount_halalas' => $this->amountHalalas($order),
                     'currency' => 'SAR',
                 ]);
             }
 
             $attempt->update([
+                // Stamp proof provenance so V5 OTP checks a LIVE provider record.
+                'gateway' => $this->isV5PostpayOrder($order) ? 'moyasar_live' : $attempt->gateway,
                 'provider_payment_id' => $paymentId,
                 'status' => 'paid',
                 'payload' => $payment,
@@ -390,22 +417,46 @@ class MoyasarPaymentController extends Controller
         });
     }
 
+    /** Only orders created by the new post-payment checkout need mode-specific proof. */
+    private function isV5PostpayOrder(Order $order): bool
+    {
+        return trim((string) ($order->checkout_request_id ?? '')) !== '';
+    }
+
+    private function assertV5LiveCredentials(): void
+    {
+        abort_unless(
+            MoyasarV5LivePaymentPolicy::hasLiveCredentials(
+                (string) config('app.env'),
+                (string) config('moyasar.publishable_key'),
+                (string) config('moyasar.secret_key'),
+            ),
+            503,
+            'بيئة الدفع الحقيقي غير مهيأة للطلبات الجديدة.',
+        );
+    }
+
+    /** Call ONLY with a payment already fetched from Moyasar API for V5 orders. */
+    private function assertV5LiveProof(Order $order, array $payment): void
+    {
+        if (! $this->isV5PostpayOrder($order)) {
+            return;
+        }
+        $this->assertV5LiveCredentials();
+        abort_unless(
+            MoyasarV5LivePaymentPolicy::matchesProviderPayment(
+                $payment,
+                (int) $order->id,
+                $this->amountHalalas($order),
+            ),
+            422,
+            'تعذر إثبات دفع ميسر المباشر لهذا الطلب.',
+        );
+    }
+
     private function authorizeOrder(Request $request, Order $order): void
     {
-        $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
-        $guestAllowed = $guestSessionId !== '' &&
-            hash_equals((string) $order->guest_session_id, $guestSessionId);
-
-        $user = $request->user();
-        $customerAllowed = $user !== null &&
-            $order->customer_id !== null &&
-            $order->customer_id === $user->appProfile?->customer_id;
-
-        abort_unless(
-            $guestAllowed || $customerAllowed,
-            403,
-            'لا يمكنك الوصول إلى دفع هذا الطلب.',
-        );
+        $this->orderGuestAccess->assert($request, $order);
     }
 
     private function localTestEnabled(Order $order): bool

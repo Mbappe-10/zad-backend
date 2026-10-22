@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderCouponUsage;
 use App\Services\CouponService;
+use App\Services\App\OrderGuestAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,7 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class OrderCouponController extends Controller
 {
-    public function __construct(private readonly CouponService $coupons)
+    public function __construct(
+        private readonly CouponService $coupons,
+        private readonly OrderGuestAccess $orderGuestAccess,
+    )
     {
     }
 
@@ -135,21 +139,7 @@ class OrderCouponController extends Controller
 
     private function authorizeOrder(Request $request, Order $order): void
     {
-        $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
-
-        $guestAllowed = $guestSessionId !== ''
-            && hash_equals((string) $order->guest_session_id, $guestSessionId);
-
-        $user = $request->user();
-        $customerAllowed = $user !== null
-            && $order->customer_id !== null
-            && $order->customer_id === $user->appProfile?->customer_id;
-
-        abort_unless(
-            $guestAllowed || $customerAllowed,
-            403,
-            'لا يمكنك تعديل كوبون هذا الطلب.',
-        );
+        $this->orderGuestAccess->assert($request, $order);
     }
 
     private function summary(Order $order): array

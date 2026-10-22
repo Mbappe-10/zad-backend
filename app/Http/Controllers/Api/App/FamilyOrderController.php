@@ -33,7 +33,8 @@ class FamilyOrderController extends Controller
 
         $orders = Order::query()
             ->whereIn('store_id', $storeIds)
-            ->where('payment_status', Order::PAYMENT_PAID);
+            ->where('payment_status', Order::PAYMENT_PAID)
+            ->operationallyReleased();
 
         return response()->json([
             'data' => [
@@ -53,6 +54,7 @@ class FamilyOrderController extends Controller
 
                 'sales_total' => (float) (clone $orders)
                     ->where('payment_status', Order::PAYMENT_PAID)
+                    ->operationallyReleased()
                     ->whereIn('status', [
                         Order::STATUS_DELIVERED,
                         Order::STATUS_COMPLETED,
@@ -73,6 +75,7 @@ class FamilyOrderController extends Controller
         $orders = Order::query()
             ->whereIn('store_id', $storeIds)
             ->where('payment_status', Order::PAYMENT_PAID)
+            ->operationallyReleased()
             ->whereIn('status', [
                 Order::STATUS_PENDING,
                 Order::STATUS_ACCEPTED,
@@ -112,7 +115,7 @@ class FamilyOrderController extends Controller
         $this->ensureBelongsToFamily($request, $order);
         // ZAD_PAYMENT_FAMILY_GUARD
         abort_unless(
-            $order->isPaid(),
+            $order->isPaidAndContactVerified(),
             402,
             'لا يظهر الطلب للأسرة قبل اكتمال الدفع.',
         );
@@ -131,7 +134,7 @@ class FamilyOrderController extends Controller
         $this->ensureBelongsToFamily($request, $order);
         // ZAD_PAYMENT_FAMILY_GUARD
         abort_unless(
-            $order->isPaid(),
+            $order->isPaidAndContactVerified(),
             402,
             'لا يظهر الطلب للأسرة قبل اكتمال الدفع.',
         );
@@ -153,6 +156,11 @@ class FamilyOrderController extends Controller
                 'max:1000',
             ],
         ]);
+
+        if (config('zad_v4_family_actions.enabled', false) && $data['status'] === Order::STATUS_CANCELLED) {
+            abort(409, 'استخدم مسار تعذر التنفيذ ومراجعة الاسترداد بدل إلغاء طلب مدفوع مباشرة.');
+        }
+        app(\App\Services\OrderPreparationDecisionGuard::class)->assertOperational($order);
 
         if (
             $data['status'] === Order::STATUS_READY &&
@@ -249,7 +257,8 @@ class FamilyOrderController extends Controller
     public function readyProof(Request $request, Order $order): JsonResponse
     {
         $this->ensureBelongsToFamily($request, $order);
-        abort_unless($order->isPaid(), 402, 'يجب إتمام الدفع أولًا.');
+        abort_unless($order->isPaidAndContactVerified(), 402, 'يجب إتمام الدفع وتوثيق رقم الجوال أولًا.');
+        app(\App\Services\OrderPreparationDecisionGuard::class)->assertOperational($order);
 
         if (! in_array($order->status, [
             Order::STATUS_PENDING,

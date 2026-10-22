@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CommissionRule;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\PaymentAttempt;
 use App\Models\OrderCommission;
 use App\Models\OrderCouponUsage;
 use App\Models\OrderSettlement;
@@ -29,6 +30,17 @@ class OrderSettlementService
                 ->with('store:id,productive_family_id')
                 ->lockForUpdate()
                 ->findOrFail($order->id);
+
+            $this->assertNotProductionTestPayment((int) $order->id);
+            app(\App\Services\OrderPreparationDecisionGuard::class)->assertSettlement($order);
+
+            // Stage A: payment and post-payment contact verification are both required.
+            // Keep this alongside the existing production test-payment safeguard.
+            if (! $order->isPaidAndContactVerified()) {
+                throw ValidationException::withMessages([
+                    'payment' => ['لا يمكن تسوية طلب قبل الدفع وتوثيق رقم الجوال.'],
+                ]);
+            }
 
             if (! in_array($order->status, Order::completedStatuses(), true)) {
                 throw ValidationException::withMessages([
@@ -247,8 +259,22 @@ class OrderSettlementService
                 ->lockForUpdate()
                 ->findOrFail($settlement->id);
 
+            $this->assertNotProductionTestPayment((int) $settlement->order_id);
+            app(\App\Services\OrderPreparationDecisionGuard::class)->assertSettlement(Order::query()->findOrFail($settlement->order_id));
+
             if ($settlement->status === OrderSettlement::STATUS_RELEASED) {
                 return $settlement;
+            }
+
+            // Prevent releasing an existing held/pending settlement while the
+            // linked order is unpaid, refunded or awaiting contact verification.
+            // This read is deliberately not a second row lock: preparation
+            // locks Order before OrderSettlement, and reverse lock order risks deadlock.
+            $linkedOrder = Order::query()->findOrFail($settlement->order_id);
+            if (! $linkedOrder->isPaidAndContactVerified()) {
+                throw ValidationException::withMessages([
+                    'payment' => ['لا يمكن تحرير التسوية قبل الدفع وتوثيق رقم الجوال.'],
+                ]);
             }
 
             if ($settlement->status === OrderSettlement::STATUS_REVERSED) {
@@ -443,4 +469,23 @@ class OrderSettlementService
 
         return $raw;
     }
+    /** Prevent historical prelaunch test orders from becoming real payouts. */
+    private function assertNotProductionTestPayment(int $orderId): void
+    {
+        if (! app()->environment('production')) {
+            return;
+        }
+
+        if (PaymentAttempt::query()
+            ->where('order_id', $orderId)
+            ->whereIn('gateway', ['local_test', 'moyasar_sandbox'])
+            ->where('status', 'paid')
+            ->exists()
+        ) {
+            throw ValidationException::withMessages([
+                'payment' => ['هذه عملية اختبار ولا يمكن إصدار تسوية مالية حقيقية لها.'],
+            ]);
+        }
+    }
+
 }

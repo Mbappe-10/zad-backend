@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\PhoneVerification;
+use App\Services\PhoneVerification\LegacyInternalOtpPolicy;
 use App\Support\InternalTesting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,17 @@ class PhoneVerificationController extends Controller
 {
     public function send(Request $request): JsonResponse
     {
+        // SECURITY: Never mint or return a self-revealing OTP in production/staging.
+        // Legacy clients need a genuine SMS-backed path before public checkout is enabled.
+        if (! LegacyInternalOtpPolicy::allowsInternalOtp(
+            (string) app()->environment(),
+            config('zad_local_internal_otp.enabled') === true,
+        )) {
+            return response()->json([
+                'message' => 'هذا الإصدار من التحقق غير متاح. يرجى تحديث التطبيق أو التواصل مع الدعم.',
+                'code' => 'legacy_internal_otp_disabled',
+            ], 503)->header('Cache-Control', 'no-store');
+        }
         $data = $request->validate([
             'phone' => [
                 'required',

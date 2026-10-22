@@ -10,6 +10,7 @@ use App\Models\OrderLiveSession;
 use App\Models\Product;
 use App\Models\Store;
 use App\Services\DeliveryOperationsService;
+use App\Services\App\OrderGuestAccess;
 use Firebase\JWT\JWT;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class OrderLiveController extends Controller
 
     public function __construct(
         private readonly DeliveryOperationsService $delivery,
+        private readonly OrderGuestAccess $orderGuestAccess,
     ) {
     }
 
@@ -507,26 +509,9 @@ class OrderLiveController extends Controller
         return $familyId;
     }
 
-    private function ensureCanViewOrder(
-        Request $request,
-        Order $order,
-    ): void {
-        $guestSession = trim(
-            (string) $request->header('X-Guest-Session', ''),
-        );
-
-        $allowedByGuest = $guestSession !== ''
-            && hash_equals(
-                (string) $order->guest_session_id,
-                $guestSession,
-            );
-
-        $allowedByCustomer = $request->user() !== null
-            && $order->customer_id !== null
-            && $order->customer_id ===
-                $request->user()->appProfile?->customer_id;
-
-        abort_unless($allowedByGuest || $allowedByCustomer, 403);
+    private function ensureCanViewOrder(Request $request, Order $order): void
+    {
+        $this->orderGuestAccess->assert($request, $order);
     }
 
     private function newRoomName(Order $order): string

@@ -295,6 +295,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::prefix('v1/app/family')->group(function (): void {
         Route::get('/overview', [FamilyOrderController::class, 'overview']);
         Route::get('/orders', [FamilyOrderController::class, 'index']);
+
+        // ZAD_V5_LOCAL_ONLY_FAMILY_ACTIONS - gated OFF by default.
+        Route::get('/preparation-options',
+            [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'options']);
+        Route::post('/orders/{order}/preparation-decision',
+            [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'familyRequest'])
+            ->middleware('throttle:5,1');
+
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
         Route::post(
@@ -1083,6 +1091,20 @@ Route::prefix('v1/app')->group(function (): void {
         [PhoneVerificationController::class, 'verify'],
     )->middleware('throttle:10,1');
 
+    // ZAD_V5_LOCAL_ONLY_POSTPAY_OTP - handlers are gated OFF by default.
+    Route::get('/orders/{order}/contact-verification',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'status'])
+        ->middleware('throttle:30,1');
+    Route::post('/orders/{order}/contact-verification/start',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'start'])
+        ->middleware('throttle:5,1');
+    Route::patch('/orders/{order}/contact-verification/phone',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'changePhone'])
+        ->middleware('throttle:5,1');
+    Route::post('/orders/{order}/contact-verification/check',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'check'])
+        ->middleware('throttle:10,1');
+
     Route::get(
         '/orders',
         [AppOrderController::class, 'index'],
@@ -1097,6 +1119,14 @@ Route::prefix('v1/app')->group(function (): void {
         '/orders/{order}',
         [AppOrderController::class, 'show'],
     );
+
+    // ZAD_V5_LOCAL_ONLY_CUSTOMER_DECISIONS - gated OFF by default.
+    Route::get('/orders/{order}/preparation-decision',
+        [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'customerShow'])
+        ->middleware('throttle:30,1');
+    Route::post('/orders/{order}/preparation-decision/response',
+        [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'respond'])
+        ->middleware('throttle:10,1');
 
     Route::post(
         '/orders/{order}/confirm-delivery',

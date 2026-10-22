@@ -42,8 +42,9 @@ class DriverTaskOfferService
     private function eligible(Driver $driver, Order $order): bool
     {
         if (! self::enabledForOrder($order) || ! $this->approved($driver)) return false;
+        if (app(\App\Services\OrderPreparationDecisionGuard::class)->hasBlockingOperation($order)) return false;
         if ((string) $order->status !== Order::STATUS_READY || $order->driver_id !== null) return false;
-        if ((string) $order->payment_status !== Order::PAYMENT_PAID) return false;
+        if (! $order->isPaidAndContactVerified()) return false;
         if ($driver->city_id !== null && $order->city_id !== null && (int) $driver->city_id !== (int) $order->city_id) return false;
 
         // Same vehicle category when both are known; never promise an incompatible job.
@@ -68,6 +69,7 @@ class DriverTaskOfferService
         $orders = Order::query()
             ->where('status', Order::STATUS_READY)
             ->where('payment_status', Order::PAYMENT_PAID)
+            ->operationallyReleased()
             ->whereNull('driver_id')
             ->when(! $allOrders, fn ($query) => $query->whereIn('id', $pilotIds))
             ->whereNotIn('id', $declined)

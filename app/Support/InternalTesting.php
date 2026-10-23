@@ -20,29 +20,13 @@ final class InternalTesting
 
     public static function otpExpiresMinutes(): int
     {
-        return max(
-            1,
-            min(
-                10,
-                (int) config(
-                    'internal_testing.otp.expires_minutes',
-                    3,
-                ),
-            ),
-        );
+        return 4;
     }
 
     public static function exposesOtpFor(string $phone): bool
     {
-        if (app()->environment(['local', 'testing'])) {
-            return true;
-        }
-
-        return self::enabled()
-            && (bool) config(
-                'internal_testing.otp.expose_code',
-                false,
-            )
+        return app()->environment(['local', 'testing'])
+            && self::enabled()
             && self::phoneIsAllowed($phone);
     }
 

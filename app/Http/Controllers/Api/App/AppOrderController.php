@@ -15,6 +15,7 @@ use App\Models\PhoneVerification;
 use App\Models\Product;
 use App\Models\Store;
 use App\Services\App\PlatformOperationGate;
+use App\Services\App\GuestSessionAuthenticator;
 use App\Services\App\VehicleRecommendationService;
 use App\Services\VehiclePricingService;
 use App\Services\OrderSettlementService;
@@ -40,6 +41,7 @@ class AppOrderController extends Controller
         private readonly OrderJourneyRetentionService $journeyRetention,
         private readonly LaunchAttributionService $launchAttribution,
         private readonly PlatformOperationGate $operations,
+        private readonly GuestSessionAuthenticator $guestAuthenticator,
     ) {
     }
 
@@ -49,9 +51,17 @@ class AppOrderController extends Controller
     {
         $this->operations->assertNewOrderAllowed();
 
+        // Dual-client rollout: older APKs keep the prepay verification_token flow.
+        // An opted-in client must provide an idempotent checkout request ID
+        // and prove ownership of a signed guest session before order creation.
+        $postpayOtp = (bool) config('postpay_otp.enabled', false)
+            && $request->filled('checkout_request_id');
         $data = $request->validate([
             'guest_session_id' => ['required', 'string', 'max:36', 'exists:app_guest_sessions,id'],
-            'verification_token' => ['required', 'string'],
+            'verification_token' => [$postpayOtp ? 'nullable' : 'required', 'string'],
+            'contact_phone' => [$postpayOtp ? 'required' : 'nullable', 'string', 'regex:/^05[0-9]{8}$/D'],
+            'device_id' => [$postpayOtp ? 'required' : 'nullable', 'string', 'max:191'],
+            'checkout_request_id' => [$postpayOtp ? 'required' : 'nullable', 'uuid'],
             'store_id' => ['required', 'integer', 'exists:stores,id'],
             'city_id' => ['nullable', 'integer', 'exists:cities,id'],
             'distance_km' => ['required', 'numeric', 'min:0', 'max:500'],
@@ -67,10 +77,21 @@ class AppOrderController extends Controller
             'launch_session_token' => ['nullable', 'string', 'max:128'],
         ]);
 
-        $verification = $this->verifiedPhone(
-            $data['verification_token'],
-            $data['guest_session_id'],
-        );
+        $verification = null;
+        if ($postpayOtp) {
+            // Guest ID alone is NOT authentication. Demand the actual session
+            // token and the bound device before creating an unverified order.
+            $this->guestAuthenticator->authenticate(
+                $data['guest_session_id'],
+                $this->guestAuthenticator->tokenFromRequest($request),
+                $data['device_id'],
+            );
+        } else {
+            $verification = $this->verifiedPhone(
+                $data['verification_token'],
+                $data['guest_session_id'],
+            );
+        }
 
         $store = Store::query()
             ->whereKey($data['store_id'])
@@ -162,6 +183,7 @@ class AppOrderController extends Controller
         $order = DB::transaction(function () use (
             $data,
             $verification,
+            $postpayOtp,
             $store,
             $products,
             $subtotal,
@@ -171,11 +193,24 @@ class AppOrderController extends Controller
             $deliveryFee,
             $distanceKm,
         ): Order {
+            if ($postpayOtp) {
+                // Serialize retries for one guest; concurrent timeouts must
+                // never create a second order or initiate a second payment.
+                \App\Models\AppGuestSession::query()->whereKey($data['guest_session_id'])
+                    ->lockForUpdate()->firstOrFail();
+                $prior = Order::query()
+                    ->where('guest_session_id', $data['guest_session_id'])
+                    ->where('checkout_request_id', $data['checkout_request_id'])
+                    ->first();
+                if ($prior !== null) return $prior;
+            }
             $order = Order::query()->create([
                 'number' => $this->generateOrderNumber(),
                 'customer_id' => null,
                 'guest_session_id' => $data['guest_session_id'],
-                'contact_phone' => $verification->phone,
+                'checkout_request_id' => $postpayOtp ? $data['checkout_request_id'] : null,
+                'contact_phone' => $postpayOtp ? $data['contact_phone'] : $verification->phone,
+                'contact_verification_state' => $postpayOtp ? 'pending' : null,
                 'store_id' => $store->id,
                 'city_id' => $data['city_id'] ?? $store->city_id,
                 'status' => Order::STATUS_PENDING,

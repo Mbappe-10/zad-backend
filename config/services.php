@@ -55,4 +55,35 @@ return [
     'api_secret' => env('LIVEKIT_API_SECRET'),
    ],
 
+    'meta_whatsapp' => [
+        'base_url' => env(
+            'META_WHATSAPP_BASE_URL',
+            'https://graph.facebook.com',
+        ),
+        'graph_version' => env('META_WHATSAPP_GRAPH_VERSION', ''),
+        'business_account_id' => env('META_WHATSAPP_BUSINESS_ACCOUNT_ID', ''),
+        'phone_number_id' => env('META_WHATSAPP_PHONE_NUMBER_ID', ''),
+        'access_token' => env('META_WHATSAPP_ACCESS_TOKEN', ''),
+        'authentication_template' => env(
+            'META_WHATSAPP_AUTH_TEMPLATE',
+            '',
+        ),
+        'template_language' => env(
+            'META_WHATSAPP_AUTH_TEMPLATE_LANGUAGE',
+            'ar',
+        ),
+        'authentication_template_approved' => env(
+            'META_WHATSAPP_AUTH_TEMPLATE_APPROVED',
+            false,
+        ),
+        'authentication_template_code_length' => (int) env(
+            'META_WHATSAPP_AUTH_TEMPLATE_CODE_LENGTH',
+            6,
+        ),
+        'timeout_seconds' => (int) env(
+            'META_WHATSAPP_TIMEOUT_SECONDS',
+            10,
+        ),
+    ],
+
 ];

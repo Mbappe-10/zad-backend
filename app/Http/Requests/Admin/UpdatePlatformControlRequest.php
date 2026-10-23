@@ -14,6 +14,8 @@ class UpdatePlatformControlRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'value.paymentMode' => ['sometimes', 'string', 'in:disabled,sandbox,live,simulation'],
+            'value.paymentGatewayEnabled' => ['sometimes', 'boolean'],
             'value' => [
                 'required',
                 'array',

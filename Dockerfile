@@ -67,4 +67,4 @@ RUN mkdir -p \
 
 EXPOSE 10000
 
-CMD ["/bin/sh", "-c", "set -e; php artisan optimize:clear; if [ "${ZAD_RUN_MIGRATIONS:-false}" = "true" ]; then php artisan migrate --force; fi; php artisan schedule:work >> storage/logs/scheduler.log 2>&1 & exec php artisan serve --no-reload --host=0.0.0.0 --port=${PORT:-10000}"]
+CMD set -e; php artisan optimize:clear; if [ "${ZAD_RUN_MIGRATIONS:-false}" = "true" ]; then php artisan migrate --force; fi; php artisan schedule:work >> storage/logs/scheduler.log 2>&1 & exec php artisan serve --no-reload --host=0.0.0.0 --port=${PORT:-10000}

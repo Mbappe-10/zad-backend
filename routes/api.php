@@ -295,6 +295,13 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::prefix('v1/app/family')->group(function (): void {
         Route::get('/overview', [FamilyOrderController::class, 'overview']);
         Route::get('/orders', [FamilyOrderController::class, 'index']);
+        // ZAD_V5_LOCAL_ONLY_FAMILY_ACTIONS - gated OFF by default.
+        Route::get('/preparation-options',
+            [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'options']);
+        Route::post('/orders/{order}/preparation-decision',
+            [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'familyRequest'])
+            ->middleware('throttle:5,1');
+
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
         Route::post(
@@ -989,6 +996,29 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             [PlatformSettingsController::class, 'update'],
         )->name('api.admin.platform-settings.update');
 
+        /* Dedicated notification center. Keep above generic admin resources. */
+        Route::middleware('permission:notifications.view')->group(function (): void {
+            Route::get('/notification-recipients', \App\Http\Controllers\Api\Admin\NotificationRecipientOptionController::class);
+            Route::get('/notification-templates', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'index']);
+            Route::get('/notification-templates/{notificationTemplate}', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'show'])->whereNumber('notificationTemplate');
+            Route::get('/notifications', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'index']);
+            Route::get('/notifications/{notification}', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'show'])->whereNumber('notification');
+            Route::get('/notifications/{notification}/history', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'history'])->whereNumber('notification');
+        });
+
+        Route::middleware('permission:notifications.manage')->group(function (): void {
+            Route::post('/notification-templates', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'store']);
+            Route::match(['put', 'patch'], '/notification-templates/{notificationTemplate}', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'update'])->whereNumber('notificationTemplate');
+            Route::delete('/notification-templates/{notificationTemplate}', [\App\Http\Controllers\Api\Admin\NotificationTemplateController::class, 'destroy'])->whereNumber('notificationTemplate');
+            Route::post('/notifications/preview', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'previewDraft']);
+            Route::post('/notifications', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'store']);
+            Route::match(['put', 'patch'], '/notifications/{notification}', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'update'])->whereNumber('notification');
+            Route::delete('/notifications/{notification}', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'destroy'])->whereNumber('notification');
+            Route::post('/notifications/{notification}/preview', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'preview'])->whereNumber('notification');
+            Route::post('/notifications/{notification}/test-send', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'testSend'])->whereNumber('notification');
+            Route::post('/notifications/{notification}/send', [\App\Http\Controllers\Api\Admin\NotificationCampaignController::class, 'send'])->whereNumber('notification');
+        });
+
         Route::get('/{resource}/tickets', [AdminResourceController::class, 'index'])
             ->where('resource', 'support');
         Route::post('/{resource}/tickets', [AdminResourceController::class, 'store'])
@@ -1073,6 +1103,12 @@ Route::prefix('v1/app')->group(function (): void {
         [SocialAuthController::class, 'exchangeGoogleRedirect'],
     )->middleware('throttle:social-auth');
 
+    // Read-only check: never sends a paid OTP.
+    Route::post(
+        '/phone-verifications/status',
+        [PhoneVerificationController::class, 'status'],
+    )->middleware('throttle:30,1');
+
     Route::post(
         '/phone-verifications/send',
         [PhoneVerificationController::class, 'send'],
@@ -1082,6 +1118,29 @@ Route::prefix('v1/app')->group(function (): void {
         '/phone-verifications/verify',
         [PhoneVerificationController::class, 'verify'],
     )->middleware('throttle:10,1');
+
+    // ZAD_V5_LOCAL_ONLY_POSTPAY_OTP - handlers are gated OFF by default.
+    Route::get('/orders/{order}/contact-verification',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'status'])
+        ->middleware('throttle:30,1');
+    Route::post('/orders/{order}/contact-verification/start',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'start'])
+        ->middleware('throttle:5,1');
+    Route::patch('/orders/{order}/contact-verification/phone',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'changePhone'])
+        ->middleware('throttle:5,1');
+    Route::post('/orders/{order}/contact-verification/check',
+        [\App\Http\Controllers\Api\App\OrderContactVerificationController::class, 'check'])
+        ->middleware('throttle:10,1');
+
+    // Disabled by default. A real Tawked SMS verification is required;
+    // historic order UUIDs alone never grant access.
+    Route::post('/orders/{order}/legacy-recovery/start',
+        [\App\Http\Controllers\Api\App\LegacyOrderRecoveryController::class, 'start'])
+        ->whereNumber('order')->middleware('throttle:3,1');
+    Route::post('/orders/{order}/legacy-recovery/check',
+        [\App\Http\Controllers\Api\App\LegacyOrderRecoveryController::class, 'check'])
+        ->whereNumber('order')->middleware('throttle:8,1');
 
     Route::get(
         '/orders',
@@ -1097,6 +1156,14 @@ Route::prefix('v1/app')->group(function (): void {
         '/orders/{order}',
         [AppOrderController::class, 'show'],
     );
+
+    // ZAD_V5_LOCAL_ONLY_CUSTOMER_DECISIONS - gated OFF by default.
+    Route::get('/orders/{order}/preparation-decision',
+        [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'customerShow'])
+        ->middleware('throttle:30,1');
+    Route::post('/orders/{order}/preparation-decision/response',
+        [\App\Http\Controllers\Api\App\OrderPreparationDecisionController::class, 'respond'])
+        ->middleware('throttle:10,1');
 
     Route::post(
         '/orders/{order}/confirm-delivery',
@@ -1133,6 +1200,27 @@ Route::prefix('v1/app')->group(function (): void {
         '/guest-sessions/{guest}',
         [GuestSessionController::class, 'update'],
     );
+
+    /* Authenticated users and securely-bound guest sessions share this API. */
+    Route::post('/notification-devices', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'store'])
+        ->middleware('throttle:30,1');
+    Route::patch('/notification-devices/{device}', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'update'])
+        ->whereNumber('device')
+        ->middleware('throttle:30,1');
+    Route::delete('/notification-devices', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'destroyCurrent'])
+        ->middleware('throttle:30,1');
+    Route::delete('/notification-devices/{device}', [\App\Http\Controllers\Api\App\NotificationDeviceController::class, 'destroy'])
+        ->whereNumber('device')
+        ->middleware('throttle:30,1');
+    Route::get('/notifications', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'index'])
+        ->middleware('throttle:120,1');
+    Route::post('/notifications/{notification}/open', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'open'])
+        ->whereNumber('notification')
+        ->middleware('throttle:120,1');
+    Route::get('/notifications/preferences', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'preferences'])
+        ->middleware('throttle:60,1');
+    Route::patch('/notifications/preferences', [\App\Http\Controllers\Api\App\AppNotificationController::class, 'updatePreferences'])
+        ->middleware('throttle:30,1');
 
     Route::get(
         '/orders/{order}/live',

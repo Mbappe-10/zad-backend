@@ -8,6 +8,7 @@ use App\Models\AppSetting;
 use App\Models\Category;
 use App\Models\City;
 use App\Models\PlatformRecord;
+use App\Services\App\MoyasarModeResolver;
 use App\Models\PlatformControl;
 use App\Models\Product;
 use Carbon\Carbon;
@@ -207,13 +208,9 @@ $settings = AppSetting::query()
             })
             ->values()->all();
 
-        $paymentGatewayEnabled = (bool) data_get(
-            PlatformControl::query()
-                ->where('section', 'services')
-                ->value('value'),
-            'paymentGatewayEnabled',
-            false,
-        );
+        // The public checkout gate must enforce the actual payment mode,
+        // not just the owner dashboard toggle.
+        $paymentGatewayEnabled = app(MoyasarModeResolver::class)->availableForCheckout();
 
         $banners = $this->homeBanners();
 

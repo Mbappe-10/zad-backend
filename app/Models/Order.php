@@ -62,7 +62,13 @@ class Order extends Model
         'notes',
         'driver_notes',
         'guest_session_id',
+        'checkout_request_id',
         'contact_phone',
+        'contact_verification_state',
+        'pending_contact_phone',
+        'contact_verified_at',
+        'contact_released_at',
+        'contact_phone_edit_count',
         'package_size',
         'recommended_vehicle_type',
         'assigned_vehicle_type',
@@ -97,6 +103,9 @@ class Order extends Model
             'pickup_latitude' => 'decimal:7',
             'pickup_longitude' => 'decimal:7',
             'sensitive_data_purged_at' => 'datetime',
+            'contact_verified_at' => 'datetime',
+            'contact_released_at' => 'datetime',
+            'contact_phone_edit_count' => 'integer',
             'vehicle_rule_overridden' => 'boolean',
             'accepted_at' => 'datetime',
             'preparing_at' => 'datetime',
@@ -278,6 +287,28 @@ class Order extends Model
         return in_array($this->status, self::cancelledStatuses(), true);
     }
 
+    // A NULL state is a legacy pre-OTP order and remains operable.
+    // New postpay orders are blocked until explicitly verified. A future
+    // feature-flag change cannot silently release already held orders.
+    public function contactIsOperationallyVerified(): bool
+    {
+        return $this->contact_verification_state === null
+            || $this->contact_verification_state === 'verified';
+    }
+
+    public function isPaidAndContactVerified(): bool
+    {
+        return $this->isPaid() && $this->contactIsOperationallyVerified();
+    }
+
+    public function scopeOperationallyReleased(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query): void {
+            $query->whereNull('contact_verification_state')
+                ->orWhere('contact_verification_state', 'verified');
+        });
+    }
+
     public function isPaid(): bool
     {
         return $this->payment_status === self::PAYMENT_PAID;
@@ -291,7 +322,7 @@ class Order extends Model
     public function isAssignable(): bool
     {
         // ZAD_PAYMENT_ASSIGNMENT_GUARD
-        return $this->isPaid() && in_array($this->status, [
+        return $this->isPaidAndContactVerified() && in_array($this->status, [
             self::STATUS_PENDING,
             self::STATUS_ACCEPTED,
             self::STATUS_PREPARING,

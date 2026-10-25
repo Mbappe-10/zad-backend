@@ -102,6 +102,131 @@ class MoyasarPaymentController extends Controller
         ]);
     }
 
+    /**
+     * Create a single-use Moyasar Payment Intent for the Web only.
+     * Does not alter native Android or the existing payment/attempt endpoint.
+     * IMPORTANT: activate ZAD_WEB_INTENTS_ENABLED only after end-to-end tests.
+     */
+    public function webIntent(Request $request, Order $order): JsonResponse
+    {
+        $this->authorizeOrder($request, $order);
+        abort_unless((bool) config('zad_web_payment.enabled', false), 503, 'Web payment intents are not enabled.');
+        abort_unless($this->isV5PostpayOrder($order), 422, 'Web checkout requires the V5 postpay flow.');
+        $this->operations->assertNewPaymentAttemptAllowed();
+        abort_if($order->isCancelled() || $order->isPaid(), 422, 'Order cannot be charged.');
+        $this->assertV5LiveCredentials();
+
+        $amount = $this->amountHalalas($order);
+        abort_unless($amount >= 100, 422, 'Invalid payment amount.');
+        $callback = (string) config('zad_web_payment.callback_url', '');
+        abort_unless(
+            $callback === 'https://zad-sync-sa.onrender.com/zad-moyasar-return.html',
+            503,
+            'Payment callback is not configured for this release.',
+        );
+
+        $secretKey = trim((string) config('moyasar.secret_key'));
+        $apiBase = rtrim((string) config('moyasar.api_url'), '/');
+        $gateway = 'moyasar_live';
+        // Reuse a still-open provider intent. A consumed intent must not be retried.
+        $pending = PaymentAttempt::query()
+            ->where('order_id', $order->id)
+            ->where('gateway', $gateway)
+            ->where('status', 'created')
+            ->where('currency', 'SAR')
+            ->where('amount_halalas', $amount)
+            ->where('created_at', '>=', now()->subMinutes(60))
+            ->latest('id')->limit(5)->get();
+        foreach ($pending as $existing) {
+            $payload = is_array($existing->payload) ? $existing->payload : [];
+            $intentId = trim((string) ($payload['web_intent_id'] ?? ''));
+            if ($intentId === '') {
+                continue; // Existing native Android attempt: not a Web intent.
+            }
+            try {
+                $state = Http::acceptJson()->withBasicAuth($secretKey, '')
+                    ->timeout(15)->get($apiBase.'/payment_intents/'.$intentId);
+            } catch (ConnectionException) {
+                abort(503, 'Unable to verify existing payment intent. Do not retry the charge.');
+            }
+            abort_unless($state->successful(), 503, 'Payment intent status unavailable.');
+            $intentState = $state->json();
+            if (($intentState['status'] ?? '') === 'fulfilled') {
+                abort(409, 'A payment has already been initiated. Check the payment status before retrying.');
+            }
+            if (($intentState['status'] ?? '') === 'created' &&
+                ($intentState['expires_at'] ?? '') !== '' &&
+                \Carbon\Carbon::parse((string) $intentState['expires_at'])->isFuture()) {
+                $encrypted = (string) ($payload['web_client_secret_enc'] ?? '');
+                abort_unless($encrypted !== '', 503, 'Incomplete active payment intent.');
+                try { $clientSecret = \Illuminate\Support\Facades\Crypt::decryptString($encrypted); }
+                catch (\Throwable) { abort(503, 'Payment intent cannot be restored.'); }
+                return $this->webIntentResponse($order, $existing, $intentId, $clientSecret);
+            }
+        }
+
+        try {
+            $response = Http::acceptJson()->withBasicAuth($secretKey, '')
+                ->timeout(20)->post($apiBase.'/payment_intents', [
+                    'amount' => $amount,
+                    'currency' => 'SAR',
+                    'description' => 'ZAD Sync order '.$order->number,
+                    'callback_url' => $callback,
+                ]);
+        } catch (ConnectionException) {
+            abort(503, 'Moyasar intent service unavailable.');
+        }
+        abort_unless($response->status() === 201, 503, 'Moyasar could not create a payment intent.');
+        $intent = $response->json();
+        $intentId = trim((string) ($intent['id'] ?? ''));
+        $clientSecret = trim((string) ($intent['client_secret'] ?? ''));
+        abort_unless(
+            Str::isUuid($intentId) && str_starts_with($clientSecret, 'pi_secret_') &&
+            ($intent['status'] ?? '') === 'created' &&
+            (int) ($intent['amount'] ?? 0) === $amount &&
+            strtoupper((string) ($intent['currency'] ?? '')) === 'SAR' &&
+            ($intent['callback_url'] ?? '') === $callback,
+            503,
+            'Moyasar intent validation failed.',
+        );
+        $attempt = PaymentAttempt::query()->create([
+            'order_id' => $order->id,
+            'idempotency_key' => (string) Str::uuid(),
+            'gateway' => $gateway,
+            'status' => 'created',
+            'amount_halalas' => $amount,
+            'currency' => 'SAR',
+            'payload' => [
+                'web_intent_id' => $intentId,
+                'web_intent_expires_at' => (string) ($intent['expires_at'] ?? ''),
+                'web_client_secret_enc' => \Illuminate\Support\Facades\Crypt::encryptString($clientSecret),
+            ],
+        ]);
+        if ($order->payment_status !== Order::PAYMENT_PENDING) {
+            $order->update(['payment_status' => Order::PAYMENT_PENDING]);
+        }
+        return $this->webIntentResponse($order, $attempt, $intentId, $clientSecret);
+    }
+
+    private function webIntentResponse(Order $order, PaymentAttempt $attempt, string $intentId, string $clientSecret): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'publishable_key' => (string) config('moyasar.publishable_key'),
+                'amount_halalas' => $this->amountHalalas($order),
+                'currency' => 'SAR',
+                'description' => 'ZAD Sync order '.$order->number,
+                'given_id' => (string) $attempt->idempotency_key,
+                'metadata' => [
+                    'order_id' => (string) $order->id,
+                    'order_number' => (string) $order->number,
+                ],
+                'intent_id' => $intentId,
+                'client_secret' => $clientSecret,
+            ],
+        ])->header('Cache-Control', 'no-store, private');
+    }
+
     public function verify(Request $request, Order $order): JsonResponse
     {
         $this->authorizeOrder($request, $order);

@@ -22,6 +22,11 @@ Route::prefix('v1/app')->group(function (): void {
     )->middleware('throttle:payment-action');
 
     Route::post(
+        'orders/{order}/payment/web-intent',
+        [MoyasarPaymentController::class, 'webIntent'],
+    )->middleware('throttle:payment-action');
+
+    Route::post(
         'orders/{order}/payment/verify',
         [MoyasarPaymentController::class, 'verify'],
     )->middleware('throttle:payment-action');

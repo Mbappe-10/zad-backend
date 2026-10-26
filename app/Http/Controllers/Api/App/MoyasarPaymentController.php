@@ -107,64 +107,131 @@ class MoyasarPaymentController extends Controller
      * Does not alter native Android or the existing payment/attempt endpoint.
      * IMPORTANT: activate ZAD_WEB_INTENTS_ENABLED only after end-to-end tests.
      */
+    /**
+     * Single-use payment intent. A web caller may only use the server-issued
+     * given_id returned from the existing payment/attempt endpoint.
+     * Native checkout, settlement, OTP and webhook logic remain unchanged.
+     */
     public function webIntent(Request $request, Order $order): JsonResponse
     {
         $this->authorizeOrder($request, $order);
         abort_unless((bool) config('zad_web_payment.enabled', false), 503, 'Web payment intents are not enabled.');
-        abort_unless($this->isV5PostpayOrder($order), 422, 'Web checkout requires the V5 postpay flow.');
+        abort_unless($this->isV5PostpayOrder($order), 422, 'Web checkout requires V5 postpay.');
         $this->operations->assertNewPaymentAttemptAllowed();
         abort_if($order->isCancelled() || $order->isPaid(), 422, 'Order cannot be charged.');
-        $this->assertV5LiveCredentials();
 
+        // The same live-mode enforcement used by native payment/attempt.
+        $mode = $this->modes->currentMode();
+        $this->modes->assertPermitted($mode);
+        $this->assertV5PaymentMode($order, $mode);
+        abort_unless($mode === 'live', 503, 'Production web payments require live mode.');
+        $credentials = $this->modes->credentials('live');
+        $secretKey = $credentials['secret_key'];
+
+        $validated = $request->validate(['given_id' => ['required', 'uuid']]);
+        $givenId = (string) $validated['given_id'];
         $amount = $this->amountHalalas($order);
         abort_unless($amount >= 100, 422, 'Invalid payment amount.');
-        $callback = (string) config('zad_web_payment.callback_url', '');
+        $callback = trim((string) config('zad_web_payment.callback_url', ''));
         abort_unless(
             $callback === 'https://zad-sync-sa.onrender.com/zad-moyasar-return.html',
             503,
             'Payment callback is not configured for this release.',
         );
+        // An HTTPS literal prevents config-injected HTTP destinations for a
+        // secret-bearing request. This also matches native provider verification.
+        $apiBase = 'https://api.moyasar.com/v1';
 
-        $secretKey = trim((string) config('moyasar.secret_key'));
-        $apiBase = rtrim((string) config('moyasar.api_url'), '/');
-        $gateway = 'moyasar_live';
-        // Reuse a still-open provider intent. A consumed intent must not be retried.
-        $pending = PaymentAttempt::query()
-            ->where('order_id', $order->id)
-            ->where('gateway', $gateway)
-            ->where('status', 'created')
-            ->where('currency', 'SAR')
-            ->where('amount_halalas', $amount)
-            ->where('created_at', '>=', now()->subMinutes(60))
-            ->latest('id')->limit(5)->get();
-        foreach ($pending as $existing) {
-            $payload = is_array($existing->payload) ? $existing->payload : [];
-            $intentId = trim((string) ($payload['web_intent_id'] ?? ''));
-            if ($intentId === '') {
-                continue; // Existing native Android attempt: not a Web intent.
+        // Reserve the original attempt atomically, before any remote I/O.
+        $reservation = DB::transaction(function () use ($order, $givenId, $amount): array {
+            $lockedOrder = Order::query()->lockForUpdate()->findOrFail($order->id);
+            abort_if($lockedOrder->isCancelled() || $lockedOrder->isPaid(), 422, 'Order cannot be charged.');
+            abort_unless($this->amountHalalas($lockedOrder) === $amount, 409, 'Order amount changed. Refresh checkout.');
+
+            $attempt = PaymentAttempt::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('gateway', 'moyasar_live')
+                ->where('idempotency_key', $givenId)
+                ->where('status', 'created')
+                ->where('currency', 'SAR')
+                ->where('amount_halalas', $amount)
+                ->where('created_at', '>=', now()->subMinutes(15))
+                ->lockForUpdate()->first();
+            abort_unless($attempt !== null, 409, 'Unknown or expired attempt. Check order payment status.');
+
+            // Reject a concurrent intent from another checkout tab.
+            $otherAttempts = PaymentAttempt::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('gateway', 'moyasar_live')
+                ->where('status', 'created')
+                ->where('id', '!=', $attempt->id)
+                ->where('created_at', '>=', now()->subMinutes(60))
+                ->get();
+            foreach ($otherAttempts as $other) {
+                $otherPayload = is_array($other->payload) ? $other->payload : [];
+                if (! empty($otherPayload['web_intent_id']) ||
+                    in_array($otherPayload['web_intent_state'] ?? '', ['creating', 'ready'], true)) {
+                    abort(409, 'Another payment session exists. Check payment status.');
+                }
             }
+
+            $payload = is_array($attempt->payload) ? $attempt->payload : [];
+            if (! empty($payload['web_intent_id'])) {
+                abort_unless(($payload['web_intent_state'] ?? 'ready') === 'ready',
+                    409, 'Payment session requires reconciliation.');
+                return [
+                    'action' => 'reuse', 'attempt_id' => $attempt->id,
+                    'intent_id' => (string) $payload['web_intent_id'],
+                    'client_secret_enc' => (string) ($payload['web_client_secret_enc'] ?? ''),
+                ];
+            }
+            // Unknown HTTP outcome is never retried under the same order.
+            abort_if(isset($payload['web_intent_state']),
+                409, 'Payment session needs reconciliation before any retry.');
+
+            $attempt->update(['payload' => array_merge($payload, [
+                'web_intent_state' => 'creating',
+                'web_intent_reserved_at' => now()->toIso8601String(),
+            ])]);
+            if ($lockedOrder->payment_status !== Order::PAYMENT_PENDING) {
+                $lockedOrder->update(['payment_status' => Order::PAYMENT_PENDING]);
+            }
+            return ['action' => 'create', 'attempt_id' => $attempt->id];
+        });
+
+        $attempt = PaymentAttempt::query()->findOrFail($reservation['attempt_id']);
+        if ($reservation['action'] === 'reuse') {
+            $intentId = (string) $reservation['intent_id'];
             try {
                 $state = Http::acceptJson()->withBasicAuth($secretKey, '')
-                    ->timeout(15)->get($apiBase.'/payment_intents/'.$intentId);
+                    ->timeout(15)->get($apiBase.'/payment_intents/'.rawurlencode($intentId));
             } catch (ConnectionException) {
-                abort(503, 'Unable to verify existing payment intent. Do not retry the charge.');
+                abort(503, 'Could not verify existing intent. Check payment status.');
             }
             abort_unless($state->successful(), 503, 'Payment intent status unavailable.');
-            $intentState = $state->json();
-            if (($intentState['status'] ?? '') === 'fulfilled') {
-                abort(409, 'A payment has already been initiated. Check the payment status before retrying.');
+            $intent = $state->json();
+            abort_unless(is_array($intent) && ($intent['status'] ?? '') === 'created',
+                409, 'Payment already initiated. Check status before retrying.');
+            $expiresAt = trim((string) ($intent['expires_at'] ?? ''));
+            abort_unless($expiresAt !== '' && \Carbon\Carbon::parse($expiresAt)->isFuture(),
+                409, 'Payment session expired. Check payment status.');
+            abort_unless((string) ($intent['id'] ?? '') === $intentId &&
+                (int) ($intent['amount'] ?? -1) === $amount &&
+                strtoupper((string) ($intent['currency'] ?? '')) === 'SAR' &&
+                (string) ($intent['callback_url'] ?? '') === $callback,
+                503, 'Existing intent does not match order.');
+            $encrypted = (string) $reservation['client_secret_enc'];
+            abort_unless($encrypted !== '', 503, 'Incomplete active payment intent.');
+            try {
+                $clientSecret = \Illuminate\Support\Facades\Crypt::decryptString($encrypted);
+            } catch (\Throwable) {
+                abort(503, 'Payment intent cannot be restored.');
             }
-            if (($intentState['status'] ?? '') === 'created' &&
-                ($intentState['expires_at'] ?? '') !== '' &&
-                \Carbon\Carbon::parse((string) $intentState['expires_at'])->isFuture()) {
-                $encrypted = (string) ($payload['web_client_secret_enc'] ?? '');
-                abort_unless($encrypted !== '', 503, 'Incomplete active payment intent.');
-                try { $clientSecret = \Illuminate\Support\Facades\Crypt::decryptString($encrypted); }
-                catch (\Throwable) { abort(503, 'Payment intent cannot be restored.'); }
-                return $this->webIntentResponse($order, $existing, $intentId, $clientSecret);
-            }
+            return $this->webIntentResponse($order, $attempt, $intentId, $clientSecret);
         }
 
+        // Remote creation is deliberately OUTSIDE the database transaction.
+        // Any ambiguous response leaves the reservation locked for reconciliation.
         try {
             $response = Http::acceptJson()->withBasicAuth($secretKey, '')
                 ->timeout(20)->post($apiBase.'/payment_intents', [
@@ -174,10 +241,11 @@ class MoyasarPaymentController extends Controller
                     'callback_url' => $callback,
                 ]);
         } catch (ConnectionException) {
-            abort(503, 'Moyasar intent service unavailable.');
+            abort(503, 'Intent response unknown. Reconcile before trying again.');
         }
-        abort_unless($response->status() === 201, 503, 'Moyasar could not create a payment intent.');
+        abort_unless($response->status() === 201, 503, 'Intent creation not confirmed. Reconcile before retrying.');
         $intent = $response->json();
+        abort_unless(is_array($intent), 503, 'Unexpected intent response. Reconcile before retrying.');
         $intentId = trim((string) ($intent['id'] ?? ''));
         $clientSecret = trim((string) ($intent['client_secret'] ?? ''));
         abort_unless(
@@ -186,25 +254,22 @@ class MoyasarPaymentController extends Controller
             (int) ($intent['amount'] ?? 0) === $amount &&
             strtoupper((string) ($intent['currency'] ?? '')) === 'SAR' &&
             ($intent['callback_url'] ?? '') === $callback,
-            503,
-            'Moyasar intent validation failed.',
+            503, 'Intent response failed validation. Reconcile before retrying.',
         );
-        $attempt = PaymentAttempt::query()->create([
-            'order_id' => $order->id,
-            'idempotency_key' => (string) Str::uuid(),
-            'gateway' => $gateway,
-            'status' => 'created',
-            'amount_halalas' => $amount,
-            'currency' => 'SAR',
-            'payload' => [
+        DB::transaction(function () use ($attempt, $amount, $intent, $intentId, $clientSecret): void {
+            $locked = PaymentAttempt::query()->lockForUpdate()->findOrFail($attempt->id);
+            $payload = is_array($locked->payload) ? $locked->payload : [];
+            abort_unless($locked->status === 'created' &&
+                (int) $locked->amount_halalas === $amount &&
+                ($payload['web_intent_state'] ?? '') === 'creating',
+                409, 'Checkout attempt changed while creating intent. Reconcile before retrying.');
+            $locked->update(['payload' => array_merge($payload, [
+                'web_intent_state' => 'ready',
                 'web_intent_id' => $intentId,
                 'web_intent_expires_at' => (string) ($intent['expires_at'] ?? ''),
                 'web_client_secret_enc' => \Illuminate\Support\Facades\Crypt::encryptString($clientSecret),
-            ],
-        ]);
-        if ($order->payment_status !== Order::PAYMENT_PENDING) {
-            $order->update(['payment_status' => Order::PAYMENT_PENDING]);
-        }
+            ])]);
+        });
         return $this->webIntentResponse($order, $attempt, $intentId, $clientSecret);
     }
 
@@ -212,7 +277,8 @@ class MoyasarPaymentController extends Controller
     {
         return response()->json([
             'data' => [
-                'publishable_key' => (string) config('moyasar.publishable_key'),
+                // Accessing credentials here also re-checks the LIVE master switch.
+                'publishable_key' => $this->modes->credentials('live')['publishable_key'],
                 'amount_halalas' => $this->amountHalalas($order),
                 'currency' => 'SAR',
                 'description' => 'ZAD Sync order '.$order->number,
@@ -220,6 +286,7 @@ class MoyasarPaymentController extends Controller
                 'metadata' => [
                     'order_id' => (string) $order->id,
                     'order_number' => (string) $order->number,
+                    'environment' => 'live',
                 ],
                 'intent_id' => $intentId,
                 'client_secret' => $clientSecret,

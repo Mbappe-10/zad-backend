@@ -116,6 +116,9 @@ class MoyasarPaymentController extends Controller
     {
         $this->authorizeOrder($request, $order);
         abort_unless((bool) config('zad_web_payment.enabled', false), 503, 'Web payment intents are not enabled.');
+        // Production pilot guard: restrict only WEB intents; Android/legacy routes are untouched.
+        // OrderGuestAccess already authenticates the V5 order before this comparison.
+        $this->assertWebPilotOrderAllowed($order);
         abort_unless($this->isV5PostpayOrder($order), 422, 'Web checkout requires V5 postpay.');
         $this->operations->assertNewPaymentAttemptAllowed();
         abort_if($order->isCancelled() || $order->isPaid(), 422, 'Order cannot be charged.');
@@ -271,6 +274,33 @@ class MoyasarPaymentController extends Controller
             ])]);
         });
         return $this->webIntentResponse($order, $attempt, $intentId, $clientSecret);
+    }
+
+    /**
+     * Fail closed when the live web gateway is first enabled: no customer may
+     * create an intent until a specific order is selected on the server.
+     * This is not a browser header or customer-supplied allowlist.
+     */
+    private function assertWebPilotOrderAllowed(Order $order): void
+    {
+        if (! (bool) config('zad_web_payment.pilot_enabled', true)) {
+            return; // Explicitly disable the pilot guard only after E2E production approval.
+        }
+
+        $pilotOrderId = (int) config('zad_web_payment.pilot_order_id', 0);
+        abort_unless(
+            $pilotOrderId > 0 && (int) $order->getKey() === $pilotOrderId,
+            403,
+            'Web payment is currently restricted to an authorized pilot order.',
+        );
+
+        $maxHalalas = (int) config('zad_web_payment.pilot_max_halalas', 2000);
+        abort_unless(
+            $maxHalalas >= 100 && $maxHalalas <= 10000 &&
+            $this->amountHalalas($order) <= $maxHalalas,
+            422,
+            'Pilot order exceeds the configured payment ceiling.',
+        );
     }
 
     private function webIntentResponse(Order $order, PaymentAttempt $attempt, string $intentId, string $clientSecret): JsonResponse

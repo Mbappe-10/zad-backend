@@ -32,6 +32,7 @@ class WebPaymentIntentCorrelationTest extends TestCase
             'moyasar.live_secret_key' => 'sk_live_local_fake_only',
             'moyasar.api_url' => 'http://127.0.0.1:9/v1',
             'zad_web_payment.enabled' => true,
+            'zad_web_payment.pilot_enabled' => false, // Existing correlation tests exercise future full rollout.
             'zad_web_payment.callback_url' => 'https://zad-sync-sa.onrender.com/zad-moyasar-return.html',
             'internal_testing.enabled' => false,
         ]);

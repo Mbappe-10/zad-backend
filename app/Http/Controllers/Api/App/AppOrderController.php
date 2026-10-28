@@ -621,6 +621,21 @@ class AppOrderController extends Controller
         float $deliveryLongitude,
         float $fallback,
     ): float {
+        // ZAD_ROAD_DISTANCE_PRODUCTION_V1: retain legacy method only as explicit kill-switch.
+        if ((bool) config('zad_routing.enabled', false)) {
+            if ($pickupLatitude === null || $pickupLongitude === null) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'delivery_location' => 'يجب على الأسرة المنتجة تحديد موقع الاستلام أولًا.',
+                ]);
+            }
+            return app(\App\Services\HeiGitRoutingService::class)->distanceKm(
+                $pickupLatitude,
+                $pickupLongitude,
+                $deliveryLatitude,
+                $deliveryLongitude
+            );
+        }
+
         if ($pickupLatitude === null || $pickupLongitude === null) {
             return round(max($fallback, 0), 2);
         }

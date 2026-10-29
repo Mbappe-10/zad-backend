@@ -106,6 +106,33 @@ class AppOrderController extends Controller
             ]);
         }
 
+        // ZAD_PROD_PICKUP_DISTANCE_GUARD_V1: reject invalid or duplicated delivery coordinates before pricing.
+        $zadPickupLat = $store->pickup_latitude !== null ? (float) $store->pickup_latitude : null;
+        $zadPickupLng = $store->pickup_longitude !== null ? (float) $store->pickup_longitude : null;
+        $zadDeliveryLat = (float) $data['latitude'];
+        $zadDeliveryLng = (float) $data['longitude'];
+        $zadValidCoordinates = static fn (?float $lat, ?float $lng): bool =>
+            $lat !== null && $lng !== null && is_finite($lat) && is_finite($lng)
+            && abs($lat) <= 90 && abs($lng) <= 180
+            && ($lat != 0.0 || $lng != 0.0);
+
+        if (!$zadValidCoordinates($zadPickupLat, $zadPickupLng)) {
+            throw ValidationException::withMessages([
+                'delivery_location' => ['موقع استلام الأسرة غير صحيح. يرجى من الأسرة تحديث موقعها الرسمي من حسابي قبل استقبال الطلبات.'],
+            ]);
+        }
+        if (!$zadValidCoordinates($zadDeliveryLat, $zadDeliveryLng)) {
+            throw ValidationException::withMessages([
+                'delivery_location' => ['موقع توصيل العميل غير صحيح. يرجى إعادة تحديد موقع التوصيل.'],
+            ]);
+        }
+        if (round($zadPickupLat, 7) === round($zadDeliveryLat, 7)
+            && round($zadPickupLng, 7) === round($zadDeliveryLng, 7)) {
+            throw ValidationException::withMessages([
+                'delivery_location' => ['موقع استلام الأسرة مطابق لموقع العميل. تأكد من الموقع الرسمي للأسرة وموقع التوصيل ثم حاول مجددًا.'],
+            ]);
+        }
+
         // ZAD_PAYMENT_DISTANCE_INSTALLED: delivery distance is authoritative on Laravel.
         $distanceKm = $this->distanceKm(
             $store->pickup_latitude !== null ? (float) $store->pickup_latitude : null,
@@ -114,6 +141,13 @@ class AppOrderController extends Controller
             (float) $data['longitude'],
             (float) $data['distance_km'],
         );
+        // ZAD_PROD_PICKUP_DISTANCE_GUARD_V1: never save/price a delivery with zero or invalid road distance.
+        if (!is_finite($distanceKm) || $distanceKm <= 0.0) {
+            throw ValidationException::withMessages([
+                'delivery_location' => ['تعذر تحديد مسافة توصيل صحيحة. يرجى التحقق من الموقعين وإعادة المحاولة.'],
+            ]);
+        }
+
         $requestedProductIds = collect($data['items'])
             ->pluck('product_id')
             ->map(fn (mixed $id): int => (int) $id)

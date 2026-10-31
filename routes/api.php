@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\App\PublicPolicyController;
 use App\Http\Controllers\Api\Admin\StoreController;
 use App\Http\Controllers\Api\AdminResourceController;
 use App\Http\Controllers\Api\App\AppOrderController;
+use App\Http\Controllers\Api\App\UnpaidOrderCancellationController;
 use App\Http\Controllers\Api\App\BootstrapController;
 use App\Http\Controllers\Api\App\AppVersionController;
 use App\Http\Controllers\Api\App\PublicMediaController;
@@ -1156,6 +1157,11 @@ Route::prefix('v1/app')->group(function (): void {
         '/orders/{order}',
         [AppOrderController::class, 'show'],
     );
+
+    // ZAD_V5_UNPAID_CANCEL: authenticated guest, never an in-flight payment.
+    Route::post('/orders/{order}/cancel-unpaid',
+        [UnpaidOrderCancellationController::class, 'cancel'])
+        ->whereNumber('order')->middleware('throttle:10,1');
 
     // ZAD_V5_LOCAL_ONLY_CUSTOMER_DECISIONS - gated OFF by default.
     Route::get('/orders/{order}/preparation-decision',

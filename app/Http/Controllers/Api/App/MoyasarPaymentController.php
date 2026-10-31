@@ -53,30 +53,39 @@ class MoyasarPaymentController extends Controller
         abort_if($amountHalalas <= 0, 422, 'مبلغ الطلب غير صالح للدفع.');
         $gateway = $this->modes->gateway($mode);
 
-        $attempt = PaymentAttempt::query()
-            ->where('order_id', $order->id)
-            ->where('gateway', $gateway)
-            ->where('status', 'created')
-            ->where('amount_halalas', $amountHalalas)
-            ->where('currency', 'SAR')
-            ->where('created_at', '>=', now()->subMinutes(15))
-            ->latest('id')
-            ->first();
+        // Serialize attempt creation against unpaid cancellation and webhook updates.
+        $attempt = DB::transaction(function () use ($order, $gateway, $amountHalalas): PaymentAttempt {
+            $lockedOrder = Order::query()->lockForUpdate()->findOrFail($order->id);
+            abort_if($lockedOrder->isCancelled() || $lockedOrder->isPaid(),
+                409, 'الطلب ملغي أو مدفوع؛ حدث حالة الطلب أولًا.');
+            abort_unless($this->amountHalalas($lockedOrder) === $amountHalalas,
+                409, 'تغير مبلغ الطلب. حدث صفحة الدفع.');
 
-        if ($attempt === null) {
-            $attempt = PaymentAttempt::query()->create([
-                'order_id' => $order->id,
-                'idempotency_key' => (string) Str::uuid(),
-                'gateway' => $gateway,
-                'status' => 'created',
-                'amount_halalas' => $amountHalalas,
-                'currency' => 'SAR',
-            ]);
-        }
+            $attempt = PaymentAttempt::query()
+                ->where('order_id', $lockedOrder->id)
+                ->where('gateway', $gateway)
+                ->where('status', 'created')
+                ->where('amount_halalas', $amountHalalas)
+                ->where('currency', 'SAR')
+                ->where('created_at', '>=', now()->subMinutes(15))
+                ->latest('id')
+                ->first();
 
-        if ($order->payment_status !== Order::PAYMENT_PENDING) {
-            $order->update(['payment_status' => Order::PAYMENT_PENDING]);
-        }
+            if ($attempt === null) {
+                $attempt = PaymentAttempt::query()->create([
+                    'order_id' => $lockedOrder->id,
+                    'idempotency_key' => (string) Str::uuid(),
+                    'gateway' => $gateway,
+                    'status' => 'created',
+                    'amount_halalas' => $amountHalalas,
+                    'currency' => 'SAR',
+                ]);
+            }
+            if ($lockedOrder->payment_status !== Order::PAYMENT_PENDING) {
+                $lockedOrder->update(['payment_status' => Order::PAYMENT_PENDING]);
+            }
+            return $attempt;
+        }, 3);
 
         return response()->json([
             'message' => 'تم تجهيز محاولة الدفع.',

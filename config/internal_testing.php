@@ -27,11 +27,7 @@ return [
     ),
 
     'otp' => [
-        'expose_code' => env('ZAD_INTERNAL_TEST_EXPOSE_OTP', false),
-        'expires_minutes' => (int) env(
-            'ZAD_INTERNAL_TEST_OTP_EXPIRES_MINUTES',
-            3,
-        ),
+        'expires_minutes' => 4,
         'allowed_phones' => $csv(
             env('ZAD_INTERNAL_TEST_PHONE_ALLOWLIST', ''),
         ),

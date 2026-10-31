@@ -1,0 +1,491 @@
+============================================================
+ ZAD SYNC - FINAL PRE-LAUNCH GATES AUDIT
+============================================================
+ READ ONLY - NOTHING WILL BE MODIFIED
+
+============================================================
+1) PLATFORM OPERATION GATE
+============================================================
+FILE: app\Services\App\PlatformOperationGate.php
+    1: <?php
+    2: 
+    3: namespace App\Services\App;
+    4: 
+    5: use App\Models\AppSetting;
+    6: use App\Models\PlatformControl;
+    7: 
+    8: class PlatformOperationGate
+    9: {
+   10:     public function assertNewAccountRegistrationAllowed(): void
+   11:     {
+   12:         $this->assertPlatformAvailable();
+   13:         $this->assertEnabled(
+   14:             'platform',
+   15:             'registrationsEnabled',
+   16:             true,
+   17:             403,
+   18:             'ط§ظ„طھط³ط¬ظٹظ„ ظ…طھظˆظ‚ظپ ظ…ط¤ظ‚طھظ‹ط§.',
+   19:         );
+   20:     }
+   21: 
+   22:     public function assertNewFamilyRegistrationAllowed(): void
+   23:     {
+   24:         $this->assertNewAccountRegistrationAllowed();
+   25:         $this->assertEnabled(
+   26:             'productive_families',
+   27:             'registrationsEnabled',
+   28:             true,
+   29:             403,
+   30:             'طھط³ط¬ظٹظ„ ط§ظ„ط£ط³ط± ط§ظ„ظ…ظ†طھط¬ط© ظ…طھظˆظ‚ظپ ظ…ط¤ظ‚طھظ‹ط§.',
+   31:         );
+   32: 
+   33:         abort_unless(
+   34:             AppSetting::isEnabled('registration.family_enabled'),
+   35:             403,
+   36:             'طھط³ط¬ظٹظ„ ط§ظ„ط£ط³ط± ط§ظ„ظ…ظ†طھط¬ط© ظ…طھظˆظ‚ظپ ظ…ط¤ظ‚طھظ‹ط§.',
+   37:         );
+   38:     }
+   39: 
+   40:     public function assertNewDriverRegistrationAllowed(): void
+   41:     {
+   42:         $this->assertNewAccountRegistrationAllowed();
+   43: 
+   44:         abort_unless(
+   45:             AppSetting::isEnabled('registration.driver_enabled'),
+   46:             403,
+   47:             'طھط³ط¬ظٹظ„ ط§ظ„ظ…ظ†ط¯ظˆط¨ظٹظ† ظ…طھظˆظ‚ظپ ظ…ط¤ظ‚طھظ‹ط§.',
+   48:         );
+   49:     }
+   50: 
+   51:     public function assertNewOrderAllowed(): void
+   52:     {
+   53:         $this->assertPlatformAvailable();
+   54:         $this->assertEnabled(
+   55:             'platform',
+   56:             'newOrdersEnabled',
+   57:             true,
+   58:             423,
+   59:             'ط§ط³طھظ‚ط¨ط§ظ„ ط§ظ„ط·ظ„ط¨ط§طھ ط§ظ„ط¬ط¯ظٹط¯ط© ظ…طھظˆظ‚ظپ ظ…ط¤ظ‚طھظ‹ط§.',
+   60:         );
+   61:     }
+   62: 
+   63:     public function assertNewPaymentAttemptAllowed(): void
+   64:     {
+   65:         $this->assertPlatformAvailable();
+   66: 
+   67:         $enabled = $this->enabled('modules', 'financeEnabled', true)
+   68:             && $this->enabled(
+   69:                 'services',
+   70:                 'paymentGatewayEnabled',
+   71:                 false,
+   72:             )
+   73:             && $this->enabled('finance', 'paymentsEnabled', true);
+   74: 
+   75:         abort_unless(
+   76:             $enabled,
+   77:             423,
+   78:             'ط¥ظ†ط´ط§ط، ظ…ط­ط§ظˆظ„ط§طھ ط¯ظپط¹ ط¬ط¯ظٹط¯ط© ظ…طھظˆظ‚ظپ ظ…ط¤ظ‚طھظ‹ط§.',
+   79:         );
+   80:     }
+   81: 
+   82:     private function assertPlatformAvailable(): void
+   83:     {
+   84:         $this->assertEnabled(
+   85:             'platform',
+   86:             'platformEnabled',
+   87:             true,
+   88:             503,
+   89:             'ط§ظ„ظ…ظ†طµط© ط؛ظٹط± ظ…طھط§ط­ط© ظ…ط¤ظ‚طھظ‹ط§.',
+   90:         );
+   91: 
+   92:         abort_if(
+   93:             $this->enabled('platform', 'maintenanceMode', false),
+   94:             503,
+   95:             'ط§ظ„ظ…ظ†طµط© طھط­طھ ط§ظ„طµظٹط§ظ†ط© ظ…ط¤ظ‚طھظ‹ط§.',
+   96:         );
+   97:     }
+   98: 
+   99:     private function assertEnabled(
+  100:         string $section,
+  101:         string $key,
+  102:         bool $default,
+  103:         int $status,
+  104:         string $message,
+  105:     ): void {
+  106:         abort_unless(
+  107:             $this->enabled($section, $key, $default),
+  108:             $status,
+  109:             $message,
+  110:         );
+  111:     }
+  112: 
+  113:     private function enabled(
+  114:         string $section,
+  115:         string $key,
+  116:         bool $default,
+  117:     ): bool {
+  118:         $sections = PlatformControl::cachedValues();
+  119:         $values = $sections[$section] ?? [];
+  120: 
+  121:         if (! array_key_exists($key, $values)) {
+  122:             return $default;
+  123:         }
+  124: 
+  125:         return filter_var(
+  126:             $values[$key],
+  127:             FILTER_VALIDATE_BOOLEAN,
+  128:             FILTER_NULL_ON_FAILURE,
+  129:         ) ?? false;
+  130:     }
+  131: }
+
+============================================================
+2) FAMILY STORE OPEN/CLOSE
+============================================================
+FILE: app\Http\Controllers\Api\App\RoleDashboardController.php
+  115:                 'pending_balance' => (float) (
+  116:                     $wallet?->pending_balance ?? 0
+  117:                 ),
+  118:                 'weekly_sales' => $this->weeklyOrderTotals(
+  119:                     $orders,
+  120:                     'total',
+  121:                 ),
+  122:                 'next_settlement_at' =>
+  123:                     $metadata['next_settlement_at'] ?? null,
+  124:                 'latest_order' => $latestOrder
+  125:                     ? $this->familyOrderPayload($latestOrder)
+  126:                     : null,
+  127:             ],
+  128:         ]);
+  129:     }
+  130: 
+  131:     public function familyAvailability(Request $request): JsonResponse
+  132:     {
+  133:         [, $store] = $this->familyAndStore($request);
+  134: 
+  135:         $data = $request->validate([
+  136:             'is_open' => ['required', 'boolean'],
+  137:         ]);
+  138: 
+  139:         $isOpen = (bool) $data['is_open'];
+  140: 
+  141:         if (
+  142:             $isOpen
+  143:             && ! in_array($store->status, ['active', 'approved'], true)
+  144:         ) {
+  145:             return response()->json([
+  146:                 'message' => 'ظ„ط§ ظٹظ…ظƒظ† ظپطھط­ ظ…طھط¬ط± ط؛ظٹط± ظ†ط´ط· ط£ظˆ ط؛ظٹط± ظ…ط¹طھظ…ط¯.',
+  147:             ], 422);
+  148:         }
+  149: 
+  150:         $store->update(['is_open' => $isOpen]);
+  151: 
+  152:         return response()->json([
+  153:             'message' => $isOpen
+  154:                 ? 'طھظ… ظپطھط­ ط§ظ„ظ…طھط¬ط± ظˆط£طµط¨ط­ ظ…طھط§ط­ظ‹ط§ ظ„ظ„ط¹ظ…ظ„ط§ط،.'
+  155:                 : 'طھظ… ط¥ظٹظ‚ط§ظپ ط§ط³طھظ‚ط¨ط§ظ„ ط§ظ„ط·ظ„ط¨ط§طھ ظ…ط¤ظ‚طھظ‹ط§.',
+  156:             'data' => [
+  157:                 'store_id' => $store->id,
+  158:                 'is_open' => (bool) $store->is_open,
+  159:             ],
+  160:         ]);
+  161:     }
+  162: 
+  163:     private function profile(Request $request): AppProfile
+  164:     {
+  165:         return AppProfile::query()
+  166:             ->where('user_id', $request->user()->id)
+  167:             ->firstOrFail();
+  168:     }
+  169: 
+  170:     /**
+  171:      * @return array{0: ProductiveFamily, 1: Store}
+  172:      */
+  173:     private function familyAndStore(Request $request): array
+  174:     {
+  175:         $profile = $this->profile($request);
+
+============================================================
+3) PHONE VERIFICATION / OTP
+============================================================
+FILE: app\Http\Controllers\Api\App\PhoneVerificationController.php
+    1: <?php
+    2: 
+    3: namespace App\Http\Controllers\Api\App;
+    4: 
+    5: use App\Http\Controllers\Controller;
+    6: use App\Models\PhoneVerification;
+    7: use App\Support\InternalTesting;
+    8: use Illuminate\Http\JsonResponse;
+    9: use Illuminate\Http\Request;
+   10: use Illuminate\Support\Facades\Hash;
+   11: use Illuminate\Validation\ValidationException;
+   12: 
+   13: class PhoneVerificationController extends Controller
+   14: {
+   15:     public function send(Request $request): JsonResponse
+   16:     {
+   17:         $data = $request->validate([
+   18:             'phone' => [
+   19:                 'required',
+   20:                 'string',
+   21:                 'max:20',
+   22:                 'regex:/^(?:\+966|00966|966|0)?5[0-9]{8}$/',
+   23:             ],
+   24:             'purpose' => [
+   25:                 'nullable',
+   26:                 'in:checkout,login,join',
+   27:             ],
+   28:             'guest_session_id' => [
+   29:                 'nullable',
+   30:                 'string',
+   31:                 'max:36',
+   32:                 'exists:app_guest_sessions,id',
+   33:             ],
+   34:         ]);
+   35: 
+   36:         $purpose = $data['purpose'] ?? 'checkout';
+   37: 
+   38:         if (
+   39:             $purpose === 'checkout'
+   40:             && empty($data['guest_session_id'])
+   41:         ) {
+   42:             throw ValidationException::withMessages([
+   43:                 'guest_session_id' => [
+   44:                     'ط¬ظ„ط³ط© ط§ظ„ط¬ظ‡ط§ط² ظ…ط·ظ„ظˆط¨ط© ظ„ط¥ط±ط³ط§ظ„ ط±ظ…ط² ط§ظ„ط·ظ„ط¨.',
+   45:                 ],
+   46:             ]);
+   47:         }
+   48: 
+   49:         $phone = InternalTesting::normalizePhone($data['phone']);
+   50:         $exposeCode = InternalTesting::exposesOtpFor($phone);
+   51: 
+   52:         /*
+   53:          * ظ„ط§ ظٹظˆط¬ط¯ ظ…ط²ظˆط¯ SMS ظپط¹ظ„ظٹ ط­طھظ‰ ط§ظ„ط¢ظ†. ظپظٹ ط§ظ„ط¥ظ†طھط§ط¬ ط§ظ„ط¹ط§ظ… ظ„ط§ ظ†ظ†ط´ط¦ ط±ظ…ط²ظ‹ط§
+   54:          * طµط§ظ…طھظ‹ط§ ظ„ظ† ظٹطµظ„ ط¥ظ„ظ‰ ط§ظ„ط¹ظ…ظٹظ„. ظ†ط³ط®ط© ط§ظ„ط§ط®طھط¨ط§ط± طھط³ظ…ط­ ظپظ‚ط· ط¨ط§ظ„ط£ط±ظ‚ط§ظ… ط§ظ„ظ…ظˆط¬ظˆط¯ط©
+   55:          * ظپظٹ ظ‚ط§ط¦ظ…ط© Render ط§ظ„ط®ط§طµط©.
+   56:          */
+   57:         if (! $exposeCode) {
+   58:             throw ValidationException::withMessages([
+   59:                 'phone' => [
+   60:                     'ظ‡ط°ط§ ط§ظ„ط±ظ‚ظ… ط؛ظٹط± ظ…ط¶ط§ظپ ط¥ظ„ظ‰ ط£ط±ظ‚ط§ظ… ط§ظ„ط§ط®طھط¨ط§ط±طŒ ظˆط®ط¯ظ…ط© SMS ط§ظ„ظپط¹ظ„ظٹط© ظ„ظ… طھظڈظپط¹ظ‘ظ„ ط¨ط¹ط¯.',
+   61:                 ],
+   62:             ]);
+   63:         }
+   64: 
+   65:         $code = (string) random_int(100000, 999999);
+   66:         $expiresMinutes = InternalTesting::otpExpiresMinutes();
+   67:         $expiresAt = now()->addMinutes($expiresMinutes);
+   68: 
+   69:         PhoneVerification::query()
+   70:             ->where('phone', $phone)
+   71:             ->where('purpose', $purpose)
+   72:             ->whereNull('verified_at')
+   73:             ->delete();
+   74: 
+   75:         $verification = PhoneVerification::query()->create([
+   76:             'phone' => $phone,
+   77:             'purpose' => $purpose,
+   78:             'code_hash' => Hash::make($code),
+   79:             'expires_at' => $expiresAt,
+   80:             'guest_session_id' =>
+   81:                 $data['guest_session_id'] ?? null,
+   82:         ]);
+   83: 
+   84:         return response()->json([
+   85:             'verification_id' => $verification->id,
+   86:             'expires_in_seconds' => $expiresMinutes * 60,
+   87:             'channel' => 'internal_test',
+   88:             'test_mode' => true,
+   89:             'development_code' => $code,
+   90:             'message' =>
+   91:                 'طھظ… ط¥ظ†ط´ط§ط، ط±ظ…ط² ط§ط®طھط¨ط§ط± ظ…ط¤ظ‚طھ ط¯ط§ط®ظ„ Laravel.',
+   92:         ], 201);
+   93:     }
+   94: 
+   95:     public function verify(Request $request): JsonResponse
+   96:     {
+   97:         $data = $request->validate([
+   98:             'verification_id' => [
+   99:                 'required',
+  100:                 'integer',
+  101:                 'exists:phone_verifications,id',
+  102:             ],
+  103:             'code' => ['required', 'digits:6'],
+  104:             'guest_session_id' => [
+  105:                 'nullable',
+  106:                 'string',
+  107:                 'max:36',
+  108:                 'exists:app_guest_sessions,id',
+  109:             ],
+  110:         ]);
+  111: 
+  112:         $verification = PhoneVerification::query()
+  113:             ->findOrFail($data['verification_id']);
+  114: 
+  115:         if (
+  116:             $verification->guest_session_id !== null
+  117:             && (
+  118:                 empty($data['guest_session_id'])
+  119:                 || ! hash_equals(
+  120:                     (string) $verification->guest_session_id,
+  121:                     (string) $data['guest_session_id'],
+  122:                 )
+  123:             )
+  124:         ) {
+  125:             throw ValidationException::withMessages([
+  126:                 'code' => [
+  127:                     'ط±ظ…ط² ط§ظ„طھط­ظ‚ظ‚ ظ„ط§ ظٹط®طµ ط¬ظ„ط³ط© ظ‡ط°ط§ ط§ظ„ط¬ظ‡ط§ط².',
+  128:                 ],
+  129:             ]);
+  130:         }
+  131: 
+  132:         if (
+  133:             now()->greaterThan($verification->expires_at)
+  134:             || $verification->attempts >= 5
+  135:         ) {
+  136:             throw ValidationException::withMessages([
+  137:                 'code' => [
+  138:                     'ط§ظ†طھظ‡طھ طµظ„ط§ط­ظٹط© ط±ظ…ط² ط§ظ„طھط­ظ‚ظ‚. ط§ط·ظ„ط¨ ط±ظ…ط²ظ‹ط§ ط¬ط¯ظٹط¯ظ‹ط§.',
+  139:                 ],
+  140:             ]);
+  141:         }
+  142: 
+  143:         if (! Hash::check($data['code'], $verification->code_hash)) {
+  144:             $verification->increment('attempts');
+  145: 
+  146:             throw ValidationException::withMessages([
+  147:                 'code' => ['ط±ظ…ط² ط§ظ„طھط­ظ‚ظ‚ ط؛ظٹط± طµط­ظٹط­.'],
+  148:             ]);
+  149:         }
+  150: 
+  151:         if ($verification->verified_at === null) {
+  152:             $verification->forceFill([
+  153:                 'verified_at' => now(),
+  154:             ])->save();
+  155:         }
+  156: 
+  157:         return response()->json([
+  158:             'verified' => true,
+  159:             'verification_token' => encrypt([
+  160:                 'id' => $verification->id,
+  161:                 'phone' => $verification->phone,
+  162:                 'purpose' => $verification->purpose,
+  163:                 'guest_session_id' =>
+  164:                     $verification->guest_session_id,
+  165:                 'expires' => now()->addMinutes(20)->timestamp,
+  166:             ]),
+  167:             'phone' => $verification->phone,
+  168:         ]);
+  169:     }
+  170: }
+
+============================================================
+4) PLATFORM CONTROL / ORDER / PAYMENT KEYS
+============================================================
+app\Http\Controllers\Api\Admin\AdminPaymentController.php:70: 'status' => in_array($status, ['active', 'inactive', 'maintenance'], true)
+app\Http\Controllers\Api\Admin\AdminPaymentController.php:90: 'status' => ['required', Rule::in(['active', 'inactive', 'maintenance'])],
+app\Http\Controllers\Api\Admin\ControlCenterController.php:7: use App\Http\Requests\Admin\UpdatePlatformControlRequest;
+app\Http\Controllers\Api\Admin\ControlCenterController.php:8: use App\Http\Resources\PlatformControlResource;
+app\Http\Controllers\Api\Admin\ControlCenterController.php:9: use App\Models\PlatformControl;
+app\Http\Controllers\Api\Admin\ControlCenterController.php:24: 'maintenanceMode' => false,
+app\Http\Controllers\Api\Admin\ControlCenterController.php:193: 'maintenance-on',
+app\Http\Controllers\Api\Admin\ControlCenterController.php:194: 'maintenance-off',
+app\Http\Controllers\Api\Admin\ControlCenterController.php:214: $socialControl = PlatformControl::query()
+app\Http\Controllers\Api\Admin\ControlCenterController.php:233: $controls = PlatformControl::query()
+app\Http\Controllers\Api\Admin\ControlCenterController.php:239: $history = PlatformControl::query()
+app\Http\Controllers\Api\Admin\ControlCenterController.php:244: 'data' => PlatformControlResource::collection($controls),
+app\Http\Controllers\Api\Admin\ControlCenterController.php:260: UpdatePlatformControlRequest $request,
+app\Http\Controllers\Api\Admin\ControlCenterController.php:271: $control = PlatformControl::query()
+app\Http\Controllers\Api\Admin\ControlCenterController.php:306: ): PlatformControl {
+app\Http\Controllers\Api\Admin\ControlCenterController.php:307: return PlatformControl::query()->updateOrCreate(
+app\Http\Controllers\Api\Admin\ControlCenterController.php:336: 'data' => new PlatformControlResource($control),
+app\Http\Controllers\Api\Admin\ControlCenterController.php:353: 'maintenance-on' => $this->updatePlatformFlag(
+app\Http\Controllers\Api\Admin\ControlCenterController.php:354: key: 'maintenanceMode',
+app\Http\Controllers\Api\Admin\ControlCenterController.php:358: 'maintenance-off' => $this->updatePlatformFlag(
+app\Http\Controllers\Api\Admin\ControlCenterController.php:359: key: 'maintenanceMode',
+app\Http\Controllers\Api\Admin\ControlCenterController.php:409: PlatformControl::query()->firstOrCreate(
+app\Http\Controllers\Api\Admin\ControlCenterController.php:426: $control = PlatformControl::query()->firstOrCreate(
+app\Http\Controllers\Api\Admin\ControlCenterController.php:468: PlatformControl::forgetCachedValues();
+app\Http\Controllers\Api\Admin\ControlCenterController.php:484: $controls = PlatformControl::query()
+app\Http\Controllers\Api\Admin\ControlCenterController.php:487: ->map(fn (PlatformControl $control): array => [
+app\Http\Controllers\Api\Admin\ControlCenterController.php:632: $historyControl = PlatformControl::query()
+app\Http\Controllers\Api\Admin\ControlCenterController.php:638: $historyControl = PlatformControl::query()->create([
+app\Http\Controllers\Api\Admin\ControlCenterController.php:741: 'maintenance-on' => 'تم تشغيل وضع الصيانة.',
+app\Http\Controllers\Api\Admin\ControlCenterController.php:742: 'maintenance-off' => 'تم إيقاف وضع الصيانة.',
+app\Http\Controllers\Api\App\AppOrderController.php:17: use App\Services\App\PlatformOperationGate;
+app\Http\Controllers\Api\App\AppOrderController.php:42: private readonly PlatformOperationGate $operations,
+app\Http\Controllers\Api\App\AppVersionController.php:6: use App\Models\PlatformControl;
+app\Http\Controllers\Api\App\AppVersionController.php:17: $control = PlatformControl::query()
+app\Http\Controllers\Api\App\BootstrapController.php:11: use App\Models\PlatformControl;
+app\Http\Controllers\Api\App\BootstrapController.php:211: PlatformControl::query()
+app\Http\Controllers\Api\App\BootstrapController.php:248: 'payment_gateway_enabled' => $paymentGatewayEnabled,
+app\Http\Controllers\Api\App\DriverProfileController.php:10: use App\Services\App\PlatformOperationGate;
+app\Http\Controllers\Api\App\DriverProfileController.php:53: private readonly PlatformOperationGate $operations,
+app\Http\Controllers\Api\App\FamilyOrderController.php:40: 'new_orders_count' => (clone $orders)
+app\Http\Controllers\Api\App\JoinController.php:8: use App\Services\App\PlatformOperationGate;
+app\Http\Controllers\Api\App\JoinController.php:15: private readonly PlatformOperationGate $operations,
+app\Http\Controllers\Api\App\MoyasarPaymentController.php:10: use App\Services\App\PlatformOperationGate;
+app\Http\Controllers\Api\App\MoyasarPaymentController.php:25: private readonly PlatformOperationGate $operations,
+app\Http\Controllers\Api\App\ProductiveFamilyProfileController.php:9: use App\Services\App\PlatformOperationGate;
+app\Http\Controllers\Api\App\ProductiveFamilyProfileController.php:18: private readonly PlatformOperationGate $operations,
+app\Http\Controllers\Api\App\RoleDashboardController.php:94: 'new_orders_count' => (clone $orders)
+app\Http\Controllers\Api\App\RolePortalController.php:10: use App\Models\PlatformControl;
+app\Http\Controllers\Api\App\RolePortalController.php:445: $settings = PlatformControl::query()->where('section', 'finance')->value('value') ?? [];
+app\Http\Requests\Admin\UpdatePlatformControlRequest.php:7: class UpdatePlatformControlRequest extends FormRequest
+app\Http\Resources\PlatformControlCollection.php:8: class PlatformControlCollection extends ResourceCollection
+app\Http\Resources\PlatformControlCollection.php:10: public $collects = PlatformControlResource::class;
+app\Http\Resources\PlatformControlResource.php:8: class PlatformControlResource extends JsonResource
+app\Models\PlatformControl.php:10: class PlatformControl extends Model
+app\Policies\PlatformControlPolicy.php:5: use App\Models\PlatformControl;
+app\Policies\PlatformControlPolicy.php:8: class PlatformControlPolicy
+app\Policies\PlatformControlPolicy.php:28: PlatformControl $platformControl,
+app\Policies\PlatformControlPolicy.php:40: PlatformControl $platformControl,
+app\Policies\PlatformControlPolicy.php:47: PlatformControl $platformControl,
+app\Policies\PlatformControlPolicy.php:54: PlatformControl $platformControl,
+app\Policies\PlatformControlPolicy.php:61: PlatformControl $platformControl,
+app\Services\Admin\VehiclePayloadNormalizer.php:51: 'status' => ['required', Rule::in(['active', 'inactive', 'maintenance', 'suspended'])],
+app\Services\App\PlatformOperationGate.php:6: use App\Models\PlatformControl;
+app\Services\App\PlatformOperationGate.php:8: class PlatformOperationGate
+app\Services\App\PlatformOperationGate.php:93: $this->enabled('platform', 'maintenanceMode', false),
+app\Services\App\PlatformOperationGate.php:118: $sections = PlatformControl::cachedValues();
+app\Services\App\SocialAccountLinker.php:17: private readonly PlatformOperationGate $operations,
+config\app.php:113: | Maintenance Mode Driver
+config\app.php:117: | manage Laravel's "maintenance mode" status. The "cache" driver will
+config\app.php:118: | allow maintenance mode to be controlled across multiple machines.
+config\app.php:124: 'maintenance' => [
+config\app.php:125: 'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
+config\app.php:126: 'store' => env('APP_MAINTENANCE_STORE', 'database'),
+config\platform-settings.php:26: 'maintenanceMode' => false,
+
+============================================================
+5) SOCIAL ACCOUNT LINKER CURRENT PATCH
+============================================================
+diff --git a/app/Services/App/SocialAccountLinker.php b/app/Services/App/SocialAccountLinker.php
+index 84becf6..d6654ad 100644
+--- a/app/Services/App/SocialAccountLinker.php
++++ b/app/Services/App/SocialAccountLinker.php
+@@ -202,7 +202,7 @@ private function linkFamily(
+             return false;
+         }
+ 
+-        if (! in_array($family->status, ['active', 'approved'], true)) {
++        if (! in_array($family->status, ['pending', 'active', 'approved'], true)) {
+             throw ValidationException::withMessages([
+                 'account' => [
+                     '╪ص╪│╪د╪ذ ╪د┘╪ث╪│╪▒╪ر ┘à┘ê╪ش┘ê╪» ┘┘â┘┘ç ╪║┘è╪▒ ┘à╪╣╪ز┘à╪» ╪ث┘ê ╪║┘è╪▒ ┘╪┤╪╖.',
+
+============================================================
+6) GIT DIFF CHECK
+============================================================
+PASS: git diff --check
+
+============================================================
+ PASS: FINAL PRE-LAUNCH GATES AUDIT COMPLETED
+============================================================
+ NO SOURCE FILES MODIFIED
+ NO DATABASE CHANGES
+ NO RENDER VARIABLES MODIFIED
+ NO BUILD
+ NO DEPLOY
+============================================================

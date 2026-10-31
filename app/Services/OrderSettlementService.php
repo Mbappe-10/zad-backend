@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CommissionRule;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\PaymentAttempt;
 use App\Models\OrderCommission;
 use App\Models\OrderCouponUsage;
 use App\Models\OrderSettlement;
@@ -29,6 +30,8 @@ class OrderSettlementService
                 ->with('store:id,productive_family_id')
                 ->lockForUpdate()
                 ->findOrFail($order->id);
+
+            $this->assertNotProductionTestPayment((int) $order->id);
 
             if (! in_array($order->status, Order::completedStatuses(), true)) {
                 throw ValidationException::withMessages([
@@ -247,6 +250,8 @@ class OrderSettlementService
                 ->lockForUpdate()
                 ->findOrFail($settlement->id);
 
+            $this->assertNotProductionTestPayment((int) $settlement->order_id);
+
             if ($settlement->status === OrderSettlement::STATUS_RELEASED) {
                 return $settlement;
             }
@@ -443,4 +448,23 @@ class OrderSettlementService
 
         return $raw;
     }
+    /** Prevent historical prelaunch test orders from becoming real payouts. */
+    private function assertNotProductionTestPayment(int $orderId): void
+    {
+        if (! app()->environment('production')) {
+            return;
+        }
+
+        if (PaymentAttempt::query()
+            ->where('order_id', $orderId)
+            ->whereIn('gateway', ['local_test', 'moyasar_sandbox'])
+            ->where('status', 'paid')
+            ->exists()
+        ) {
+            throw ValidationException::withMessages([
+                'payment' => ['هذه عملية اختبار ولا يمكن إصدار تسوية مالية حقيقية لها.'],
+            ]);
+        }
+    }
+
 }

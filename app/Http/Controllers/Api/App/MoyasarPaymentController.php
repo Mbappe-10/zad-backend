@@ -7,9 +7,9 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentProvider;
+use App\Services\App\MoyasarModeResolver;
 use App\Services\App\PlatformOperationGate;
 use App\Services\LaunchAttributionService;
-use App\Support\InternalTesting;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +23,7 @@ class MoyasarPaymentController extends Controller
     public function __construct(
         private readonly LaunchAttributionService $launchAttribution,
         private readonly PlatformOperationGate $operations,
+        private readonly MoyasarModeResolver $modes,
     ) {
     }
 
@@ -41,28 +42,19 @@ class MoyasarPaymentController extends Controller
         }
 
         $this->operations->assertNewPaymentAttemptAllowed();
+        abort_if($order->isCancelled(), 422, 'لا يمكن دفع طلب ملغي أو مرفوض.');
 
-        abort_if(
-            $order->isCancelled(),
-            422,
-            'لا يمكن دفع طلب ملغي أو مرفوض.',
-        );
-
-        $publishableKey = trim((string) config('moyasar.publishable_key'));
-        $localTestEnabled = $this->localTestEnabled($order);
-
-        if ($publishableKey === '' && ! $localTestEnabled) {
-            throw ValidationException::withMessages([
-                'payment' => [
-                    'بوابة ميسّر غير مهيأة. أضف مفاتيح ميسّر في إعدادات Laravel.',
-                ],
-            ]);
-        }
-
+        $mode = $this->modes->currentMode();
+        $this->modes->assertPermitted($mode);
+        $credentials = $mode === 'simulation' ? null : $this->modes->credentials($mode);
+        $localTest = $mode === 'simulation';
         $amountHalalas = $this->amountHalalas($order);
+        abort_if($amountHalalas <= 0, 422, 'مبلغ الطلب غير صالح للدفع.');
+        $gateway = $this->modes->gateway($mode);
+
         $attempt = PaymentAttempt::query()
             ->where('order_id', $order->id)
-            ->where('gateway', 'moyasar')
+            ->where('gateway', $gateway)
             ->where('status', 'created')
             ->where('amount_halalas', $amountHalalas)
             ->where('currency', 'SAR')
@@ -74,14 +66,12 @@ class MoyasarPaymentController extends Controller
             $attempt = PaymentAttempt::query()->create([
                 'order_id' => $order->id,
                 'idempotency_key' => (string) Str::uuid(),
-                'gateway' => 'moyasar',
+                'gateway' => $gateway,
                 'status' => 'created',
                 'amount_halalas' => $amountHalalas,
                 'currency' => 'SAR',
             ]);
         }
-
-        $givenId = (string) $attempt->idempotency_key;
 
         if ($order->payment_status !== Order::PAYMENT_PENDING) {
             $order->update(['payment_status' => Order::PAYMENT_PENDING]);
@@ -91,26 +81,21 @@ class MoyasarPaymentController extends Controller
             'message' => 'تم تجهيز محاولة الدفع.',
             'data' => [
                 'paid' => false,
-                // A real gateway key must never reach the mobile UI while
-                // this order is using the controlled internal-test path.
-                'publishable_key' => $localTestEnabled
-                    ? ''
-                    : $publishableKey,
+                'publishable_key' => $credentials['publishable_key'] ?? '',
                 'amount_halalas' => $amountHalalas,
                 'currency' => 'SAR',
                 'description' => "ZAD Sync order {$order->number}",
-                'given_id' => $givenId,
+                'given_id' => (string) $attempt->idempotency_key,
                 'metadata' => [
                     'order_id' => (string) $order->id,
                     'order_number' => (string) $order->number,
+                    'environment' => $mode,
                 ],
-                'apple_pay_merchant_id' => $localTestEnabled
+                'apple_pay_merchant_id' => $localTest
                     ? ''
-                    : trim((string) config(
-                        'moyasar.apple_pay_merchant_id',
-                    )),
+                    : trim((string) config('moyasar.apple_pay_merchant_id', '')),
                 'apple_pay_label' => (string) config('moyasar.apple_pay_label', 'ZAD Sync'),
-                'local_test_enabled' => $localTestEnabled,
+                'local_test_enabled' => $localTest,
                 'order' => $this->orderSummary($order->fresh()),
             ],
         ]);
@@ -119,18 +104,22 @@ class MoyasarPaymentController extends Controller
     public function verify(Request $request, Order $order): JsonResponse
     {
         $this->authorizeOrder($request, $order);
-
-        $data = $request->validate([
-            'payment_id' => ['required', 'string', 'max:100'],
-        ]);
+        $data = $request->validate(['payment_id' => ['required', 'uuid']]);
 
         if ($order->isPaid()) {
             return $this->paidResponse($order->fresh());
         }
 
-        $payment = $this->fetchPayment($data['payment_id']);
-        $this->assertPaymentMatches($order, $payment);
-        $order = $this->markPaid($order, $payment);
+        // Moyasar gives the created payment exactly the caller's given_id.
+        // Never verify an arbitrary payment ID that has no matching attempt.
+        $attempt = $this->knownAttempt($order, (string) $data['payment_id']);
+        abort_unless($attempt !== null, 422, 'لم يتم العثور على محاولة دفع لهذا الطلب.');
+        $mode = $this->modes->modeForGateway((string) $attempt->gateway);
+        abort_unless(in_array($mode, ['live', 'sandbox'], true), 422, 'محاولة الدفع غير صالحة.');
+
+        $payment = $this->fetchPayment((string) $data['payment_id'], $mode);
+        $this->assertPaymentMatches($order, $payment, $attempt, $mode);
+        $order = $this->markPaid($order, $payment, $attempt, $mode);
 
         return $this->paidResponse($order);
     }
@@ -152,13 +141,25 @@ class MoyasarPaymentController extends Controller
     {
         $this->authorizeOrder($request, $order);
 
-        abort_unless($this->localTestEnabled($order), 404);
+        abort_unless($this->modes->currentMode() === 'simulation', 404);
+        $this->modes->assertPermitted('simulation');
 
         if ($order->isPaid()) {
             return $this->paidResponse($order);
         }
 
         $this->operations->assertNewPaymentAttemptAllowed();
+        abort_if($order->isCancelled(), 422, 'لا يمكن دفع طلب ملغي أو مرفوض.');
+
+        $attempt = PaymentAttempt::query()
+            ->where('order_id', $order->id)
+            ->where('gateway', 'local_test')
+            ->where('status', 'created')
+            ->where('amount_halalas', $this->amountHalalas($order))
+            ->latest('id')
+            ->first();
+
+        abort_unless($attempt !== null, 422, 'يجب تجهيز محاولة محاكاة جديدة قبل تأكيدها.');
 
         $payload = [
             'id' => 'local_'.Str::uuid(),
@@ -168,169 +169,203 @@ class MoyasarPaymentController extends Controller
             'metadata' => [
                 'order_id' => (string) $order->id,
                 'order_number' => (string) $order->number,
-                'environment' => 'internal_test',
+                'environment' => 'simulation',
             ],
         ];
 
-        $order = $this->markPaid($order, $payload);
-
-        return $this->paidResponse($order);
+        return $this->paidResponse($this->markPaid($order, $payload, $attempt, 'simulation'));
     }
 
     public function webhook(Request $request): JsonResponse
     {
-        $expectedSecret = trim((string) config('moyasar.webhook_secret'));
+        $expectedSecret = trim((string) config('moyasar.webhook_secret', ''));
         $receivedSecret = trim((string) $request->input('secret_token', ''));
-
         abort_if(
-            $expectedSecret === '' ||
-            $receivedSecret === '' ||
+            $expectedSecret === '' || $receivedSecret === '' ||
             ! hash_equals($expectedSecret, $receivedSecret),
             401,
             'Invalid webhook secret.',
         );
 
         $type = (string) $request->input('type', '');
-        $payment = $request->input('data');
-
-        if (! is_array($payment)) {
+        if (! in_array($type, ['payment_paid', 'payment_faild', 'payment_failed'], true)) {
             return response()->json(['received' => true]);
         }
 
-        $orderId = (int) data_get($payment, 'metadata.order_id', 0);
-        $order = $orderId > 0 ? Order::query()->find($orderId) : null;
+        // Required in Moyasar webhook envelope. Do not trust arbitrary data.live.
+        $liveFlag = $request->input('live');
+        abort_unless(is_bool($liveFlag), 422, 'Invalid payment environment.');
+        $mode = $liveFlag ? 'live' : 'sandbox';
+        $this->modes->assertPermitted($mode);
 
+        $payload = $request->input('data');
+        if (! is_array($payload)) {
+            return response()->json(['received' => true]);
+        }
+
+        $orderId = (int) data_get($payload, 'metadata.order_id', 0);
+        $paymentId = (string) ($payload['id'] ?? '');
+        if ($orderId <= 0 || ! Str::isUuid($paymentId)) {
+            return response()->json(['received' => true]);
+        }
+
+        $order = Order::query()->find($orderId);
         if ($order === null) {
             return response()->json(['received' => true]);
         }
 
-        if ($type === 'payment_paid') {
-            $this->assertPaymentMatches($order, $payment);
-            $this->markPaid($order, $payment);
+        $attempt = $this->knownAttempt($order, $paymentId);
+        if ($attempt === null || $attempt->gateway !== $this->modes->gateway($mode)) {
+            return response()->json(['received' => true]);
         }
 
-        if (in_array($type, ['payment_faild', 'payment_failed'], true)) {
-            PaymentAttempt::query()
-                ->where('provider_payment_id', (string) ($payment['id'] ?? ''))
-                ->update([
+        // A shared webhook secret is not proof of payment. Fetch from Moyasar
+        // with the secret key bound to the original attempt's environment.
+        $payment = $this->fetchPayment($paymentId, $mode);
+
+        if ($type === 'payment_paid') {
+            $this->assertPaymentMatches($order, $payment, $attempt, $mode);
+            $this->markPaid($order, $payment, $attempt, $mode);
+        } elseif (($payment['status'] ?? null) === 'failed') {
+            DB::transaction(function () use ($order, $attempt, $payment): void {
+                $lockedOrder = Order::query()->lockForUpdate()->find($order->id);
+                if ($lockedOrder === null || $lockedOrder->isPaid()) {
+                    return;
+                }
+
+                $lockedAttempt = PaymentAttempt::query()
+                    ->whereKey($attempt->id)
+                    ->lockForUpdate()
+                    ->first();
+                if ($lockedAttempt === null || $lockedAttempt->status === 'paid') {
+                    return;
+                }
+
+                $lockedAttempt->update([
                     'status' => 'failed',
-                    'failure_message' => (string) data_get(
-                        $payment,
-                        'source.message',
-                        'تعذر الدفع.',
-                    ),
+                    'failure_message' => (string) data_get($payment, 'source.message', 'تعذر الدفع.'),
                     'payload' => $payment,
                     'failed_at' => now(),
                 ]);
-
-            if (! $order->isPaid()) {
-                $order->update(['payment_status' => Order::PAYMENT_FAILED]);
-            }
+                $lockedOrder->update(['payment_status' => Order::PAYMENT_FAILED]);
+            });
         }
 
         return response()->json(['received' => true]);
     }
 
-    private function fetchPayment(string $paymentId): array
+    private function knownAttempt(Order $order, string $paymentId): ?PaymentAttempt
     {
-        $secretKey = trim((string) config('moyasar.secret_key'));
-
-        if ($secretKey === '') {
-            throw ValidationException::withMessages([
-                'payment' => [
-                    'مفتاح ميسّر السري غير مهيأ في Laravel.',
-                ],
-            ]);
+        if (! Str::isUuid($paymentId)) {
+            return null;
         }
+
+        return PaymentAttempt::query()
+            ->where('order_id', $order->id)
+            ->where('idempotency_key', $paymentId)
+            ->whereIn('gateway', ['moyasar_live', 'moyasar_sandbox'])
+            ->first();
+    }
+
+    private function fetchPayment(string $paymentId, string $mode): array
+    {
+        // Credential selection comes ONLY from the persisted attempt gateway.
+        $credentials = $this->modes->credentials($mode);
 
         try {
             $response = Http::acceptJson()
-                ->withBasicAuth($secretKey, '')
+                ->withBasicAuth($credentials['secret_key'], '')
                 ->timeout(20)
                 ->retry(2, 250)
-                ->get(rtrim((string) config('moyasar.api_url'), '/').'/payments/'.$paymentId);
+                ->get('https://api.moyasar.com/v1/payments/'.rawurlencode($paymentId));
         } catch (ConnectionException) {
             throw ValidationException::withMessages([
-                'payment' => [
-                    'تعذر الاتصال بميسّر للتحقق من الدفع. أعد المحاولة.',
-                ],
+                'payment' => ['تعذر الاتصال بميسر. يرجى التحقق من حالة الدفع لاحقًا.'],
             ]);
         }
 
-        if (! $response->successful()) {
+        if (! $response->successful() || ! is_array($response->json())) {
             throw ValidationException::withMessages([
-                'payment' => [
-                    'تعذر التحقق من عملية الدفع لدى ميسّر.',
-                ],
+                'payment' => ['تعذر التحقق من عملية الدفع لدى ميسر.'],
             ]);
         }
 
         return $response->json();
     }
 
-    private function assertPaymentMatches(Order $order, array $payment): void
-    {
-        $status = (string) ($payment['status'] ?? '');
-        $amount = (int) ($payment['amount'] ?? -1);
-        $currency = strtoupper((string) ($payment['currency'] ?? ''));
-        $paymentOrderId = (int) data_get($payment, 'metadata.order_id', 0);
-
-        if ($status !== 'paid') {
+    private function assertPaymentMatches(
+        Order $order,
+        array $payment,
+        PaymentAttempt $attempt,
+        string $mode,
+    ): void {
+        if (($payment['status'] ?? null) !== 'paid') {
             throw ValidationException::withMessages([
                 'payment' => [$this->failureMessage($payment)],
             ]);
         }
 
+        $paymentId = (string) ($payment['id'] ?? '');
         if (
-            $amount !== $this->amountHalalas($order) ||
-            $currency !== 'SAR' ||
-            $paymentOrderId !== (int) $order->id
+            $attempt->order_id != $order->id ||
+            $attempt->gateway !== $this->modes->gateway($mode) ||
+            ! hash_equals((string) $attempt->idempotency_key, $paymentId) ||
+            (int) ($payment['amount'] ?? -1) !== $this->amountHalalas($order) ||
+            (int) $attempt->amount_halalas !== $this->amountHalalas($order) ||
+            strtoupper((string) ($payment['currency'] ?? '')) !== 'SAR' ||
+            (int) data_get($payment, 'metadata.order_id', 0) !== (int) $order->id ||
+            (string) data_get($payment, 'metadata.environment', '') !== $mode
         ) {
             throw ValidationException::withMessages([
-                'payment' => [
-                    'بيانات الدفع لا تطابق مبلغ ورقم الطلب.',
-                ],
+                'payment' => ['بيانات العملية أو بيئتها لا تطابق الطلب.'],
+            ]);
+        }
+
+        // Some Moyasar payment responses include live; if present it must match.
+        if (array_key_exists('live', $payment) &&
+            (! is_bool($payment['live']) || $payment['live'] !== ($mode === 'live'))
+        ) {
+            throw ValidationException::withMessages([
+                'payment' => ['بيئة عملية الدفع لا تطابق بيئة الطلب.'],
             ]);
         }
     }
 
-    private function markPaid(Order $order, array $payment): Order
+    private function markPaid(Order $order, array $payment, PaymentAttempt $attempt, string $mode): Order
     {
-        return DB::transaction(function () use ($order, $payment): Order {
+        return DB::transaction(function () use ($order, $payment, $attempt, $mode): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
             if ($order->isPaid()) {
                 return $order;
             }
 
-            // ZAD_PAYMENT_LOCK_RECHECK_FINAL
-            // Close the race between changing a coupon and a payment callback.
-            $this->assertPaymentMatches($order, $payment);
+            // Re-evaluate against the locked order to prevent coupon/amount races.
+            if ($mode === 'simulation') {
+                $this->modes->assertPermitted('simulation');
+                abort_unless(str_starts_with((string) ($payment['id'] ?? ''), 'local_'), 422);
+                abort_unless($attempt->gateway === 'local_test', 422);
+                abort_unless(
+                    (int) $attempt->amount_halalas === $this->amountHalalas($order) &&
+                    (int) ($payment['amount'] ?? -1) === $this->amountHalalas($order) &&
+                    (int) data_get($payment, 'metadata.order_id', 0) === (int) $order->id &&
+                    ($payment['status'] ?? '') === 'paid',
+                    422,
+                );
+            } else {
+                $this->modes->assertPermitted($mode);
+                $this->assertPaymentMatches($order, $payment, $attempt, $mode);
+            }
+
+            $attempt = PaymentAttempt::query()
+                ->whereKey($attempt->id)
+                ->where('order_id', $order->id)
+                ->where('gateway', $this->modes->gateway($mode))
+                ->lockForUpdate()
+                ->firstOrFail();
 
             $paymentId = (string) ($payment['id'] ?? '');
-            $attempt = PaymentAttempt::query()
-                ->where('order_id', $order->id)
-                ->where(function ($query) use ($paymentId): void {
-                    $query->where('provider_payment_id', $paymentId);
-
-                    if (Str::isUuid($paymentId)) {
-                        $query->orWhere('idempotency_key', $paymentId);
-                    }
-                })
-                ->lockForUpdate()
-                ->first();
-
-            if ($attempt === null) {
-                $attempt = PaymentAttempt::query()->create([
-                    'order_id' => $order->id,
-                    'idempotency_key' => Str::isUuid($paymentId)
-                        ? $paymentId
-                        : (string) Str::uuid(),
-                    'gateway' => str_starts_with($paymentId, 'local_') ? 'local_test' : 'moyasar',
-                    'amount_halalas' => $this->amountHalalas($order),
-                    'currency' => 'SAR',
-                ]);
-            }
+            abort_if($paymentId === '', 422, 'معرّف الدفع مفقود.');
 
             $attempt->update([
                 'provider_payment_id' => $paymentId,
@@ -341,25 +376,35 @@ class MoyasarPaymentController extends Controller
                 'failed_at' => null,
             ]);
 
+            $providerCode = match ($mode) {
+                'live' => 'moyasar',
+                'sandbox' => 'moyasar_sandbox',
+                'simulation' => 'local_test',
+            };
+
             $provider = PaymentProvider::query()->firstOrCreate(
-                ['code' => 'moyasar'],
+                ['code' => $providerCode],
                 [
-                    'name' => 'Moyasar',
+                    'name' => match ($mode) {
+                        'live' => 'Moyasar',
+                        'sandbox' => 'Moyasar Sandbox',
+                        'simulation' => 'Local Test',
+                    },
                     'currency' => 'SAR',
-                    'is_active' => true,
-                    'settings' => ['status' => 'active'],
+                    'is_active' => $mode === 'live',
+                    'settings' => ['status' => $mode === 'live' ? 'active' : 'inactive'],
                 ],
             );
-            $grossAmount = round(((int) ($payment['amount'] ?? $this->amountHalalas($order))) / 100, 2);
+
+            $grossAmount = round(((int) ($payment['amount'] ?? 0)) / 100, 2);
             $providerFee = round(max(0, ((int) ($payment['fee'] ?? 0)) / 100), 2);
-            $providerPaymentId = (string) ($payment['id'] ?? $attempt->idempotency_key);
 
             Payment::query()->updateOrCreate(
-                ['provider_reference' => $providerPaymentId],
+                ['provider_reference' => $paymentId],
                 [
                     'order_id' => $order->id,
                     'provider_id' => $provider->id,
-                    'reference' => 'MYS-'.$order->id.'-'.Str::upper(substr(hash('sha256', $providerPaymentId), 0, 12)),
+                    'reference' => 'MYS-'.$order->id.'-'.Str::upper(substr(hash('sha256', $paymentId), 0, 12)),
                     'method' => (string) data_get($payment, 'source.type', 'gateway'),
                     'currency' => 'SAR',
                     'gross_amount' => $grossAmount,
@@ -370,6 +415,7 @@ class MoyasarPaymentController extends Controller
                     'failed_at' => null,
                     'metadata' => [
                         'gateway' => $attempt->gateway,
+                        'payment_mode' => $mode,
                         'attempt_id' => $attempt->id,
                         'fee_reported_by_provider' => array_key_exists('fee', $payment),
                     ],
@@ -378,7 +424,6 @@ class MoyasarPaymentController extends Controller
 
             $order->update(['payment_status' => Order::PAYMENT_PAID]);
 
-            // ZAD_COUPON_CONSUME_FINAL
             \App\Models\OrderCouponUsage::query()
                 ->where('order_id', $order->id)
                 ->where('status', 'applied')
@@ -408,38 +453,6 @@ class MoyasarPaymentController extends Controller
         );
     }
 
-    private function localTestEnabled(Order $order): bool
-    {
-        // ZAD_PRELAUNCH_TEST_PAYMENT_V4
-
-        if (
-            app()->environment(['local', 'testing'])
-            && (bool) config(
-                'moyasar.local_test_enabled',
-                false,
-            )
-        ) {
-            return true;
-        }
-
-        /*
-         * Temporary production prelaunch test.
-         *
-         * Requires all internal testing switches.
-         * No real money is charged.
-         *
-         * Disable these switches when Moyasar becomes live.
-         */
-        // ZAD_TEMP_PRODUCTION_TEST_PHONE_20261009
-        // Production payment simulation disabled for security.
-        if (app()->environment('production')) {
-            return false;
-        }
-
-        return InternalTesting::simulatesPaymentFor(
-            (string) $order->contact_phone,
-        );
-    }
     private function amountHalalas(Order $order): int
     {
         return (int) round(((float) $order->total) * 100);
@@ -471,10 +484,7 @@ class MoyasarPaymentController extends Controller
     {
         return response()->json([
             'message' => 'تم الدفع وتأكيد الطلب بنجاح.',
-            'data' => [
-                'paid' => true,
-                'order' => $this->orderSummary($order),
-            ],
+            'data' => ['paid' => true, 'order' => $this->orderSummary($order)],
         ]);
     }
 

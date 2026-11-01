@@ -255,7 +255,31 @@ class MoyasarPaymentController extends Controller
         } catch (ConnectionException) {
             abort(503, 'Intent response unknown. Reconcile before trying again.');
         }
-        abort_unless($response->status() === 201, 503, 'Intent creation not confirmed. Reconcile before retrying.');
+        if ($response->status() !== 201) {
+            $providerData = $response->json();
+
+            \Illuminate\Support\Facades\Log::warning(
+                'ZAD_MOYASAR_INTENT_CREATE_REJECTED',
+                [
+                    'provider_http_status' => $response->status(),
+                    'provider_error_type' => is_array($providerData)
+                        ? (string) ($providerData['type'] ?? 'unknown')
+                        : 'non_json',
+                    'provider_error_fields' =>
+                        is_array($providerData) &&
+                        is_array($providerData['errors'] ?? null)
+                            ? array_keys($providerData['errors'])
+                            : [],
+                    'api_host' => parse_url($apiBase, PHP_URL_HOST),
+                    'api_path' => parse_url($apiBase, PHP_URL_PATH),
+                ]
+            );
+
+            abort(
+                503,
+                'Intent creation not confirmed. Reconcile before retrying.'
+            );
+        }
         $intent = $response->json();
         abort_unless(is_array($intent), 503, 'Unexpected intent response. Reconcile before retrying.');
         $intentId = trim((string) ($intent['id'] ?? ''));

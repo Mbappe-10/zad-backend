@@ -88,6 +88,33 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // ZAD_SPONSORED_CHECKOUT_RATE_LIMIT_V1
+        RateLimiter::for('sponsored-checkout', function (Request $request): array {
+            if (! $request->filled('sponsored_coupon_code')) {
+                return [Limit::none()];
+            }
+
+            $guestId = trim((string) $request->input('guest_session_id', ''));
+            $guestKey = $guestId !== ''
+                ? hash('sha256', $guestId)
+                : 'missing';
+
+            $response = fn (Request $request, array $headers) => response()->json([
+                'message' => 'Too many sponsored coupon attempts. Please try again later.',
+                'code' => 'sponsored_checkout_rate_limited',
+                'retry_after' => (int) ($headers['Retry-After'] ?? 60),
+            ], 429, $headers);
+
+            return [
+                Limit::perMinute(5)
+                    ->by('sponsored-checkout-guest:'.$guestKey)
+                    ->response($response),
+                Limit::perMinute(20)
+                    ->by('sponsored-checkout-ip:'.$request->ip())
+                    ->response($response),
+            ];
+        });
+
         RateLimiter::for('login', function (Request $request): Limit {
             $email = strtolower(trim((string) $request->input('email')));
             $key = ($email !== '' ? $email.'|' : '').$request->ip();

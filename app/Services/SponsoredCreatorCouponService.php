@@ -31,6 +31,8 @@ final class SponsoredCreatorCouponService
             'allowed_products.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
             'allowed_products.*.max_quantity' => ['required', 'integer', 'min:1', 'max:20'],
             'gross_cap' => ['required', 'numeric', 'gt:0', 'max:100000'],
+            'display_name' => ['nullable', 'string', 'max:120'],
+            'code_label' => ['nullable', 'string', 'regex:/\A[A-Za-z0-9-]{4,64}\z/'],
         ])->validate();
 
         $productIds = array_column($data['allowed_products'], 'product_id');
@@ -55,6 +57,12 @@ final class SponsoredCreatorCouponService
             $coupon->created_by = $actor->getKey();
             $coupon->allowed_products = $data['allowed_products'];
             $coupon->gross_cap = $data['gross_cap'];
+            $coupon->display_name = isset($data['display_name'])
+                ? trim($data['display_name'])
+                : null;
+            $coupon->code_label = isset($data['code_label'])
+                ? strtoupper(trim($data['code_label']))
+                : null;
             $coupon->code_hash = hash('sha256', $plainCode);
             $coupon->status = SponsoredCreatorCoupon::STATUS_DRAFT;
             $coupon->save();
@@ -89,6 +97,7 @@ final class SponsoredCreatorCouponService
             if (
                 $coupon->status !== SponsoredCreatorCoupon::STATUS_DRAFT
                 || $coupon->activated_at !== null
+                || $coupon->archived_at !== null
                 || $coupon->revoked_at !== null
                 || $coupon->consumed_at !== null
                 || $coupon->consumed_order_id !== null
@@ -105,6 +114,116 @@ final class SponsoredCreatorCouponService
         });
     }
 
+    public function pause(User $actor, int $couponId): SponsoredCreatorCoupon
+    {
+        $this->requireOwner($actor);
+
+        return DB::transaction(function () use ($couponId) {
+            $coupon = SponsoredCreatorCoupon::query()
+                ->lockForUpdate()
+                ->findOrFail($couponId);
+
+            if ($coupon->status !== SponsoredCreatorCoupon::STATUS_ACTIVE
+                || !$coupon->isAvailable()) {
+                throw new HttpException(409, 'Only available active coupons can be paused.');
+            }
+
+            $coupon->status = 'paused';
+            $coupon->save();
+
+            return $coupon;
+        });
+    }
+
+    public function resume(User $actor, int $couponId): SponsoredCreatorCoupon
+    {
+        $this->requireOwner($actor);
+
+        return DB::transaction(function () use ($couponId) {
+            $coupon = SponsoredCreatorCoupon::query()
+                ->lockForUpdate()
+                ->findOrFail($couponId);
+
+            if ($coupon->status !== 'paused'
+                || $coupon->expires_at === null
+                || !$coupon->expires_at->isFuture()
+                || $coupon->archived_at !== null
+                || $coupon->revoked_at !== null
+                || $coupon->consumed_at !== null
+                || $coupon->consumed_order_id !== null) {
+                throw new HttpException(409, 'Coupon cannot be resumed.');
+            }
+
+            $coupon->status = SponsoredCreatorCoupon::STATUS_ACTIVE;
+            $coupon->save();
+
+            return $coupon;
+        });
+    }
+
+    public function extend(User $actor, int $couponId, int $minutes): SponsoredCreatorCoupon
+    {
+        $this->requireOwner($actor);
+
+        if (!in_array($minutes, [5, 10, 20], true)) {
+            throw ValidationException::withMessages([
+                'minutes' => 'Extension must be 5, 10 or 20 minutes.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($couponId, $minutes) {
+            $coupon = SponsoredCreatorCoupon::query()
+                ->lockForUpdate()
+                ->findOrFail($couponId);
+
+            if (!in_array($coupon->status, [
+                    SponsoredCreatorCoupon::STATUS_ACTIVE,
+                    'paused',
+                ], true)
+                || $coupon->expires_at === null
+                || !$coupon->expires_at->isFuture()
+                || $coupon->archived_at !== null
+                || $coupon->revoked_at !== null
+                || $coupon->consumed_at !== null
+                || $coupon->consumed_order_id !== null) {
+                throw new HttpException(409, 'Coupon cannot be extended.');
+            }
+
+            $coupon->expires_at = $coupon->expires_at->copy()->addMinutes($minutes);
+            $coupon->save();
+
+            return $coupon;
+        });
+    }
+    public function archive(User $actor, int $couponId): SponsoredCreatorCoupon
+    {
+        $this->requireOwner($actor);
+
+        return DB::transaction(function () use ($couponId) {
+            $coupon = SponsoredCreatorCoupon::query()
+                ->lockForUpdate()
+                ->findOrFail($couponId);
+
+            if ($coupon->archived_at !== null) {
+                return $coupon;
+            }
+
+            if (
+                $coupon->status === SponsoredCreatorCoupon::STATUS_ACTIVE
+                || $coupon->status === 'paused'
+            ) {
+                throw new HttpException(
+                    409,
+                    'Active or paused coupons must be revoked before archiving.'
+                );
+            }
+
+            $coupon->archived_at = now();
+            $coupon->save();
+
+            return $coupon;
+        });
+    }
     public function revoke(
         User $actor,
         int $couponId

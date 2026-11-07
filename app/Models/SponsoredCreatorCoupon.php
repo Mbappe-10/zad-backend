@@ -25,6 +25,7 @@ final class SponsoredCreatorCoupon extends Model
             'expires_at' => 'datetime',
             'revoked_at' => 'datetime',
             'consumed_at' => 'datetime',
+            'archived_at' => 'datetime',
         ];
     }
 
@@ -55,6 +56,7 @@ final class SponsoredCreatorCoupon extends Model
             && $this->activated_at->lessThanOrEqualTo(now())
             && $this->expires_at !== null
             && $this->expires_at->isFuture()
+            && $this->archived_at === null
             && $this->revoked_at === null
             && $this->consumed_at === null
             && $this->consumed_order_id === null;

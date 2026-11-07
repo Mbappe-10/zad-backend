@@ -181,6 +181,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::prefix('admin/sponsored-creator-coupons')
         ->middleware(['sponsored.owner', 'throttle:10,1'])
         ->group(function (): void {
+            Route::get(
+                '/',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'index']
+            );
             Route::post(
                 '/',
                 [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'store']
@@ -191,6 +195,24 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
                 [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'activate']
             )->whereNumber('coupon');
 
+            Route::post(
+                '/{coupon}/pause',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'pause']
+            )->whereNumber('coupon');
+
+            Route::post(
+                '/{coupon}/resume',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'resume']
+            )->whereNumber('coupon');
+
+            Route::post(
+                '/{coupon}/extend',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'extend']
+            )->whereNumber('coupon');
+            Route::post(
+                '/{coupon}/archive',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'archive']
+            )->whereNumber('coupon');
             Route::post(
                 '/{coupon}/revoke',
                 [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'revoke']
@@ -1171,7 +1193,7 @@ Route::prefix('v1/app')->group(function (): void {
     Route::post(
         '/orders',
         [AppOrderController::class, 'store'],
-    );
+    )->middleware('throttle:sponsored-checkout');
 
     Route::get(
         '/orders/{order}',

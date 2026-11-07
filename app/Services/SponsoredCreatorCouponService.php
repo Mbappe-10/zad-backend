@@ -25,22 +25,27 @@ final class SponsoredCreatorCouponService
         $this->requireOwner($actor);
 
         $data = Validator::make($input, [
-            'creator_id' => ['required', 'integer', 'exists:launch_creators,id'],
-            'store_id' => ['required', 'integer', 'exists:stores,id'],
-            'allowed_products' => ['required', 'array', 'min:1', 'max:30'],
+            'creator_id' => ['nullable', 'integer', 'exists:launch_creators,id'],
+            'store_id' => ['nullable', 'integer', 'exists:stores,id'],
+            'allowed_products' => ['nullable', 'array', 'max:30'],
             'allowed_products.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
             'allowed_products.*.max_quantity' => ['required', 'integer', 'min:1', 'max:20'],
             'gross_cap' => ['required', 'numeric', 'gt:0', 'max:100000'],
-            'display_name' => ['nullable', 'string', 'max:120'],
+            'display_name' => ['required', 'string', 'max:120'],
             'code_label' => ['nullable', 'string', 'regex:/\A[A-Za-z0-9-]{4,64}\z/'],
+            'coupon_code' => ['required', 'string', 'regex:/\A[A-Za-z0-9-]{6,64}\z/'],
         ])->validate();
 
-        $productIds = array_column($data['allowed_products'], 'product_id');
+        $productIds = array_column($data['allowed_products'] ?? [], 'product_id');
 
         $matchingProducts = DB::table('products')
             ->whereIn('id', $productIds)
-            ->where('store_id', $data['store_id'])
+            ->when(isset($data['store_id']), fn ($q) => $q->where('store_id', $data['store_id']))
             ->count();
+
+        if ($productIds !== [] && ($data['store_id'] ?? null) === null) {
+            throw ValidationException::withMessages(['store_id' => 'Store required when restricting products.']);
+        }
 
         if ($matchingProducts !== count($productIds)) {
             throw ValidationException::withMessages([
@@ -48,21 +53,22 @@ final class SponsoredCreatorCouponService
             ]);
         }
 
-        $plainCode = 'ZSC-' . strtoupper(bin2hex(random_bytes(16)));
+        $plainCode = strtoupper(trim($data['coupon_code']));
+        if (SponsoredCreatorCoupon::query()->where('code_hash', hash('sha256', $plainCode))->exists()) {
+            throw ValidationException::withMessages(['coupon_code' => 'Coupon code already exists.']);
+        }
 
         $coupon = DB::transaction(function () use ($actor, $data, $plainCode) {
             $coupon = new SponsoredCreatorCoupon();
-            $coupon->creator_id = $data['creator_id'];
-            $coupon->store_id = $data['store_id'];
+            $coupon->creator_id = $data['creator_id'] ?? null;
+            $coupon->store_id = $data['store_id'] ?? null;
             $coupon->created_by = $actor->getKey();
-            $coupon->allowed_products = $data['allowed_products'];
+            $coupon->allowed_products = $data['allowed_products'] ?? [];
             $coupon->gross_cap = $data['gross_cap'];
             $coupon->display_name = isset($data['display_name'])
                 ? trim($data['display_name'])
                 : null;
-            $coupon->code_label = isset($data['code_label'])
-                ? strtoupper(trim($data['code_label']))
-                : null;
+            $coupon->code_label = $plainCode;
             $coupon->code_hash = hash('sha256', $plainCode);
             $coupon->status = SponsoredCreatorCoupon::STATUS_DRAFT;
             $coupon->save();
@@ -79,7 +85,7 @@ final class SponsoredCreatorCouponService
     public function activate(
         User $actor,
         int $couponId,
-        int $durationMinutes = 15
+        int $durationMinutes = 5
     ): SponsoredCreatorCoupon {
         $this->requireOwner($actor);
 
@@ -110,6 +116,25 @@ final class SponsoredCreatorCouponService
             $coupon->expires_at = now()->addMinutes($durationMinutes);
             $coupon->save();
 
+            return $coupon;
+        });
+    }
+
+    public function updateCap(User $actor, int $couponId, float $grossCap): SponsoredCreatorCoupon
+    {
+        $this->requireOwner($actor);
+        if (!is_finite($grossCap) || $grossCap <= 0 || $grossCap > 100000) {
+            throw ValidationException::withMessages(['gross_cap' => 'Invalid financial cap.']);
+        }
+        return DB::transaction(function () use ($couponId, $grossCap) {
+            $coupon = SponsoredCreatorCoupon::query()->lockForUpdate()->findOrFail($couponId);
+            if ($coupon->consumed_at !== null || $coupon->consumed_order_id !== null
+                || in_array($coupon->status, [SponsoredCreatorCoupon::STATUS_CONSUMED, SponsoredCreatorCoupon::STATUS_REVOKED], true)
+                || $coupon->archived_at !== null) {
+                throw new HttpException(409, 'Used, revoked or archived coupon cannot be edited.');
+            }
+            $coupon->gross_cap = round($grossCap, 2);
+            $coupon->save();
             return $coupon;
         });
     }

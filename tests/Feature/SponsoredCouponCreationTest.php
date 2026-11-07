@@ -97,6 +97,8 @@ class SponsoredCouponCreationTest extends TestCase
                 ],
             ],
             'gross_cap' => 60,
+            'display_name' => 'Test Creator',
+            'coupon_code' => 'ZAD-CREATE-001',
         ];
     }
 
@@ -151,4 +153,63 @@ class SponsoredCouponCreationTest extends TestCase
         $this->assertNull($result['coupon']->expires_at);
         $this->assertSame('draft', $result['coupon']->status);
     }
+    public function test_manual_code_creates_general_coupon_without_creator_store_or_products(): void
+    {
+        $f = $this->fixtures();
+        $service = app(SponsoredCreatorCouponService::class);
+        $created = $service->createDraft($f['owner'], [
+            'display_name' => 'بلوجر مكة',
+            'coupon_code' => 'zad-general-60',
+            'gross_cap' => 60,
+        ]);
+        $coupon = $created['coupon']->fresh();
+        $this->assertSame('ZAD-GENERAL-60', $created['one_time_plain_code']);
+        $this->assertNull($coupon->creator_id);
+        $this->assertNull($coupon->store_id);
+        $this->assertSame([], $coupon->allowed_products);
+        $this->assertSame('ZAD-GENERAL-60', $coupon->code_label);
+        $this->assertSame(hash('sha256', 'ZAD-GENERAL-60'), $coupon->code_hash);
+        $this->assertSame('draft', $coupon->status);
+        $service->activate($f['owner'], $coupon->id, 5);
+        $this->assertSame('active', $coupon->fresh()->status);
+
+        $validator = app(\App\Services\SponsoredCouponValidationService::class);
+        $valid = $validator->validateCoupon('zad-general-60', $f['storeId'], [
+            ['product_id' => $f['productId'], 'quantity' => 1],
+        ], 6000);
+        $this->assertSame($coupon->id, $valid->id);
+        try {
+            $validator->validateCoupon('ZAD-GENERAL-60', $f['storeId'], [
+                ['product_id' => $f['productId'], 'quantity' => 1],
+            ], 6001);
+            $this->fail('Cap must include the full amount.');
+        } catch (ValidationException $exception) {
+            $this->assertNotEmpty($exception->errors());
+        }
+    }
+
+    public function test_manual_coupon_code_must_be_unique_and_present(): void
+    {
+        $f = $this->fixtures();
+        $service = app(SponsoredCreatorCouponService::class);
+        $payload = [
+            'display_name' => 'بلوجر مكة',
+            'coupon_code' => 'ZAD-UNIQUE-60',
+            'gross_cap' => 60,
+        ];
+        $service->createDraft($f['owner'], $payload);
+        try {
+            $service->createDraft($f['owner'], array_replace($payload, ['coupon_code' => 'zad-unique-60']));
+            $this->fail('Duplicate code must be rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('coupon_code', $exception->errors());
+        }
+        try {
+            $service->createDraft($f['owner'], array_diff_key($payload, ['coupon_code' => true]));
+            $this->fail('Missing manual code must be rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('coupon_code', $exception->errors());
+        }
+    }
+
 }

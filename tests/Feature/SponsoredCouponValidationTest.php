@@ -76,7 +76,7 @@ final class SponsoredCouponValidationTest extends TestCase
             ]],
             "gross_cap" => 60,
             "display_name" => "تجربة بلوغر مكة",
-            "code_label" => "zad620",
+            "coupon_code" => "zad620",
         ]);
 
         return [
@@ -153,47 +153,20 @@ final class SponsoredCouponValidationTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->check($f, null, 6001);
     }
-    public function test_management_label_is_saved_but_cannot_redeem_coupon(): void
+    public function test_manual_code_is_redeemable_case_insensitively(): void
     {
         $f = $this->fixture();
         $coupon = $f["coupon"]->fresh();
-
         $this->assertSame("تجربة بلوغر مكة", $coupon->display_name);
         $this->assertSame("ZAD620", $coupon->code_label);
-        $this->assertSame(
-            hash("sha256", $f["code"]),
-            $coupon->code_hash
+        $this->assertSame("ZAD620", $f["code"]);
+        $this->assertSame(hash("sha256", "ZAD620"), $coupon->code_hash);
+
+        app(SponsoredCreatorCouponService::class)->activate($f["owner"], $coupon->id, 5);
+        $validated = app(SponsoredCouponValidationService::class)->validateCoupon(
+            "zad620", $f["store"],
+            [["product_id" => $f["product"], "quantity" => 1]], 2000
         );
-        $this->assertNotSame(
-            hash("sha256", "ZAD620"),
-            $coupon->code_hash
-        );
-
-        app(SponsoredCreatorCouponService::class)
-            ->activate($f["owner"], $coupon->id, 15);
-
-        $service = app(SponsoredCouponValidationService::class);
-
-        $valid = $service->validateCoupon(
-            $f["code"],
-            $f["store"],
-            [["product_id" => $f["product"], "quantity" => 1]],
-            2000
-        );
-
-        $this->assertSame($coupon->id, $valid->id);
-
-        try {
-            $service->validateCoupon(
-                "ZAD620",
-                $f["store"],
-                [["product_id" => $f["product"], "quantity" => 1]],
-                2000
-            );
-
-            $this->fail("Administrative label must not redeem coupon.");
-        } catch (\Illuminate\Validation\ValidationException $exception) {
-            $this->assertNotEmpty($exception->errors());
-        }
+        $this->assertSame($coupon->id, $validated->id);
     }
 }

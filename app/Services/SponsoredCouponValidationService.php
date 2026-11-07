@@ -9,7 +9,7 @@ final class SponsoredCouponValidationService
 {
     public function validateCoupon(string $plainCode, int $storeId, array $items, int $grossCents): SponsoredCreatorCoupon
     {
-        $code = trim($plainCode);
+        $code = strtoupper(trim($plainCode));
         if ($code === "" || strlen($code) > 100) {
             throw ValidationException::withMessages(["coupon" => "Invalid sponsored coupon."]);
         }
@@ -18,7 +18,7 @@ final class SponsoredCouponValidationService
             ->where("code_hash", hash("sha256", $code))
             ->first();
 
-        if (!$coupon || !$coupon->isAvailable() || (int) $coupon->store_id !== $storeId) {
+        if (!$coupon || !$coupon->isAvailable() || ($coupon->store_id !== null && (int) $coupon->store_id !== $storeId)) {
             throw ValidationException::withMessages(["coupon" => "Sponsored coupon unavailable."]);
         }
 
@@ -38,11 +38,11 @@ final class SponsoredCouponValidationService
             }
             $id = (int) $item["product_id"];
             $quantity = (int) $item["quantity"];
-            if ($id <= 0 || $quantity <= 0 || !isset($allowed[$id])) {
+            if ($id <= 0 || $quantity <= 0 || ($allowed !== [] && !isset($allowed[$id]))) {
                 throw ValidationException::withMessages(["items" => "Product not allowed."]);
             }
             $requested[$id] = ($requested[$id] ?? 0) + $quantity;
-            if ($requested[$id] > $allowed[$id]) {
+            if ($allowed !== [] && $requested[$id] > $allowed[$id]) {
                 throw ValidationException::withMessages(["items" => "Sponsored quantity exceeded."]);
             }
         }

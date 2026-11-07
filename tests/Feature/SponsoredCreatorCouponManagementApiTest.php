@@ -165,7 +165,7 @@ class SponsoredCreatorCouponManagementApiTest extends TestCase
                 ],
                 'gross_cap' => 60,
                 'display_name' => 'تجربة بلوغر مكة',
-                'code_label' => 'zad620',
+                'coupon_code' => 'zad620',
             ]
         );
 
@@ -180,7 +180,7 @@ class SponsoredCreatorCouponManagementApiTest extends TestCase
         $code = $response->json('one_time_plain_code');
 
         $this->assertIsString($code);
-        $this->assertStringStartsWith('ZSC-', $code);
+        $this->assertSame('ZAD620', $code);
 
         $this->assertDatabaseHas('sponsored_creator_coupons', [
             'id' => $response->json('coupon.id'),

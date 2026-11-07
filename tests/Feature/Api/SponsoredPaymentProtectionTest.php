@@ -147,6 +147,8 @@ final class SponsoredPaymentProtectionTest extends TestCase
                 ['product_id' => $productId, 'max_quantity' => 1],
             ],
             'gross_cap' => 60,
+            'display_name' => 'Sponsored Payment Protection',
+            'coupon_code' => 'ZAD-PROTECT-' . strtoupper($tag),
         ]);
 
         $service->activate($owner, $created['coupon']->id, 15);

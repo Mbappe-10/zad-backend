@@ -71,6 +71,14 @@ final class SponsoredCreatorCouponController extends Controller
         ])->header('Cache-Control', 'no-store');
     }
 
+    public function updateCap(Request $request, int $coupon): JsonResponse
+    {
+        $data = $request->validate(['gross_cap' => ['required', 'numeric', 'gt:0', 'max:100000']]);
+        $record = $this->service->updateCap($request->user(), $coupon, (float) $data['gross_cap']);
+        return response()->json(['success' => true, 'coupon' => $this->serializeCoupon($record)])
+            ->header('Cache-Control', 'no-store');
+    }
+
     public function pause(Request $request, int $coupon): JsonResponse
     {
         $record = $this->service->pause($request->user(), $coupon);

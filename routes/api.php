@@ -195,6 +195,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
                 [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'activate']
             )->whereNumber('coupon');
 
+            Route::patch('/{coupon}/cap', [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'updateCap'])->whereNumber('coupon');
+
             Route::post(
                 '/{coupon}/pause',
                 [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'pause']

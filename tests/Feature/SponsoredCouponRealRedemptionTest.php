@@ -65,6 +65,8 @@ final class SponsoredCouponRealRedemptionTest extends TestCase
             'store_id' => $storeId,
             'allowed_products' => [['product_id' => $productId, 'max_quantity' => 2]],
             'gross_cap' => 60,
+            'display_name' => 'Sponsored Redemption Test',
+            'coupon_code' => 'ZAD-REDEEM-' . strtoupper($tag),
         ]);
         $service->activate($owner, $created['coupon']->id, 15);
 

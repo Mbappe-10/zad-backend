@@ -91,6 +91,8 @@ final class SponsoredCheckoutHttpIntegrationTest extends TestCase
                 ['product_id' => $productId, 'max_quantity' => 2],
             ],
             'gross_cap' => 60,
+            'display_name' => 'Sponsored Checkout Test',
+            'coupon_code' => 'ZAD-CHECKOUT-' . strtoupper($tag),
         ]);
 
         $service->activate($owner, $created['coupon']->id, 15);

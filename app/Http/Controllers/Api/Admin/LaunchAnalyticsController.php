@@ -10,6 +10,7 @@ use App\Models\PlatformRecord;
 use App\Services\CreatorContractCouponSyncService;
 use App\Models\LaunchCampaignFamily;
 use App\Models\LaunchCreator;
+use App\Models\User;
 use App\Services\LaunchAnalyticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -134,6 +135,7 @@ class LaunchAnalyticsController extends Controller
             'code' => $data['code'] ?? $this->slugOrCode($data['name']),
             'status' => $data['status'] ?? 'active',
         ]);
+        $this->syncCreatorDashboardUser($creator);
         $this->flushOptions();
 
         return response()->json([
@@ -153,9 +155,38 @@ class LaunchAnalyticsController extends Controller
             'status' => ['sometimes', Rule::in(['active', 'inactive'])],
         ]);
         $creator->update($data);
+        $this->syncCreatorDashboardUser($creator);
         $this->flushOptions();
 
         return response()->json(['message' => 'ط·آ·ط¢آ·ط·آ¹ط¢آ¾ط·آ·ط¢آ¸ط£آ¢أ¢â€ڑآ¬ط¢آ¦ ط·آ·ط¢آ·ط·آ¹ط¢آ¾ط·آ·ط¢آ·ط·آ¢ط¢آ­ط·آ·ط¢آ·ط·آ¢ط¢آ¯ط·آ·ط¢آ¸ط·آ¸ط¢آ¹ط·آ·ط¢آ·ط·آ¢ط¢آ« ط·آ·ط¢آ·ط·آ¢ط¢آ§ط·آ·ط¢آ¸ط£آ¢أ¢â€ڑآ¬أ¢â‚¬ع†ط·آ·ط¢آ¸ط£آ¢أ¢â€ڑآ¬ط¢آ¦ط·آ·ط¢آ·ط·آ¢ط¢آ¤ط·آ·ط¢آ·ط·آ¢ط¢آ«ط·آ·ط¢آ·ط·آ¢ط¢آ±.', 'data' => $creator->fresh()]);
+    }
+
+    /**
+     * Fail-closed association: exact normalized email, a single verified user,
+     * active marketing role, and no pre-existing partner ownership.
+     */
+    private function syncCreatorDashboardUser(LaunchCreator $creator): void
+    {
+        $email = mb_strtolower(trim((string) $creator->email));
+        if ($email === '' || $creator->status !== 'active') {
+            $creator->update(['user_id' => null]);
+            return;
+        }
+
+        $matches = User::query()->whereRaw('LOWER(TRIM(email)) = ?', [$email])->limit(2)->get();
+        if ($matches->count() !== 1) {
+            $creator->update(['user_id' => null]);
+            return;
+        }
+        $user = $matches->first();
+        if ($user->email_verified_at === null ||
+            ! ($user->hasRole('شركة تسويقية') || $user->hasRole('marketing_company') || $user->hasRole('marketing_partner'))) {
+            $creator->update(['user_id' => null]);
+            return;
+        }
+        $alreadyLinked = LaunchCreator::query()->where('user_id', $user->id)
+            ->whereKeyNot($creator->id)->exists();
+        $creator->update(['user_id' => $alreadyLinked ? null : $user->id]);
     }
 
     public function destroyCreator(LaunchCreator $creator): JsonResponse

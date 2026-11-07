@@ -63,7 +63,16 @@ class DriverTaskOfferService
 
         $orders = Order::query()
             ->where('status', Order::STATUS_READY)
-            ->where('payment_status', Order::PAYMENT_PAID)
+            ->where(function ($query) {
+                $query->where('payment_status', Order::PAYMENT_PAID)
+                    ->orWhereExists(function ($funding) {
+                        $funding->selectRaw('1')
+                            ->from('sponsored_order_fundings')
+                            ->whereColumn('sponsored_order_fundings.order_id', 'orders.id')
+                            ->where('sponsored_order_fundings.funding_source', 'zad_platform')
+                            ->where('sponsored_order_fundings.status', 'committed');
+                    });
+            })
             ->whereNull('driver_id')
             ->operationallyReleased()
             ->when(! $allOrders, fn ($query) => $query->whereIn('id', $pilotIds))

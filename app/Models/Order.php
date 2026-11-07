@@ -298,17 +298,38 @@ class Order extends Model
 
     public function isPaidAndContactVerified(): bool
     {
-        return $this->isPaid() && $this->contactIsOperationallyVerified();
+        return ($this->isPaid() && $this->contactIsOperationallyVerified()) || $this->isSponsoredFunded();
     }
 
     public function scopeOperationallyReleased(Builder $query): Builder
     {
         return $query->where(function (Builder $query): void {
             $query->whereNull('contact_verification_state')
-                ->orWhere('contact_verification_state', 'verified');
+                ->orWhere('contact_verification_state', 'verified')
+                ->orWhereExists(function ($funding): void {
+                    $funding->selectRaw('1')
+                        ->from('sponsored_order_fundings')
+                        ->whereColumn('sponsored_order_fundings.order_id', 'orders.id')
+                        ->where('sponsored_order_fundings.funding_source', 'zad_platform')
+                        ->where('sponsored_order_fundings.status', 'committed');
+                });
         });
     }
 
+    public function isSponsoredFunded(): bool
+    {
+        return $this->exists
+            && \Illuminate\Support\Facades\DB::table('sponsored_order_fundings')
+                ->where('order_id', $this->getKey())
+                ->where('funding_source', 'zad_platform')
+                ->where('status', 'committed')
+                ->exists();
+    }
+
+    public function isPaidOrSponsoredFunded(): bool
+    {
+        return $this->isPaid() || $this->isSponsoredFunded();
+    }
     public function isPaid(): bool
     {
         return $this->payment_status === self::PAYMENT_PAID;

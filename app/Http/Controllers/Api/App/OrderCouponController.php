@@ -28,24 +28,33 @@ class OrderCouponController extends Controller
             'coupon_code' => ['required', 'string', 'max:80'],
         ]);
 
-        $evaluation = $this->coupons->evaluate(
-            (string) $data['coupon_code'],
-            (float) $order->subtotal,
-            (float) $order->delivery_fee,
-            $order->customer_id !== null ? (int) $order->customer_id : null,
-            (int) $order->id,
-        );
-
-        $discount = round(max(0, (float) $evaluation['discount_amount']), 2);
-
-        $order = DB::transaction(function () use ($order, $evaluation, $discount): Order {
+        $result = DB::transaction(function () use ($order, $data): array {
+            // Lock the order before evaluating any mutable amounts.
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
-
-            if ($locked->isPaid()) {
+            if ($locked->isPaid() || $locked->isCancelled() || $locked->isSponsoredFunded()) {
                 throw ValidationException::withMessages([
-                    'coupon_code' => ['لا يمكن تعديل الخصم بعد إتمام الدفع.'],
+                    'coupon_code' => ['لا يمكن تعديل كوبون طلب مدفوع أو ملغي.'],
                 ]);
             }
+
+            // CouponService supports a legacy payload-code fallback. Lock all
+            // coupon rows in deterministic order so BOTH lookup paths are
+            // serialized before checking usage limits. Conservative by design.
+            \App\Models\PlatformRecord::query()
+                ->where('resource', 'coupons-offers')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id']);
+
+            $evaluation = $this->coupons->evaluate(
+                (string) $data['coupon_code'],
+                (float) $locked->subtotal,
+                (float) $locked->delivery_fee,
+                $locked->customer_id !== null ? (int) $locked->customer_id : null,
+                (int) $locked->id,
+                (float) $locked->tax,
+            );
+            $discount = round(max(0, (float) $evaluation['discount_amount']), 2);
 
             $locked->update([
                 'discount' => $discount,
@@ -77,8 +86,10 @@ class OrderCouponController extends Controller
                 ],
             );
 
-            return $locked->fresh(['items', 'store']);
+            return [$locked->fresh(['items', 'store']), $evaluation, $discount];
         });
+
+        [$order, $evaluation, $discount] = $result;
 
         return response()->json([
             'message' => 'تم تطبيق كود الخصم بنجاح.',
@@ -104,6 +115,12 @@ class OrderCouponController extends Controller
 
         $order = DB::transaction(function () use ($order): Order {
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+
+            if ($locked->isPaid() || $locked->isCancelled() || $locked->isSponsoredFunded()) {
+                throw ValidationException::withMessages([
+                    'coupon_code' => ['لا يمكن إزالة خصم طلب مدفوع أو ملغي.'],
+                ]);
+            }
 
             $locked->update([
                 'discount' => 0,

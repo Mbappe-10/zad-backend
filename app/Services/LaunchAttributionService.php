@@ -460,7 +460,9 @@ class LaunchAttributionService
             return;
         }
 
-        $eligibleZadRevenue = $this->eligibleZadRevenue($order);
+        $eligibleZadRevenue = $order->isSponsoredFunded()
+            ? 0.0
+            : $this->eligibleZadRevenue($order);
 
         $creatorCommissionAmount = $this->creatorCommissionAmount(
             (string) ($attribution->creator_commission_type ?? ''),

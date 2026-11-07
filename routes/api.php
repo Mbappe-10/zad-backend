@@ -177,6 +177,26 @@ Route::get(
     ->name('api.admin.payout-proof.download');
 
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+    // ZAD SPONSORED CREATOR COUPONS - OWNER ONLY
+    Route::prefix('admin/sponsored-creator-coupons')
+        ->middleware(['sponsored.owner', 'throttle:10,1'])
+        ->group(function (): void {
+            Route::post(
+                '/',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'store']
+            );
+
+            Route::post(
+                '/{coupon}/activate',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'activate']
+            )->whereNumber('coupon');
+
+            Route::post(
+                '/{coupon}/revoke',
+                [\App\Http\Controllers\Api\Admin\SponsoredCreatorCouponController::class, 'revoke']
+            )->whereNumber('coupon');
+        });
+
 
     Route::post('/v1/app/launch/claim', [LaunchTrackingController::class, 'claim'])
         ->middleware('throttle:30,1')

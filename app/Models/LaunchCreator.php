@@ -17,6 +17,10 @@ class LaunchCreator extends Model
         return ['metadata' => 'array'];
     }
 
+    public function dashboardUser(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
     public function campaignAssignments(): HasMany
     {
         return $this->hasMany(LaunchCampaignCreator::class, 'creator_id');

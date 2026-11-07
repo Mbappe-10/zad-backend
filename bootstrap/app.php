@@ -68,6 +68,7 @@ return Application::configure(basePath: dirname(__DIR__))
         */
 
         $middleware->alias([
+            'sponsored.owner' => \App\Http\Middleware\RequireSponsoredCouponOwner::class,
             'permission' => RequirePermission::class,
             'security.headers' => SecurityHeaders::class,
         ]);

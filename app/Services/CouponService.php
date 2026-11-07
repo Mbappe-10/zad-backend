@@ -52,7 +52,8 @@ class CouponService
         float $subtotal,
         float $deliveryFee = 0,
         ?int $customerId = null,
-        ?int $currentOrderId = null
+        ?int $currentOrderId = null,
+        float $tax = 0
     ): array {
         $normalizedCode = strtoupper(trim($code));
 
@@ -252,13 +253,27 @@ class CouponService
             ?? ($creatorAssignment !== null ? 'delivery' : 'subtotal')
         )));
 
-        if (! in_array($discountScope, ['delivery', 'subtotal'], true)) {
+        // All-charges discounts are reserved for explicitly sponsored coupons.
+        $sponsored = ($payload['sponsoredByPlatform'] ?? false) === true;
+        if ($discountScope === 'all' && ! $sponsored) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['All-charges discount requires platform sponsorship.'],
+            ]);
+        }
+        if ($sponsored && ($discountScope !== 'all' || $creatorManaged || $creatorAssignment !== null)) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['Invalid sponsored coupon configuration.'],
+            ]);
+        }
+        if (! in_array($discountScope, ['delivery', 'subtotal', 'all'], true)) {
             $discountScope = $creatorAssignment !== null ? 'delivery' : 'subtotal';
         }
 
-        $discountBase = $discountScope === 'delivery'
-            ? max(0, $deliveryFee)
-            : max(0, $subtotal);
+        $discountBase = match ($discountScope) {
+            'delivery' => max(0, $deliveryFee),
+            'all' => max(0, $subtotal) + max(0, $deliveryFee) + max(0, $tax),
+            default => max(0, $subtotal),
+        };
 
         $zadSharePercent = max(0, min(100, (float) ($payload['zadSharePercent'] ?? 100)));
         $familySharePercent = max(0, min(100, (float) ($payload['familySharePercent'] ?? 0)));
@@ -268,6 +283,15 @@ class CouponService
             $zadSharePercent + $familySharePercent + $driverSharePercent,
             4
         );
+
+        if ($sponsored && (abs($zadSharePercent - 100.0) > 0.001
+            || abs($familySharePercent) > 0.001 || abs($driverSharePercent) > 0.001
+            || (int) ($payload['usageLimit'] ?? 0) !== 1
+            || (int) ($payload['perCustomerLimit'] ?? 0) !== 1)) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['Sponsored coupon must be one-use and 100% platform-funded.'],
+            ]);
+        }
 
         if (abs($fundingTotal - 100) > 0.001) {
             throw ValidationException::withMessages([
@@ -280,6 +304,13 @@ class CouponService
         $discountType = strtolower((string) ($payload['discountType'] ?? ''));
         $value = max(0, (float) ($payload['value'] ?? 0));
         $maxDiscount = max(0, (float) ($payload['maxDiscount'] ?? 0));
+
+        if ($sponsored && ($discountType !== 'percentage' || abs($value - 100.0) > 0.001
+            || abs($maxDiscount) > 0.001)) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['Sponsored coupon must cover 100% without a cap.'],
+            ]);
+        }
 
         $discount = $this->calculateDiscount(
             $discountType,
@@ -301,6 +332,7 @@ class CouponService
             'minimum_order' => round($minimumOrder, 2),
             'discount_amount' => $discount,
             'discount_scope' => $discountScope,
+            'sponsored_by_platform' => $sponsored,
             'zad_share_percent' => round($zadSharePercent, 2),
             'family_share_percent' => round($familySharePercent, 2),
             'driver_share_percent' => round($driverSharePercent, 2),
@@ -316,6 +348,7 @@ class CouponService
                 'nameEn' => $payload['nameEn'] ?? null,
                 'discountType' => $discountType,
                 'discountScope' => $discountScope,
+                'sponsoredByPlatform' => $sponsored,
                 'zadSharePercent' => round($zadSharePercent, 2),
                 'familySharePercent' => round($familySharePercent, 2),
                 'driverSharePercent' => round($driverSharePercent, 2),

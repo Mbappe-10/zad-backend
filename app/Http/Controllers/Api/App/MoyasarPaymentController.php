@@ -30,6 +30,7 @@ class MoyasarPaymentController extends Controller
     public function attempt(Request $request, Order $order): JsonResponse
     {
         $this->authorizeOrder($request, $order);
+        abort_if($order->isSponsoredFunded(), 409, 'Sponsored order does not require payment.');
 
         if ($order->isPaid()) {
             return response()->json([
@@ -56,6 +57,7 @@ class MoyasarPaymentController extends Controller
         // Serialize attempt creation against unpaid cancellation and webhook updates.
         $attempt = DB::transaction(function () use ($order, $gateway, $amountHalalas): PaymentAttempt {
             $lockedOrder = Order::query()->lockForUpdate()->findOrFail($order->id);
+            abort_if($lockedOrder->isSponsoredFunded(), 409, 'Sponsored order cannot be charged.');
             abort_if($lockedOrder->isCancelled() || $lockedOrder->isPaid(),
                 409, 'الطلب ملغي أو مدفوع؛ حدث حالة الطلب أولًا.');
             abort_unless($this->amountHalalas($lockedOrder) === $amountHalalas,
@@ -124,6 +126,7 @@ class MoyasarPaymentController extends Controller
     public function webIntent(Request $request, Order $order): JsonResponse
     {
         $this->authorizeOrder($request, $order);
+        abort_if($order->isSponsoredFunded(), 409, 'Sponsored order does not require payment.');
         abort_unless((bool) config('zad_web_payment.enabled', false), 503, 'Web payment intents are not enabled.');
         // Production pilot guard: restrict only WEB intents; Android/legacy routes are untouched.
         // OrderGuestAccess already authenticates the V5 order before this comparison.
@@ -157,6 +160,7 @@ class MoyasarPaymentController extends Controller
         // Reserve the original attempt atomically, before any remote I/O.
         $reservation = DB::transaction(function () use ($order, $givenId, $amount): array {
             $lockedOrder = Order::query()->lockForUpdate()->findOrFail($order->id);
+            abort_if($lockedOrder->isSponsoredFunded(), 409, 'Sponsored order cannot be charged.');
             abort_if($lockedOrder->isCancelled() || $lockedOrder->isPaid(), 422, 'Order cannot be charged.');
             abort_unless($this->amountHalalas($lockedOrder) === $amount, 409, 'Order amount changed. Refresh checkout.');
 

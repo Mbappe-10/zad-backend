@@ -33,7 +33,16 @@ class FamilyOrderController extends Controller
 
         $orders = Order::query()
             ->whereIn('store_id', $storeIds)
-            ->where('payment_status', Order::PAYMENT_PAID)
+            ->where(function ($query) {
+                $query->where('payment_status', Order::PAYMENT_PAID)
+                    ->orWhereExists(function ($funding) {
+                        $funding->selectRaw('1')
+                            ->from('sponsored_order_fundings')
+                            ->whereColumn('sponsored_order_fundings.order_id', 'orders.id')
+                            ->where('sponsored_order_fundings.funding_source', 'zad_platform')
+                            ->where('sponsored_order_fundings.status', 'committed');
+                    });
+            })
             ->operationallyReleased();
 
         return response()->json([
@@ -53,7 +62,16 @@ class FamilyOrderController extends Controller
                     ->count(),
 
                 'sales_total' => (float) (clone $orders)
-                    ->where('payment_status', Order::PAYMENT_PAID)
+                    ->where(function ($query) {
+                $query->where('payment_status', Order::PAYMENT_PAID)
+                    ->orWhereExists(function ($funding) {
+                        $funding->selectRaw('1')
+                            ->from('sponsored_order_fundings')
+                            ->whereColumn('sponsored_order_fundings.order_id', 'orders.id')
+                            ->where('sponsored_order_fundings.funding_source', 'zad_platform')
+                            ->where('sponsored_order_fundings.status', 'committed');
+                    });
+            })
                     ->operationallyReleased()
                     ->whereIn('status', [
                         Order::STATUS_DELIVERED,
@@ -74,7 +92,16 @@ class FamilyOrderController extends Controller
 
         $orders = Order::query()
             ->whereIn('store_id', $storeIds)
-            ->where('payment_status', Order::PAYMENT_PAID)
+            ->where(function ($query) {
+                $query->where('payment_status', Order::PAYMENT_PAID)
+                    ->orWhereExists(function ($funding) {
+                        $funding->selectRaw('1')
+                            ->from('sponsored_order_fundings')
+                            ->whereColumn('sponsored_order_fundings.order_id', 'orders.id')
+                            ->where('sponsored_order_fundings.funding_source', 'zad_platform')
+                            ->where('sponsored_order_fundings.status', 'committed');
+                    });
+            })
             ->operationallyReleased()
             ->whereIn('status', [
                 Order::STATUS_PENDING,

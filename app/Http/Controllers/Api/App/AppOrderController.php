@@ -54,9 +54,11 @@ class AppOrderController extends Controller
         // Dual-client rollout: older APKs keep the prepay verification_token flow.
         // An opted-in client must provide an idempotent checkout request ID
         // and prove ownership of a signed guest session before order creation.
-        $postpayOtp = (bool) config('postpay_otp.enabled', false)
+        $sponsoredCheckout = $request->filled('sponsored_coupon_code');
+        $postpayOtp = $sponsoredCheckout || (bool) config('postpay_otp.enabled', false)
             && $request->filled('checkout_request_id');
         $data = $request->validate([
+            'sponsored_coupon_code' => ['nullable', 'string', 'min:6', 'max:191'],
             'guest_session_id' => ['required', 'string', 'max:36', 'exists:app_guest_sessions,id'],
             'verification_token' => [$postpayOtp ? 'nullable' : 'required', 'string'],
             'contact_phone' => [$postpayOtp ? 'required' : 'nullable', 'string', 'regex:/^05[0-9]{8}$/D'],
@@ -218,6 +220,7 @@ class AppOrderController extends Controller
             $data,
             $verification,
             $postpayOtp,
+            $sponsoredCheckout,
             $store,
             $products,
             $subtotal,
@@ -236,7 +239,19 @@ class AppOrderController extends Controller
                     ->where('guest_session_id', $data['guest_session_id'])
                     ->where('checkout_request_id', $data['checkout_request_id'])
                     ->first();
-                if ($prior !== null) return $prior;
+                if ($prior !== null) {
+                    $hasFunding = DB::table('sponsored_order_fundings')
+                        ->where('order_id', $prior->id)
+                        ->where('funding_source', 'zad_platform')
+                        ->where('status', 'committed')
+                        ->exists();
+                    if ($sponsoredCheckout !== $hasFunding) {
+                        throw ValidationException::withMessages([
+                            'checkout_request_id' => ['Checkout retry does not match original funding.'],
+                        ]);
+                    }
+                    return $prior;
+                }
             }
             $order = Order::query()->create([
                 'number' => $this->generateOrderNumber(),
@@ -285,6 +300,18 @@ class AppOrderController extends Controller
                 ]);
             }
 
+            // ZAD_SPONSORED_ORDER_STORE_V1: atomic funding, no Moyasar receipt.
+            if ($sponsoredCheckout) {
+                app(\App\Services\SponsoredCouponRedemptionService::class)->redeem(
+                    $data['sponsored_coupon_code'],
+                    $order,
+                    $data['items'],
+                    (int) round((float) $order->subtotal * 100),
+                    (int) round((float) $order->delivery_fee * 100),
+                    (int) round((float) $order->tax * 100),
+                    $data['checkout_request_id']
+                );
+            }
             return $order;
         });
 
@@ -300,10 +327,24 @@ class AppOrderController extends Controller
             report($exception);
         }
 
+        $sponsoredFunded = DB::table('sponsored_order_fundings')
+            ->where('order_id', $order->id)
+            ->where('funding_source', 'zad_platform')
+            ->where('status', 'committed')
+            ->exists();
+
+        if ($sponsoredCheckout && !$sponsoredFunded) {
+            throw ValidationException::withMessages([
+                'sponsored_coupon_code' => ['Sponsored funding is not committed.'],
+            ]);
+        }
+
         return response()->json([
             'message' => 'تم إنشاء الطلب بنجاح.',
             'data' => $order->load(['items', 'store']),
             'vehicle_recommendation' => $vehicleRecommendation,
+            'sponsored_funded' => $sponsoredFunded,
+            'amount_due' => $sponsoredFunded ? 0 : (float) $order->total,
         ], 201);
     }
 
@@ -315,22 +356,44 @@ class AppOrderController extends Controller
             return response()->json(['data' => []]);
         }
 
+        app(\App\Services\App\OrderGuestAccess::class)
+            ->assertNewSession($request, $guestSessionId);
+
         $orders = Order::query()
             ->where('guest_session_id', $guestSessionId)
             ->latest()
             ->with(['items', 'store', 'driver', 'settlement'])
             ->get();
 
-        return response()->json(['data' => $orders]);
+        // ZAD_SPONSORED_ORDER_LIST_V1: funding is verified server-side.
+        $fundedOrderIds = \Illuminate\Support\Facades\DB::table('sponsored_order_fundings')
+            ->whereIn('order_id', $orders->pluck('id'))
+            ->where('funding_source', 'zad_platform')
+            ->where('status', 'committed')
+            ->pluck('order_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $fundedLookup = array_fill_keys($fundedOrderIds, true);
+        $payload = $orders->map(function (Order $order) use ($fundedLookup): array {
+            $data = $order->toArray();
+            $data['sponsored_funded'] = isset($fundedLookup[$order->id]);
+            return $data;
+        });
+
+        return response()->json(['data' => $payload]);
     }
 
     public function show(Request $request, Order $order): JsonResponse
     {
         $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
 
-        $allowedByGuest =
-            $guestSessionId !== '' &&
-            $order->guest_session_id === $guestSessionId;
+        $allowedByGuest = false;
+        if ($guestSessionId !== '' &&
+            $order->guest_session_id === $guestSessionId) {
+            $allowedByGuest = app(\App\Services\App\OrderGuestAccess::class)
+                ->allows($request, $order);
+        }
 
         $allowedByCustomer =
             $request->user() !== null &&
@@ -340,7 +403,7 @@ class AppOrderController extends Controller
 
         abort_unless($allowedByGuest || $allowedByCustomer, 403);
         abort_unless(
-            $order->isPaid(),
+            $order->isPaidOrSponsoredFunded(),
             402,
             'يجب إتمام الدفع قبل فتح تتبع الطلب.',
         );
@@ -451,7 +514,7 @@ class AppOrderController extends Controller
     public function deliveryReceipt(Request $request, Order $order): JsonResponse
     {
         $this->ensureCustomerOwnsOrder($request, $order);
-        abort_unless($order->isPaid(), 402, 'يجب إتمام الدفع أولًا.');
+        abort_unless($order->isPaidOrSponsoredFunded(), 402, 'يجب إتمام الدفع أولًا.');
         abort_unless(
             in_array($order->status, [
                 Order::STATUS_DELIVERING,
@@ -601,9 +664,12 @@ class AppOrderController extends Controller
     {
         $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
 
-        $allowedByGuest =
-            $guestSessionId !== '' &&
-            $order->guest_session_id === $guestSessionId;
+        $allowedByGuest = false;
+        if ($guestSessionId !== '' &&
+            $order->guest_session_id === $guestSessionId) {
+            $allowedByGuest = app(\App\Services\App\OrderGuestAccess::class)
+                ->allows($request, $order);
+        }
 
         $allowedByCustomer =
             $request->user() !== null &&
@@ -638,9 +704,12 @@ class AppOrderController extends Controller
     private function ensureCustomerOwnsOrder(Request $request, Order $order): void
     {
         $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
-        $allowedByGuest =
-            $guestSessionId !== '' &&
-            $order->guest_session_id === $guestSessionId;
+        $allowedByGuest = false;
+        if ($guestSessionId !== '' &&
+            $order->guest_session_id === $guestSessionId) {
+            $allowedByGuest = app(\App\Services\App\OrderGuestAccess::class)
+                ->allows($request, $order);
+        }
         $allowedByCustomer =
             $request->user() !== null &&
             $order->customer_id !== null &&

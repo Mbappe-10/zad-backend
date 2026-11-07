@@ -32,6 +32,7 @@ class OrderSettlementService
                 ->findOrFail($order->id);
 
             $this->assertNotProductionTestPayment((int) $order->id);
+            app(OrderPreparationDecisionGuard::class)->assertSettlement($order);
 
             if (! in_array($order->status, Order::completedStatuses(), true)) {
                 throw ValidationException::withMessages([
@@ -74,6 +75,36 @@ class OrderSettlementService
                 min(100, (float) ($couponSnapshot['driverSharePercent'] ?? 0))
             );
 
+                        // ZAD_SPONSORED_SETTLEMENT_ACCOUNTING_V1
+            // Keep normal coupon discounts separate from platform sponsorship.
+            $sponsoredFunding = DB::table('sponsored_order_fundings')
+                ->where('order_id', $order->id)
+                ->where('funding_source', 'zad_platform')
+                ->where('status', 'committed')
+                ->first();
+
+            $sponsoredFundingTotal = $sponsoredFunding !== null
+                ? round((float) $sponsoredFunding->funded_total, 2)
+                : 0.0;
+
+            if ($sponsoredFunding !== null) {
+                $expectedFunding = round(
+                    (float) $order->subtotal
+                    + (float) $order->delivery_fee
+                    + (float) $order->tax,
+                    2
+                );
+
+                if (
+                    $sponsoredFundingTotal <= 0
+                    || abs($sponsoredFundingTotal - $expectedFunding) > 0.009
+                    || (float) $order->discount !== 0.0
+                ) {
+                    throw ValidationException::withMessages([
+                        'sponsorship' => ['مبلغ تمويل زاد لا يطابق قيمة الطلب.'],
+                    ]);
+                }
+            }
             $customerDiscount = max(0, (float) $order->discount);
 
             $familyFundedDiscount = round(
@@ -95,6 +126,8 @@ class OrderSettlementService
                 ),
                 2
             );
+
+            $zadFundedDiscount = round($zadFundedDiscount + $sponsoredFundingTotal, 2);
 
             $familyGross = max(round((float) $order->subtotal, 2), 0);
             $driverGross = max(round((float) $order->delivery_fee, 2), 0);
@@ -163,6 +196,7 @@ class OrderSettlementService
                     'family_share_percent' => $familySharePercent,
                     'driver_share_percent' => $driverSharePercent,
                     'zad_funded_discount' => $zadFundedDiscount,
+                    'sponsored_funding_total' => $sponsoredFundingTotal,
                     'family_funded_discount' => $familyFundedDiscount,
                     'driver_funded_discount' => $driverFundedDiscount,
                     'prepared_at' => now()->toISOString(),
@@ -174,6 +208,37 @@ class OrderSettlementService
                 ],
             ]);
 
+            // ZAD_SPONSORSHIP_EXPENSE_LEDGER_V1
+            // Internal sponsorship expense; not a cash payment.
+            if ($sponsoredFundingTotal > 0) {
+                \App\Models\FinancialLedgerEntry::query()->firstOrCreate(
+                    [
+                        'external_reference' => "ZAD-SPONSOR-{$order->id}",
+                    ],
+                    [
+                        'entry_number' => 'LED-' . \Illuminate\Support\Str::upper(
+                            \Illuminate\Support\Str::random(16)
+                        ),
+                        'entry_date' => today(),
+                        'occurred_at' => now(),
+                        'account_code' => 'sponsorship_expense',
+                        'direction' => 'debit',
+                        'status' => 'completed',
+                        'amount' => $sponsoredFundingTotal,
+                        'currency' => 'SAR',
+                        'source_type' => $settlement->getMorphClass(),
+                        'source_id' => $settlement->id,
+                        'description' => 'ZAD sponsored order expense',
+                        'metadata' => [
+                            'order_id' => $order->id,
+                            'funding_source' => 'zad_platform',
+                            'cash_received' => 0,
+                            'payment_provider' => null,
+                        ],
+                        'created_by' => $userId,
+                    ]
+                );
+            }
             if ($familyId !== null && $familyNet > 0) {
                 $familyWallet = $this->wallet(ProductiveFamily::class, (int) $familyId);
                 $transaction = $this->financial->holdCredit(
@@ -251,6 +316,8 @@ class OrderSettlementService
                 ->findOrFail($settlement->id);
 
             $this->assertNotProductionTestPayment((int) $settlement->order_id);
+            $releaseOrder = Order::query()->findOrFail($settlement->order_id);
+            app(OrderPreparationDecisionGuard::class)->assertSettlement($releaseOrder);
 
             if ($settlement->status === OrderSettlement::STATUS_RELEASED) {
                 return $settlement;

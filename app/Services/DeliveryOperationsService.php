@@ -315,7 +315,7 @@ class DeliveryOperationsService
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
                 if ($order->driver_id !== null ||
                     (string) $order->status !== Order::STATUS_READY ||
-                    (string) $order->payment_status !== Order::PAYMENT_PAID) {
+                    ! $order->isPaidAndContactVerified()) {
                     throw ValidationException::withMessages([
                         'order' => ['لا يمكن إسناد هذا الطلب: ربما قبله مندوب أو تغيرت حالته. قم بالتحديث.'],
                     ]);

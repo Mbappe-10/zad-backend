@@ -63,6 +63,13 @@ class AdminResourceController extends Controller
 
     public function index(Request $request, string $resource): JsonResponse
     {
+        if ($resource === 'coupons-offers') {
+            abort_unless(
+                request()->user()?->hasPermission('coupons.manage'),
+                403,
+                'Permission denied.'
+            );
+        }
         $this->guardResource($resource);
 
         $query = PlatformRecord::query()
@@ -94,6 +101,14 @@ class AdminResourceController extends Controller
 
     public function store(Request $request, string $resource): JsonResponse
     {
+        if ($resource === 'coupons-offers') {
+            abort_unless(
+                $request->user()?->hasPermission('coupons.manage'),
+                403,
+                'Permission denied.'
+            );
+        }
+
         $this->guardResource($resource);
 
         $payload = $this->payloadFromRequest($request);
@@ -137,6 +152,13 @@ class AdminResourceController extends Controller
 
     public function show(string $resource, int $record): JsonResponse
     {
+        if ($resource === 'coupons-offers') {
+            abort_unless(
+                request()->user()?->hasPermission('coupons.manage'),
+                403,
+                'Permission denied.'
+            );
+        }
         $item = $this->findRecord($resource, $record);
 
         return response()->json([
@@ -149,6 +171,14 @@ class AdminResourceController extends Controller
         string $resource,
         int $record,
     ): JsonResponse {
+        if ($resource === 'coupons-offers') {
+            abort_unless(
+                $request->user()?->hasPermission('coupons.manage'),
+                403,
+                'Permission denied.'
+            );
+        }
+
         $item = $this->findRecord($resource, $record);
         $before = $this->flatten($item);
         $payload = array_replace_recursive(
@@ -188,6 +218,14 @@ class AdminResourceController extends Controller
         string $resource,
         int $record,
     ): JsonResponse {
+        if ($resource === 'coupons-offers') {
+            abort_unless(
+                $request->user()?->hasPermission('coupons.manage'),
+                403,
+                'Permission denied.'
+            );
+        }
+
         $item = $this->findRecord($resource, $record);
         $before = $this->flatten($item);
 
@@ -207,6 +245,14 @@ class AdminResourceController extends Controller
         int $record,
         string $action,
     ): JsonResponse {
+        if ($resource === 'coupons-offers') {
+            abort_unless(
+                $request->user()?->hasPermission('coupons.manage'),
+                403,
+                'Permission denied.'
+            );
+        }
+
         $item = $this->findRecord($resource, $record);
         $before = $this->flatten($item);
 
@@ -301,6 +347,9 @@ class AdminResourceController extends Controller
         string $resource,
         string $action,
     ): JsonResponse {
+        if ($resource === 'coupons-offers') {
+            abort_unless($request->user()?->hasPermission('coupons.manage'), 403, 'Permission denied.');
+        }
         $this->guardResource($resource);
 
         if ($resource === 'ads' && $action === 'options') {
@@ -365,6 +414,13 @@ class AdminResourceController extends Controller
 
     public function stats(string $resource): JsonResponse
     {
+        if ($resource === 'coupons-offers') {
+            abort_unless(
+                request()->user()?->hasPermission('coupons.manage'),
+                403,
+                'Permission denied.'
+            );
+        }
         $this->guardResource($resource);
 
         $records = PlatformRecord::query()
@@ -662,6 +718,9 @@ class AdminResourceController extends Controller
 
     public function export(Request $request, string $resource): StreamedResponse
     {
+        if ($resource === 'coupons-offers') {
+            abort_unless($request->user()?->hasPermission('coupons.manage'), 403, 'Permission denied.');
+        }
         $this->guardResource($resource);
 
         $rows = PlatformRecord::query()
@@ -721,6 +780,9 @@ class AdminResourceController extends Controller
 
     public function upload(Request $request, string $resource): JsonResponse
     {
+        if ($resource === 'coupons-offers') {
+            abort_unless($request->user()?->hasPermission('coupons.manage'), 403, 'Permission denied.');
+        }
         $this->guardResource($resource);
 
         $request->validate([

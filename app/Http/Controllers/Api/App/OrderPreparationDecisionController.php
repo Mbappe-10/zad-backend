@@ -54,8 +54,16 @@ class OrderPreparationDecisionController extends Controller {
             ->where('phone',$order->contact_phone)->whereNotNull('verified_at')->exists();
     }
     private function requireEligibleOrder(Order $order): void {
-        abort_unless($order->payment_status === Order::PAYMENT_PAID, 409, 'لم يكتمل الدفع.');
-        abort_unless($this->verifiedContact($order),409,'لم يكتمل توثيق جوال العميل.');
+        abort_unless(
+            $order->isSponsoredFunded() || $order->payment_status === Order::PAYMENT_PAID,
+            409,
+            'لم يكتمل الدفع أو اعتماد تمويل الطلب.'
+        );
+        abort_unless(
+            $order->isSponsoredFunded() || $this->verifiedContact($order),
+            409,
+            'لم يكتمل توثيق جوال العميل.'
+        );
         abort_unless(in_array($order->status,['pending','accepted','preparing'],true) && $order->driver_id === null,409,'حالة الطلب لا تسمح بالتمديد أو الاعتذار.');
     }
     public function options(Request $request): JsonResponse {
@@ -105,7 +113,11 @@ class OrderPreparationDecisionController extends Controller {
         $data=$request->validate(['response'=>['required','in:accept,decline']]);
         $decision=DB::transaction(function () use ($order,$data): OrderPreparationDecision {
             $locked=Order::query()->lockForUpdate()->findOrFail($order->id);
-            abort_unless($locked->payment_status===Order::PAYMENT_PAID,409);
+            abort_unless(
+                $locked->isSponsoredFunded() || $locked->payment_status === Order::PAYMENT_PAID,
+                409,
+                'لم يكتمل الدفع أو اعتماد تمويل الطلب.'
+            );
             $decision=OrderPreparationDecision::query()->where('order_id',$locked->id)->lockForUpdate()->firstOrFail();
             abort_unless($decision->kind==='extension' && $decision->status==='pending',409,'انتهت أو أغلقت مهلة القرار.');
             if (now()->greaterThanOrEqualTo($decision->response_due_at)) {
@@ -120,7 +132,10 @@ class OrderPreparationDecisionController extends Controller {
             }
             return $decision->fresh();
         },3);
-        return response()->json(['message'=>'تم تسجيل قرارك. أي تعويض مالي لا يُعتبر مستردًا حتى تؤكد بوابة الدفع ذلك.','data'=>$this->payload($decision)]);
+        $message = $order->fresh()->isSponsoredFunded()
+            ? 'تم تسجيل قرارك. أي تعويض مالي للطلب الممول يخضع للمراجعة، ولم يتم تنفيذ استرداد.'
+            : 'تم تسجيل قرارك. أي تعويض مالي لا يُعتبر مستردًا حتى تؤكد بوابة الدفع ذلك.';
+        return response()->json(['message'=>$message,'data'=>$this->payload($decision)]);
     }
     private function payload(OrderPreparationDecision $d): array {
         $expired=$d->kind==='extension' && $d->status==='pending' && now()->greaterThanOrEqualTo($d->response_due_at);

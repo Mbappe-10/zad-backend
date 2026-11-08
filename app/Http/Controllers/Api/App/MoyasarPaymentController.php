@@ -602,6 +602,11 @@ class MoyasarPaymentController extends Controller
             if ($order->isPaid()) {
                 return $order;
             }
+            abort_if(
+                $order->isCancelled(),
+                409,
+                'الطلب ملغي. يلزم مراجعة أي دفعة وصلت بعد الإلغاء.'
+            );
 
             // Re-evaluate the V5 payment environment inside the locked transaction.
             $this->assertV5PaymentMode($order, $mode);

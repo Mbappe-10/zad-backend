@@ -7,6 +7,9 @@ use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\PaymentAttempt;
 use App\Services\App\OrderGuestAccess;
+use App\Services\App\MoyasarModeResolver;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +17,7 @@ use Illuminate\Support\Facades\DB;
 /** Cancel only a V5 checkout that has not started a provider payment. */
 final class UnpaidOrderCancellationController extends Controller
 {
-    public function __construct(private readonly OrderGuestAccess $access) {}
+    public function __construct(private readonly OrderGuestAccess $access, private readonly MoyasarModeResolver $modes) {}
 
     public function cancel(Request $request, Order $order): JsonResponse
     {
@@ -56,18 +59,121 @@ final class UnpaidOrderCancellationController extends Controller
                 ->get();
 
             foreach ($attempts as $attempt) {
-                $payload = $attempt->payload;
-                $untouched = $payload === null || $payload === [] || $payload === '';
                 abort_unless(
                     $attempt->gateway === 'moyasar_live'
                     && $attempt->status === 'created'
-                    && blank($attempt->provider_payment_id)
-                    && $untouched,
+                    && blank($attempt->provider_payment_id),
                     409,
-                    'بدأت محاولة دفع أو تعذر التأكد من حالتها. لا يمكن الإلغاء قبل مراجعة ميسر.',
+                    'حالة محاولة الدفع لا تسمح بإلغاء الطلب.',
                 );
+
+                $payload = is_array($attempt->payload)
+                    ? $attempt->payload : [];
+
+                $state = (string) ($payload['web_intent_state'] ?? '');
+                $intentId = trim((string) ($payload['web_intent_id'] ?? ''));
+
+                // A creation in progress may have reached Moyasar already.
+                abort_if($state === 'creating', 409,
+                    'جلسة الدفع قيد الإنشاء. يرجى المحاولة لاحقًا.');
+
+                if ($intentId === '') {
+                    abort_unless($state === '', 409,
+                        'حالة جلسة الدفع غير مؤكدة.');
+                    continue;
+                }
+
+                abort_unless(
+                    $state === 'ready'
+                    && \Illuminate\Support\Str::isUuid($intentId),
+                    409,
+                    'جلسة الدفع تحتاج مراجعة قبل الإلغاء.',
+                );
+
+                // Keep the order row locked during the remote cancellation.
+                // This blocks a concurrent new web-intent reservation.
+                $credentials = $this->modes->credentials('live');
+                $secretKey = $credentials['secret_key'];
+                $url = 'https://api.moyasar.com/v1/payment_intents/'
+                    .rawurlencode($intentId);
+
+                try {
+                    $check = Http::acceptJson()
+                        ->withBasicAuth($secretKey, '')
+                        ->timeout(10)
+                        ->get($url);
+
+                    abort_unless($check->successful(), 503,
+                        'تعذر التحقق من جلسة الدفع لدى ميسر.');
+
+                    $remote = $check->json();
+
+                    abort_unless(
+                        is_array($remote)
+                        && (string) ($remote['id'] ?? '') === $intentId,
+                        503,
+                        'بيانات جلسة الدفع غير متطابقة.',
+                    );
+
+                    $remoteStatus = (string) ($remote['status'] ?? '');
+
+                    if ($remoteStatus !== 'canceled') {
+                        abort_unless($remoteStatus === 'created', 409,
+                            'بدأ الدفع أو تغيرت حالته. لا يمكن الإلغاء.');
+
+                        $cancel = Http::acceptJson()
+                            ->withBasicAuth($secretKey, '')
+                            ->timeout(10)
+                            ->post($url.'/cancel');
+
+                        abort_unless($cancel->successful(), 409,
+                            'لم يؤكد ميسر إبطال جلسة الدفع.');
+
+                        $result = $cancel->json();
+
+                        abort_unless(
+                            is_array($result)
+                            && (string) ($result['id'] ?? '') === $intentId
+                            && (string) ($result['status'] ?? '') === 'canceled',
+                            409,
+                            'لم يتم تأكيد إلغاء جلسة الدفع.',
+                        );
+                    }
+                } catch (ConnectionException) {
+                    abort(503,
+                        'تعذر الاتصال بميسر. لم يتم إلغاء الطلب.');
+                }
+
+                // Preserve the attempt as an audit record.
+                // Mark only the provider session as canceled.
+                $attempt->update([
+                    'payload' => array_merge($payload, [
+                        'web_intent_state' => 'canceled',
+                    ]),
+                ]);
             }
 
+            // Recheck the financial state before changing the order.
+            $locked->refresh();
+
+            abort_unless(
+                $locked->status === Order::STATUS_PENDING
+                && in_array($locked->payment_status, [
+                    Order::PAYMENT_UNPAID,
+                    Order::PAYMENT_PENDING,
+                ], true)
+                && $locked->driver_id === null,
+                409,
+                'تغيرت حالة الطلب. لا يمكن الإلغاء.',
+            );
+
+            abort_if(
+                DB::table('payments')
+                    ->where('order_id', $locked->id)
+                    ->exists(),
+                409,
+                'توجد عملية مالية مرتبطة بالطلب.',
+            );
             $locked->update([
                 'status' => Order::STATUS_CANCELLED,
                 'cancelled_at' => now(),

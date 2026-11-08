@@ -37,6 +37,77 @@ class OrderCouponController extends Controller
                 ]);
             }
 
+            // ZAD_UNIFIED_SPONSORED_COUPON_V1
+            $plainCode = strtoupper(trim((string) $data['coupon_code']));
+            $sponsored = \App\Models\SponsoredCreatorCoupon::query()
+                ->where('code_hash', hash('sha256', $plainCode))
+                ->first();
+
+            if ($sponsored !== null) {
+                if (DB::table('zad_payment_attempts')
+                    ->where('order_id', $locked->id)
+                    ->exists()) {
+                    throw ValidationException::withMessages([
+                        'coupon_code' => ['لا يمكن تطبيق كوبون ممول بعد بدء الدفع.'],
+                    ]);
+                }
+
+                if ((float) $locked->discount !== 0.0) {
+                    throw ValidationException::withMessages([
+                        'coupon_code' => ['أزل الخصم الحالي قبل تطبيق الكوبون الممول.'],
+                    ]);
+                }
+
+                $items = $locked->items()
+                    ->get(['product_id', 'quantity'])
+                    ->map(fn ($item) => [
+                        'product_id' => (int) $item->product_id,
+                        'quantity' => (int) $item->quantity,
+                    ])
+                    ->all();
+
+                $cents = static fn ($value): int =>
+                    (int) round((float) $value * 100);
+
+                app(\App\Services\SponsoredCouponRedemptionService::class)
+                    ->redeem(
+                        $plainCode,
+                        $locked,
+                        $items,
+                        $cents($locked->subtotal),
+                        $cents($locked->delivery_fee),
+                        $cents($locked->tax),
+                        'coupon-apply-order-' . $locked->id
+                    );
+
+                $fundedOrder = $locked->fresh(['items', 'store']);
+
+                return [
+                    $fundedOrder,
+                    [
+                        'code' => $plainCode,
+                        'discount_scope' => 'all',
+                        'zad_share_percent' => 100,
+                        'family_share_percent' => 0,
+                        'driver_share_percent' => 0,
+                        'sponsored_funded' => true,
+                    ],
+                    round(
+                        (float) $fundedOrder->subtotal
+                        + (float) $fundedOrder->delivery_fee
+                        + (float) $fundedOrder->tax,
+                        2
+                    ),
+                ];
+            }
+
+            if (DB::table('zad_payment_attempts')
+                ->where('order_id', $locked->id)
+                ->exists()) {
+                throw ValidationException::withMessages([
+                    'coupon_code' => ['لا يمكن تعديل الخصم بعد بدء الدفع.'],
+                ]);
+            }
             // CouponService supports a legacy payload-code fallback. Lock all
             // coupon rows in deterministic order so BOTH lookup paths are
             // serialized before checking usage limits. Conservative by design.
@@ -103,6 +174,10 @@ class OrderCouponController extends Controller
                     'driver_share_percent' => $evaluation['driver_share_percent'] ?? 0,
                 ],
                 'order' => $this->summary($order),
+                'sponsored_funded' => (bool) ($evaluation['sponsored_funded'] ?? false),
+                'amount_due' => ($evaluation['sponsored_funded'] ?? false)
+                    ? 0
+                    : (float) $order->total,
             ],
         ]);
     }
@@ -146,6 +221,10 @@ class OrderCouponController extends Controller
             'data' => [
                 'coupon' => null,
                 'order' => $this->summary($order),
+                'sponsored_funded' => (bool) ($evaluation['sponsored_funded'] ?? false),
+                'amount_due' => ($evaluation['sponsored_funded'] ?? false)
+                    ? 0
+                    : (float) $order->total,
             ],
         ]);
     }

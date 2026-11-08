@@ -127,6 +127,53 @@ final class SponsoredCouponRealRedemptionTest extends TestCase
         $this->assertSame(1, DB::table('sponsored_order_fundings')->count());
     }
 
+    public function test_sponsored_coupon_accepts_lowercase_code(): void
+    {
+        $f = $this->fixture();
+
+        $f['code'] = strtolower($f['code']);
+
+        DB::transaction(fn () => $this->redeem($f, 'lowercase-redemption'));
+
+        $this->assertDatabaseHas('sponsored_order_fundings', [
+            'coupon_id' => $f['coupon_id'],
+            'order_id' => $f['order']->id,
+            'funded_total' => 25,
+            'status' => 'committed',
+        ]);
+
+        $this->assertDatabaseHas('sponsored_creator_coupons', [
+            'id' => $f['coupon_id'],
+            'status' => 'consumed',
+            'consumed_order_id' => $f['order']->id,
+        ]);
+    }
+    public function test_existing_payment_attempt_blocks_sponsored_funding(): void
+    {
+        $f = $this->fixture();
+
+        DB::table('zad_payment_attempts')->insert([
+            'order_id' => $f['order']->id,
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+            'gateway' => 'moyasar_live',
+            'status' => 'created',
+            'amount_halalas' => 2500,
+            'currency' => 'SAR',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        try {
+            DB::transaction(fn () => $this->redeem($f, 'blocked-payment-attempt'));
+            $this->fail('Sponsored funding unexpectedly succeeded.');
+        } catch (ValidationException $e) {
+            $this->assertSame(0, DB::table('sponsored_order_fundings')->count());
+            $this->assertDatabaseHas('sponsored_creator_coupons', [
+                'id' => $f['coupon_id'],
+                'status' => 'active',
+            ]);
+        }
+    }
     public function test_same_coupon_cannot_fund_second_order(): void
     {
         $f = $this->fixture();

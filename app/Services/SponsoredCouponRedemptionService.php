@@ -43,6 +43,13 @@ final class SponsoredCouponRedemptionService
             throw ValidationException::withMessages(["order" => "Order is not eligible for sponsorship."]);
         }
 
+        if (DB::table("zad_payment_attempts")
+            ->where("order_id", $stored->id)
+            ->exists()) {
+            throw ValidationException::withMessages([
+                "coupon" => "لا يمكن استخدام كوبون ممول بعد بدء محاولة الدفع.",
+            ]);
+        }
         $toCents = static fn ($value): int => (int) round((float) $value * 100);
         if ($productsCents !== $toCents($stored->subtotal)
             || $deliveryCents !== $toCents($stored->delivery_fee)
@@ -75,7 +82,7 @@ final class SponsoredCouponRedemptionService
         }
 
         $coupon = SponsoredCreatorCoupon::query()
-            ->where("code_hash", hash("sha256", trim($plainCode)))
+            ->where("code_hash", hash("sha256", strtoupper(trim($plainCode))))
             ->lockForUpdate()
             ->first();
 

@@ -584,6 +584,11 @@ class CoreSystemSeeder extends Seeder
                 'name_en' => 'Employee',
                 'priority' => 300,
             ],
+            'marketing_partner' => [
+                'name_ar' => 'شريك تسويقي',
+                'name_en' => 'Marketing Partner',
+                'priority' => 200,
+            ],
             'candidate' => [
                 'name_ar' => 'مرشح وظيفي',
                 'name_en' => 'Job Candidate',
@@ -758,6 +763,11 @@ class CoreSystemSeeder extends Seeder
                 'contracts.sign',
             ],
 
+            'marketing_partner' => [
+                'coupons.view',
+                'profile.view',
+                'profile.edit',
+            ],
             'candidate' => [
                 'profile.view',
                 'profile.edit',

@@ -180,7 +180,7 @@ class LaunchAnalyticsController extends Controller
         }
         $user = $matches->first();
         if ($user->email_verified_at === null ||
-            ! ($user->hasRole('شركة تسويقية') || $user->hasRole('marketing_company') || $user->hasRole('marketing_partner'))) {
+            ! $user->hasRole('marketing_partner')) {
             $creator->update(['user_id' => null]);
             return;
         }

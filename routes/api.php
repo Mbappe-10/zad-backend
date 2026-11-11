@@ -177,6 +177,9 @@ Route::get(
     ->name('api.admin.payout-proof.download');
 
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+    // ZAD PARTNER STAGE122 READ ONLY
+    Route::get('/admin/partner/coupons', [\App\Http\Controllers\Api\Admin\MarketingPartnerReadOnlyController::class, 'index']);
+    Route::get('/admin/partner/coupons/{coupon}/report', [\App\Http\Controllers\Api\Admin\MarketingPartnerReadOnlyController::class, 'report'])->whereNumber('coupon');
     // ZAD SPONSORED CREATOR COUPONS - OWNER ONLY
     Route::prefix('admin/sponsored-creator-coupons')
         ->middleware(['sponsored.owner', 'throttle:10,1'])
@@ -615,7 +618,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         );
     });
 
-    Route::prefix('core')->group(function () {
+    Route::prefix('core')->middleware(\App\Http\Middleware\DenyMarketingPartnerLegacyAccess::class)->group(function () {
         Route::post('/{resource}/bulk', [CoreResourceController::class, 'bulk']);
         Route::post('/{resource}/upload', [CoreResourceController::class, 'upload']);
         Route::get('/{resource}', [CoreResourceController::class, 'index']);
@@ -629,8 +632,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/approvals', [ApprovalRequestController::class, 'store']);
     Route::post('/approvals/{approvalRequest}/decision', [ApprovalRequestController::class, 'decide'])->middleware('permission:governance.approve');
 
-    Route::post('/platform/{resource}/bulk', [PlatformRecordController::class, 'bulk']);
-    Route::apiResource('/platform/{resource}', PlatformRecordController::class)->parameters(['{resource}' => 'record']);
+    Route::post('/platform/{resource}/bulk', [PlatformRecordController::class, 'bulk'])->middleware(\App\Http\Middleware\DenyMarketingPartnerLegacyAccess::class);
+    Route::apiResource('/platform/{resource}', PlatformRecordController::class)->parameters(['{resource}' => 'record'])->middleware(\App\Http\Middleware\DenyMarketingPartnerLegacyAccess::class);
 
     Route::get('/digital-employees', [DigitalEmployeeController::class, 'index']);
     Route::post('/digital-employees', [DigitalEmployeeController::class, 'store']);
@@ -815,7 +818,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::prefix('admin')->group(function () {
+    Route::prefix('admin')->middleware(\App\Http\Middleware\DenyMarketingPartnerLegacyAccess::class)->group(function () {
         Route::any('/{identity}/{record?}/{action?}', \App\Http\Controllers\Api\AdminIdentityController::class)
             ->where('identity', 'users|roles')->whereNumber('record')
             ->name('api.admin.identity');
@@ -1335,3 +1338,86 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->prefix('digital-report-assi
 // ZAD_ACCOUNT_AVATAR_V1
 Route::get('/profile/photo/content', [AuthController::class, 'profilePhotoContent'])
     ->middleware(['auth:sanctum', 'throttle:api']);
+
+// ZAD PARTNER STAGE122 ADMIN LOCKDOWN
+foreach (\Illuminate\Support\Facades\Route::getRoutes() as $route) {
+    $uri = $route->uri();
+
+    if (!str_starts_with($uri, 'api/admin/')) {
+        continue;
+    }
+
+    if (in_array($uri, [
+        'api/admin/partner/coupons',
+        'api/admin/partner/coupons/{coupon}/report',
+    ], true)) {
+        continue;
+    }
+
+    $route->middleware(
+        \App\Http\Middleware\DenyMarketingPartnerLegacyAccess::class
+    );
+}
+
+
+// ZAD PARTNER STAGE136 DEFAULT DENY
+// Guard authenticated routes except approved partner and account endpoints.
+$zadPartnerAllowedUris = [
+    'api/admin/partner/coupons',
+    'api/admin/partner/coupons/{coupon}/report',
+    'api/me',
+    'api/auth/logout',
+    'api/auth/logout-all',
+    'api/profile',
+    'api/profile/password',
+    'api/profile/photo',
+    'api/profile/photo/content',
+];
+
+foreach (\Illuminate\Support\Facades\Route::getRoutes() as $zadRoute) {
+    $zadUri = $zadRoute->uri();
+
+    if (!str_starts_with($zadUri, 'api/')) {
+        continue;
+    }
+
+    if (in_array($zadUri, $zadPartnerAllowedUris, true)) {
+        continue;
+    }
+
+    $zadMiddleware = $zadRoute->gatherMiddleware();
+
+    $zadAuthenticated = false;
+
+    foreach ($zadMiddleware as $zadEntry) {
+        $zadEntry = (string) $zadEntry;
+
+        if (
+            $zadEntry === 'auth' ||
+            str_starts_with($zadEntry, 'auth:') ||
+            str_starts_with(
+                $zadEntry,
+                \Illuminate\Auth\Middleware\Authenticate::class
+            )
+        ) {
+            $zadAuthenticated = true;
+            break;
+        }
+    }
+
+    if (!$zadAuthenticated) {
+        continue;
+    }
+
+    $zadGuard = \App\Http\Middleware\DenyMarketingPartnerLegacyAccess::class;
+
+    if (in_array($zadGuard, $zadMiddleware, true)) {
+        continue;
+    }
+
+    // Attach the guard through Laravel's route API.
+    $zadRoute->middleware($zadGuard);
+
+    // Refresh cached controller and middleware metadata.
+    $zadRoute->flushController();
+}

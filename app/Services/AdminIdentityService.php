@@ -110,8 +110,6 @@ class AdminIdentityService
             'status'=>['required',Rule::in(['active','inactive'])],
             'type'=>['required',Rule::in(['system','custom'])],
             'employee_type'=>['required',Rule::in(['human','digital','mixed'])],
-            'permissions'=>'present|array', 'permissions.*.module'=>['required',Rule::in(self::MODULES)],
-            'permissions.*.actions'=>'present|array', 'permissions.*.actions.*'=>['required',Rule::in(self::ACTIONS)],
         ])->validate();
         if (in_array($data['code'], ['platform_owner','owner','super_admin','superadmin'], true)) {
             throw ValidationException::withMessages(['code'=>'هذا الرمز محجوز لحساب النظام.']);
@@ -119,8 +117,6 @@ class AdminIdentityService
         if (PlatformRecord::where('resource','roles')->whereKeyNot($record->id)->where('payload->code',$data['code'])->exists()) {
             throw ValidationException::withMessages(['code'=>'رمز الدور مستخدم بالفعل.']);
         }
-        $keys = $this->permissionKeys($data['permissions']);
-        $this->grantCeiling($actor, $keys);
         $role = $this->entity($record);
         if ($role) $this->protect($record, $actor);
         $new = !$role;
@@ -136,23 +132,11 @@ class AdminIdentityService
             'description_ar'=>$data['description_ar'] ?? null, 'description_en'=>$data['description_en'] ?? null,
             'is_active'=>$data['status']==='active',
         ])->save();
-        $ids = [];
-        foreach ($keys as $key) {
-            [$module,$action] = explode('.', $key, 2);
-            $permission = Permission::firstOrCreate(['key'=>$key], [
-                'module'=>$module, 'action'=>$action, 'name_ar'=>$key, 'name_en'=>$key,
-                'is_active'=>true, 'is_sensitive'=>in_array($action,['delete','approve'],true),
-                'requires_approval'=>false,
-            ]);
-            if (!$permission->is_active) throw ValidationException::withMessages(['permissions'=>'توجد صلاحية معطلة: '.$key]);
-            $ids[] = $permission->id;
-        }
-        $role->permissions()->sync($ids);
         if ($new) $this->link($record, $role);
         // Revocation is immediate for existing sessions, including role deactivation.
         $role->users()->where('is_platform_owner',false)->each(fn (User $user) => $user->tokens()->delete());
         $data['type'] = 'custom';
-        $record->payload = self::safe($data);
+        $record->payload = self::safe(array_diff_key($data, ['permissions' => true]));
         $record->status = $data['status'];
         $record->save();
     }
@@ -243,7 +227,7 @@ class AdminIdentityService
         if ($entity instanceof Role) {
             $data['status'] = $entity->is_active ? 'active':'inactive';
             $data['users_count'] = $entity->users()->count();
-            $data['permissions_count'] = collect($data['permissions'] ?? [])->sum(fn($r)=>count($r['actions'] ?? []));
+            $data['permissions_count'] = $entity->permissions()->count();
         }
         if ($record->resource === 'roles') $data['name'] = $data['name_ar'] ?? $data['code'] ?? '';
         return [...$data, 'id'=>$record->id, 'created_at'=>$record->created_at?->toISOString(),

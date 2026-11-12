@@ -819,6 +819,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     */
 
     Route::prefix('admin')->middleware(\App\Http\Middleware\DenyMarketingPartnerLegacyAccess::class)->group(function () {
+        Route::get('/users/{record}/permission-details', \App\Http\Controllers\Api\AdminUserPermissionDetailsController::class)->whereNumber('record');
+        Route::get('/role-permissions', [\App\Http\Controllers\Api\AdminRolePermissionController::class, 'index']);
+        Route::put('/role-permissions/{role}', [\App\Http\Controllers\Api\AdminRolePermissionController::class, 'update'])->whereNumber('role');
         Route::any('/{identity}/{record?}/{action?}', \App\Http\Controllers\Api\AdminIdentityController::class)
             ->where('identity', 'users|roles')->whereNumber('record')
             ->name('api.admin.identity');

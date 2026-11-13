@@ -445,6 +445,8 @@ class MoyasarPaymentController extends Controller
 
     public function webhook(Request $request): JsonResponse
     {
+        \Illuminate\Support\Facades\Log::warning('MOYASAR_WEBHOOK_INCOMING', $request->all());
+
         $expectedSecret = trim((string) config('moyasar.webhook_secret', ''));
         $receivedSecret = trim((string) $request->input('secret_token', ''));
         abort_if(

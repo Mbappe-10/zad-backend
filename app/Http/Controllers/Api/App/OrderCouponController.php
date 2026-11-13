@@ -101,13 +101,22 @@ class OrderCouponController extends Controller
                 ];
             }
 
-            if (DB::table('zad_payment_attempts')
-                ->where('order_id', $locked->id)
-                ->exists()) {
-                throw ValidationException::withMessages([
-                    'coupon_code' => ['لا يمكن تعديل الخصم بعد بدء الدفع.'],
-                ]);
-            }
+        $gatewayPaymentStarted = DB::table('zad_payment_attempts')
+            ->where('order_id', $locked->id)
+            ->where(function ($attemptQuery) {
+                $attemptQuery->whereNotNull('provider_payment_id')
+                    ->orWhere(function ($intentQuery) {
+                        $intentQuery->where('status', 'created')
+                            ->whereNotNull('payload');
+                    });
+            })
+            ->exists();
+
+        if ($gatewayPaymentStarted) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['لا يمكن تعديل الخصم بعد بدء الدفع.'],
+            ]);
+        }
             // CouponService supports a legacy payload-code fallback. Lock all
             // coupon rows in deterministic order so BOTH lookup paths are
             // serialized before checking usage limits. Conservative by design.

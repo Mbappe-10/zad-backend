@@ -255,6 +255,11 @@ class MoyasarPaymentController extends Controller
                     'currency' => 'SAR',
                     'description' => 'ZAD Sync order '.$order->number,
                     'callback_url' => $callback,
+                    'metadata' => [
+                        'order_id' => (string) $order->id,
+                        'order_number' => (string) $order->number,
+                        'environment' => 'live',
+                    ],
                 ]);
         } catch (ConnectionException) {
             abort(503, 'Intent response unknown. Reconcile before trying again.');
@@ -372,13 +377,14 @@ class MoyasarPaymentController extends Controller
 
         // Moyasar gives the created payment exactly the caller's given_id.
         // Never verify an arbitrary payment ID that has no matching attempt.
-        $attempt = $this->knownAttempt($order, (string) $data['payment_id']);
-        abort_unless($attempt !== null, 422, 'لم يتم العثور على محاولة دفع لهذا الطلب.');
-        $mode = $this->modes->modeForGateway((string) $attempt->gateway);
+        $mode = $this->modes->currentMode();
         abort_unless(in_array($mode, ['live', 'sandbox'], true), 422, 'محاولة الدفع غير صالحة.');
         $this->assertV5PaymentMode($order, $mode);
 
         $payment = $this->fetchPayment((string) $data['payment_id'], $mode);
+        $intentId = trim((string) ($payment['payment_intent_id'] ?? ''));
+        $attempt = $this->knownAttempt($order, (string) $data['payment_id'], $intentId !== '' ? $intentId : null);
+        abort_unless($attempt !== null, 422, 'لم يتم العثور على محاولة دفع لهذا الطلب.');
         $this->assertPaymentMatches($order, $payment, $attempt, $mode);
         $order = $this->markPaid($order, $payment, $attempt, $mode);
 
@@ -475,16 +481,16 @@ class MoyasarPaymentController extends Controller
             return response()->json(['received' => true]);
         }
 
-        $attempt = $this->knownAttempt($order, $paymentId);
-        if ($attempt === null || $attempt->gateway !== $this->modes->gateway($mode)) {
-            return response()->json(['received' => true]);
-        }
         $this->assertV5PaymentMode($order, $mode);
-
 
         // A shared webhook secret is not proof of payment. Fetch from Moyasar
         // with the secret key bound to the original attempt's environment.
         $payment = $this->fetchPayment($paymentId, $mode);
+        $intentId = trim((string) ($payment['payment_intent_id'] ?? ''));
+        $attempt = $this->knownAttempt($order, $paymentId, $intentId !== '' ? $intentId : null);
+        if ($attempt === null || $attempt->gateway !== $this->modes->gateway($mode)) {
+            return response()->json(['received' => true]);
+        }
 
         if ($type === 'payment_paid') {
             $this->assertPaymentMatches($order, $payment, $attempt, $mode);
@@ -517,17 +523,31 @@ class MoyasarPaymentController extends Controller
         return response()->json(['received' => true]);
     }
 
-    private function knownAttempt(Order $order, string $paymentId): ?PaymentAttempt
+    private function knownAttempt(Order $order, string $paymentId, ?string $intentId = null): ?PaymentAttempt
     {
         if (! Str::isUuid($paymentId)) {
             return null;
         }
 
-        return PaymentAttempt::query()
+        $byIdempotency = PaymentAttempt::query()
             ->where('order_id', $order->id)
             ->where('idempotency_key', $paymentId)
             ->whereIn('gateway', ['moyasar_live', 'moyasar_sandbox'])
             ->first();
+
+        if ($byIdempotency !== null) {
+            return $byIdempotency;
+        }
+
+        if ($intentId !== null && Str::isUuid($intentId)) {
+            return PaymentAttempt::query()
+                ->where('order_id', $order->id)
+                ->where('payload->web_intent_id', $intentId)
+                ->whereIn('gateway', ['moyasar_live', 'moyasar_sandbox'])
+                ->first();
+        }
+
+        return null;
     }
 
     private function fetchPayment(string $paymentId, string $mode): array
@@ -569,15 +589,24 @@ class MoyasarPaymentController extends Controller
         }
 
         $paymentId = (string) ($payment['id'] ?? '');
+        $intentId = trim((string) ($payment['payment_intent_id'] ?? ''));
+        $storedIntentId = trim((string) data_get($attempt->payload, 'web_intent_id', ''));
+        $idMatched = hash_equals((string) $attempt->idempotency_key, $paymentId)
+            || ($intentId !== '' && $storedIntentId !== '' && hash_equals($storedIntentId, $intentId));
+
+        $metaOrderId = (int) data_get($payment, 'metadata.order_id', 0);
+        $metaEnv = (string) data_get($payment, 'metadata.environment', '');
+        $metaValid = ($metaOrderId === (int) $order->id && $metaEnv === $mode)
+            || ($intentId !== '' && $storedIntentId !== '' && hash_equals($storedIntentId, $intentId) && $metaOrderId === 0);
+
         if (
             $attempt->order_id != $order->id ||
             $attempt->gateway !== $this->modes->gateway($mode) ||
-            ! hash_equals((string) $attempt->idempotency_key, $paymentId) ||
+            ! $idMatched ||
             (int) ($payment['amount'] ?? -1) !== $this->amountHalalas($order) ||
             (int) $attempt->amount_halalas !== $this->amountHalalas($order) ||
             strtoupper((string) ($payment['currency'] ?? '')) !== 'SAR' ||
-            (int) data_get($payment, 'metadata.order_id', 0) !== (int) $order->id ||
-            (string) data_get($payment, 'metadata.environment', '') !== $mode
+            ! $metaValid
         ) {
             throw ValidationException::withMessages([
                 'payment' => ['بيانات العملية أو بيئتها لا تطابق الطلب.'],

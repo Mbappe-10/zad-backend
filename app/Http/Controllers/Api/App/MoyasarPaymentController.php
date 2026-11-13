@@ -470,22 +470,30 @@ class MoyasarPaymentController extends Controller
             return response()->json(['received' => true]);
         }
 
-        $orderId = (int) data_get($payload, 'metadata.order_id', 0);
         $paymentId = (string) ($payload['id'] ?? '');
-        if ($orderId <= 0 || ! Str::isUuid($paymentId)) {
+        if (! Str::isUuid($paymentId)) {
             return response()->json(['received' => true]);
         }
 
-        $order = Order::query()->find($orderId);
+        // Fetch verified payment directly from Moyasar first
+        $payment = $this->fetchPayment($paymentId, $mode);
+
+        $orderId = (int) data_get($payment, 'metadata.order_id', data_get($payload, 'metadata.order_id', 0));
+        $order = $orderId > 0 ? Order::query()->find($orderId) : null;
+
+        // Fallback: match by order number inside Moyasar description ("ZAD Sync order ZADSYNC-...")
+        if ($order === null) {
+            $desc = (string) ($payment['description'] ?? '');
+            if (preg_match('/(ZADSYNC-[A-Z0-9-]+)/', $desc, $m)) {
+                $order = Order::query()->where('number', $m[1])->first();
+            }
+        }
+
         if ($order === null) {
             return response()->json(['received' => true]);
         }
 
         $this->assertV5PaymentMode($order, $mode);
-
-        // A shared webhook secret is not proof of payment. Fetch from Moyasar
-        // with the secret key bound to the original attempt's environment.
-        $payment = $this->fetchPayment($paymentId, $mode);
         $intentId = trim((string) ($payment['payment_intent_id'] ?? ''));
         $attempt = $this->knownAttempt($order, $paymentId, $intentId !== '' ? $intentId : null);
         if ($attempt === null || $attempt->gateway !== $this->modes->gateway($mode)) {

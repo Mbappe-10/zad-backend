@@ -287,13 +287,11 @@ class Order extends Model
         return in_array($this->status, self::cancelledStatuses(), true);
     }
 
-    // A NULL state is a legacy pre-OTP order and remains operable.
-    // New postpay orders are blocked until explicitly verified. A future
-    // feature-flag change cannot silently release already held orders.
+    // Payment (or approved platform sponsorship) is the operational gate.
+    // Phone OTP is no longer part of order release.
     public function contactIsOperationallyVerified(): bool
     {
-        return $this->contact_verification_state === null
-            || $this->contact_verification_state === 'verified';
+        return true;
     }
 
     public function isPaidAndContactVerified(): bool
@@ -303,17 +301,7 @@ class Order extends Model
 
     public function scopeOperationallyReleased(Builder $query): Builder
     {
-        return $query->where(function (Builder $query): void {
-            $query->whereNull('contact_verification_state')
-                ->orWhere('contact_verification_state', 'verified')
-                ->orWhereExists(function ($funding): void {
-                    $funding->selectRaw('1')
-                        ->from('sponsored_order_fundings')
-                        ->whereColumn('sponsored_order_fundings.order_id', 'orders.id')
-                        ->where('sponsored_order_fundings.funding_source', 'zad_platform')
-                        ->where('sponsored_order_fundings.status', 'committed');
-                });
-        });
+        return $query;
     }
 
     public function isSponsoredFunded(): bool

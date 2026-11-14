@@ -495,6 +495,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         [DriverOrderController::class, 'arriveAtCustomer'],
     )->middleware('throttle:10,1');
 
+    Route::post(
+        '/orders/{order}/deliver',
+        [DriverOrderController::class, 'deliver'],
+    )->middleware('throttle:10,1');
+
     /* ZAD_DELIVERY_OTP_DRIVER_ROUTE_V1 */
     Route::post(
         '/orders/{order}/verify-delivery-code',

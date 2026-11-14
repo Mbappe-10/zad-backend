@@ -379,7 +379,7 @@ class DriverOrderController extends Controller
     }
 
     /**
-     * توثيق وصول المندوب إلى العميل قبل فتح إدخال رمز التسليم.
+     * توثيق وصول المندوب إلى العميل بصورة قبل التسليم النهائي.
      */
     public function arriveAtCustomer(Request $request, Order $order): JsonResponse
     {
@@ -403,7 +403,7 @@ class DriverOrderController extends Controller
         );
 
         return response()->json([
-            'message' => 'تم توثيق وصول الطلب. اطلب رمز الاستلام من العميل.',
+            'message' => 'تم توثيق وصول الطلب. أكمل التسليم بصورة الإثبات النهائية.',
             'data' => $this->freshOrderPayload($order),
         ]);
     }

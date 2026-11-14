@@ -20,7 +20,6 @@ use App\Services\App\VehicleRecommendationService;
 use App\Services\VehiclePricingService;
 use App\Services\OrderSettlementService;
 use App\Services\OrderJourneyRetentionService;
-use App\Services\DeliveryVerificationService;
 use App\Services\LaunchAttributionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,7 +36,6 @@ class AppOrderController extends Controller
         private readonly VehicleRecommendationService $vehicles,
         private readonly VehiclePricingService $pricing,
         private readonly OrderSettlementService $settlements,
-        private readonly DeliveryVerificationService $deliveryVerification,
         private readonly OrderJourneyRetentionService $journeyRetention,
         private readonly LaunchAttributionService $launchAttribution,
         private readonly PlatformOperationGate $operations,
@@ -45,25 +43,24 @@ class AppOrderController extends Controller
     ) {
     }
 
-    // ZAD_DELIVERY_OTP_V1
+    // Signed guest checkout keeps order ownership secure without a phone OTP.
 
     public function store(Request $request): JsonResponse
     {
         $this->operations->assertNewOrderAllowed();
 
-        // Dual-client rollout: older APKs keep the prepay verification_token flow.
-        // An opted-in client must provide an idempotent checkout request ID
-        // and prove ownership of a signed guest session before order creation.
+        // New clients prove ownership through the signed guest session and an
+        // idempotent checkout request ID. Older APKs may continue to send the
+        // legacy verification token during the rollout.
         $sponsoredCheckout = $request->filled('sponsored_coupon_code');
-        $postpayOtp = $sponsoredCheckout || (bool) config('postpay_otp.enabled', false)
-            && $request->filled('checkout_request_id');
+        $signedCheckout = $sponsoredCheckout || $request->filled('checkout_request_id');
         $data = $request->validate([
             'sponsored_coupon_code' => ['nullable', 'string', 'min:6', 'max:191'],
             'guest_session_id' => ['required', 'string', 'max:36', 'exists:app_guest_sessions,id'],
-            'verification_token' => [$postpayOtp ? 'nullable' : 'required', 'string'],
-            'contact_phone' => [$postpayOtp ? 'required' : 'nullable', 'string', 'regex:/^05[0-9]{8}$/D'],
-            'device_id' => [$postpayOtp ? 'required' : 'nullable', 'string', 'max:191'],
-            'checkout_request_id' => [$postpayOtp ? 'required' : 'nullable', 'uuid'],
+            'verification_token' => [$signedCheckout ? 'nullable' : 'required', 'string'],
+            'contact_phone' => [$signedCheckout ? 'required' : 'nullable', 'string', 'regex:/^05[0-9]{8}$/D'],
+            'device_id' => [$signedCheckout ? 'required' : 'nullable', 'string', 'max:191'],
+            'checkout_request_id' => [$signedCheckout ? 'required' : 'nullable', 'uuid'],
             'store_id' => ['required', 'integer', 'exists:stores,id'],
             'city_id' => ['nullable', 'integer', 'exists:cities,id'],
             'distance_km' => ['required', 'numeric', 'min:0', 'max:500'],
@@ -80,7 +77,7 @@ class AppOrderController extends Controller
         ]);
 
         $verification = null;
-        if ($postpayOtp) {
+        if ($signedCheckout) {
             // Guest ID alone is NOT authentication. Demand the actual session
             // token and the bound device before creating an unverified order.
             $this->guestAuthenticator->authenticate(
@@ -219,7 +216,7 @@ class AppOrderController extends Controller
         $order = DB::transaction(function () use (
             $data,
             $verification,
-            $postpayOtp,
+            $signedCheckout,
             $sponsoredCheckout,
             $store,
             $products,
@@ -230,7 +227,7 @@ class AppOrderController extends Controller
             $deliveryFee,
             $distanceKm,
         ): Order {
-            if ($postpayOtp) {
+            if ($signedCheckout) {
                 // Serialize retries for one guest; concurrent timeouts must
                 // never create a second order or initiate a second payment.
                 \App\Models\AppGuestSession::query()->whereKey($data['guest_session_id'])
@@ -257,9 +254,11 @@ class AppOrderController extends Controller
                 'number' => $this->generateOrderNumber(),
                 'customer_id' => null,
                 'guest_session_id' => $data['guest_session_id'],
-                'checkout_request_id' => $postpayOtp ? $data['checkout_request_id'] : null,
-                'contact_phone' => $postpayOtp ? $data['contact_phone'] : $verification->phone,
-                'contact_verification_state' => $postpayOtp ? 'pending' : null,
+                'checkout_request_id' => $signedCheckout ? $data['checkout_request_id'] : null,
+                'contact_phone' => $signedCheckout ? $data['contact_phone'] : $verification->phone,
+                // Existing cached web clients interpret "verified" as an
+                // immediate release, so they also skip the removed OTP screen.
+                'contact_verification_state' => $signedCheckout ? 'verified' : null,
                 'store_id' => $store->id,
                 'city_id' => $data['city_id'] ?? $store->city_id,
                 'status' => Order::STATUS_PENDING,
@@ -420,9 +419,11 @@ class AppOrderController extends Controller
         ]);
 
         $payload = $order->toArray();
-        $payload['delivery_receipt_available'] =
-            $order->status === Order::STATUS_DELIVERING ||
-            $order->deliveryVerification !== null;
+        $payload['delivery_receipt_available'] = in_array(
+            $order->status,
+            [Order::STATUS_DELIVERED, Order::STATUS_COMPLETED],
+            true,
+        );
         $payload['delivery_feedback_submitted'] = $order->rating !== null;
 
         // ZAD_CUSTOMER_TRACKING_PROOFS_V1
@@ -430,14 +431,12 @@ class AppOrderController extends Controller
             ->first(fn (OrderJourneyProof $proof): bool =>
                 $proof->stage === 'family_ready' && filled($proof->photo_path));
 
-        $deliveryVerified =
-            $order->deliveryVerification?->verified_at !== null &&
-            in_array($order->status, [
-                Order::STATUS_DELIVERED,
-                Order::STATUS_COMPLETED,
-            ], true);
+        $deliveryDocumented = in_array($order->status, [
+            Order::STATUS_DELIVERED,
+            Order::STATUS_COMPLETED,
+        ], true);
 
-        $deliveryProof = $deliveryVerified
+        $deliveryProof = $deliveryDocumented
             ? ($order->journeyProofs
                 ->first(fn (OrderJourneyProof $proof): bool =>
                     $proof->stage === 'driver_delivery' && filled($proof->photo_path))
@@ -460,7 +459,7 @@ class AppOrderController extends Controller
                     $deliveryProof,
                     'customer_delivery',
                     'تم تسليم الطلب لك',
-                    'اكتمل التسليم بعد التحقق من رمز الاستلام الخاص بطلبك.',
+                    'اكتمل التسليم بعد توثيقه بالصورة من المندوب.',
                 )
                 : null,
         ])->filter()->values()->all();
@@ -517,16 +516,19 @@ class AppOrderController extends Controller
         abort_unless($order->isPaidOrSponsoredFunded(), 402, 'يجب إتمام الدفع أولًا.');
         abort_unless(
             in_array($order->status, [
-                Order::STATUS_DELIVERING,
                 Order::STATUS_DELIVERED,
                 Order::STATUS_COMPLETED,
             ], true),
             422,
-            'رمز التسليم يظهر عندما يبدأ المندوب رحلة التوصيل.',
+            'تتاح صفحة التقييم بعد توثيق تسليم الطلب.',
         );
 
-        $payload = $this->deliveryVerification->customerPayload($order);
-        $payload['rating_submitted'] = $order->rating()->exists();
+        $payload = [
+            'order_id' => $order->id,
+            'status' => 'verified',
+            'delivery_documented' => true,
+            'rating_submitted' => $order->rating()->exists(),
+        ];
 
         return response()->json(['data' => $payload]);
     }
@@ -539,12 +541,6 @@ class AppOrderController extends Controller
             422,
             'لا يمكن إرسال التقييم قبل إثبات استلام الطلب.',
         );
-        abort_unless(
-            $order->deliveryVerification?->verified_at !== null,
-            422,
-            'يجب التحقق من رمز التسليم أولًا.',
-        );
-
         $data = $request->validate([
             'arrival_condition' => ['required', 'in:perfect,good,issue'],
             'driver_score' => ['required', 'integer', 'between:1,5'],

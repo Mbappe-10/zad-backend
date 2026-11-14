@@ -4,14 +4,12 @@ use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
 use App\Models\Order;
 use App\Models\OrderPreparationDecision;
-use App\Models\PhoneVerification;
 use App\Models\PlatformControl;
 use App\Models\Store;
 use App\Services\App\GuestSessionAuthenticator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class OrderPreparationDecisionController extends Controller {
@@ -45,13 +43,9 @@ class OrderPreparationDecisionController extends Controller {
         $auth->authenticate((string)$order->guest_session_id, $token, (string)$request->header('X-Device-ID', ''));
     }
     private function verifiedContact(Order $order): bool {
-        if (Schema::hasColumn('orders','contact_verification_state')) {
-            return $order->contact_verification_state === 'verified' || ($order->contact_verification_state === null && $order->contact_phone !== null && PhoneVerification::query()->where('guest_session_id',$order->guest_session_id)->where('phone',$order->contact_phone)->whereNotNull('verified_at')->exists());
-        }
-        // Existing legacy flow creates orders only after a verified checkout phone.
-        return $order->contact_phone !== null && PhoneVerification::query()
-            ->where('guest_session_id',$order->guest_session_id)
-            ->where('phone',$order->contact_phone)->whereNotNull('verified_at')->exists();
+        // Payment/sponsorship is validated immediately below. Phone OTP is no
+        // longer an operational gate for family preparation decisions.
+        return true;
     }
     private function requireEligibleOrder(Order $order): void {
         abort_unless(
@@ -62,7 +56,7 @@ class OrderPreparationDecisionController extends Controller {
         abort_unless(
             $order->isSponsoredFunded() || $this->verifiedContact($order),
             409,
-            'لم يكتمل توثيق جوال العميل.'
+            'لم يكتمل اعتماد الطلب.'
         );
         abort_unless(in_array($order->status,['pending','accepted','preparing'],true) && $order->driver_id === null,409,'حالة الطلب لا تسمح بالتمديد أو الاعتذار.');
     }

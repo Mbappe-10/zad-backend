@@ -651,6 +651,15 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/digital-employees/{digitalEmployee}/rules', [DigitalEmployeeController::class, 'addRule']);
     Route::post('/automation-rules/{rule}/toggle', [DigitalEmployeeController::class, 'toggleRule']);
 
+    Route::prefix('digital-workgroup')->middleware(\App\Http\Middleware\RequireSponsoredCouponOwner::class)
+        ->controller(\App\Http\Controllers\Api\DigitalWorkgroupController::class)
+        ->group(function (): void {
+            Route::get('/', 'index');
+            Route::post('/messages', 'store');
+            Route::post('/replies', 'reply')->middleware('throttle:12,1');
+            Route::post('/tasks/{digitalEmployee}', 'createTask')->whereNumber('digitalEmployee');
+        });
+
     /*
     |--------------------------------------------------------------------------
     | Product Image Upload

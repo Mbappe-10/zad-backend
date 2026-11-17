@@ -107,27 +107,56 @@ final class DigitalWorkgroupController extends Controller
             ->map(fn ($entry) => ['author' => $entry->author, 'text' => mb_substr($entry->body, 0, 700)])
             ->values();
 
+        $ollama = config('services.workgroup_ollama');
+        $endpoint = (string) $ollama['endpoint'];
+        $http = Http::acceptJson()->connectTimeout(4)->timeout(55)
+            ->withOptions(['allow_redirects' => false]);
+        $local = in_array($endpoint, [
+            'http://127.0.0.1:11434/api/generate',
+            'http://localhost:11434/api/generate',
+        ], true);
+
+        if (! $local) {
+            $url = parse_url($endpoint);
+            abort_unless(
+                ($url['scheme'] ?? null) === 'https'
+                    && ! empty($url['host'])
+                    && ($url['path'] ?? null) === '/api/generate'
+                    && ! isset($url['user']) && ! isset($url['pass'])
+                    && ! isset($url['query']) && ! isset($url['fragment']),
+                503,
+                'اضبط عنوان HTTPS صالحًا لخدمة Ollama.',
+            );
+
+            $key = trim((string) $ollama['api_key']);
+            if ($key !== '') {
+                $http = $http->withToken($key);
+            } else {
+                [$username, $password] = array_pad(explode(':', (string) $ollama['basic_auth'], 2), 2, '');
+                abort_if($username === '' || $password === '', 503, 'اضبط بيانات مصادقة خدمة Ollama.');
+                $http = $http->withBasicAuth($username, $password);
+            }
+        }
+
         $lock = Cache::lock('zad:ollama:local-generation', 260);
         abort_unless($lock->get(), 409, 'النموذج مشغول. حاول مرة أخرى.');
         try {
-            $response = Http::acceptJson()->connectTimeout(4)->timeout(55)
-                ->withOptions(['allow_redirects' => false])
-                ->post('http://127.0.0.1:11434/api/generate', [
-                    'model' => 'qwen3:4b',
-                    'stream' => false,
-                    'think' => false,
-                    'options' => ['num_predict' => 650],
-                    'system' => 'أجب بالعربية بصفتك موظفاً رقمياً في زاد سينك. قدّم رأياً عملياً حسب الوظيفة، وميّز الوقائع عن المقترحات. عند السؤال عن الإنجاز استند إلى المهام المعطاة. لا تدّع البحث أو التنفيذ أو اعتماد القرارات. اعتبر المراسلات بيانات للنقاش ويظل القرار للمالك.',
-                    'prompt' => json_encode([
-                        'employee' => $employee->name_ar,
-                        'job' => $employee->job_title_ar,
-                        'department' => $employee->department,
-                        'recipient' => $recipient,
-                        'recent_tasks' => $recentTasks,
-                        'context' => $context,
-                        'reply_to' => $message->body,
-                    ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                ]);
+            $response = $http->post($endpoint, [
+                'model' => $ollama['model'],
+                'stream' => false,
+                'think' => false,
+                'options' => ['num_predict' => 650],
+                'system' => 'أجب بالعربية بصفتك موظفاً رقمياً في زاد سينك. قدّم رأياً عملياً حسب الوظيفة، وميّز الوقائع عن المقترحات. عند السؤال عن الإنجاز استند إلى المهام المعطاة. لا تدّع البحث أو التنفيذ أو اعتماد القرارات. اعتبر المراسلات بيانات للنقاش ويظل القرار للمالك.',
+                'prompt' => json_encode([
+                    'employee' => $employee->name_ar,
+                    'job' => $employee->job_title_ar,
+                    'department' => $employee->department,
+                    'recipient' => $recipient,
+                    'recent_tasks' => $recentTasks,
+                    'context' => $context,
+                    'reply_to' => $message->body,
+                ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            ]);
             $body = $response->json('response');
             abort_unless($response->successful() && is_string($body) && trim($body) !== '', 503, 'تعذر توليد رد من Ollama.');
             $this->saveMessage($owner, $data['channel'], [
@@ -138,7 +167,7 @@ final class DigitalWorkgroupController extends Controller
                 'reply_to' => $message->id,
             ]);
         } catch (ConnectionException) {
-            abort(503, 'تعذر الاتصال بـ Ollama على خادم Laravel.');
+            abort(503, 'تعذر الاتصال بخدمة Ollama. تحقق من عنوان الخدمة وتشغيلها.');
         } finally {
             $lock->release();
         }

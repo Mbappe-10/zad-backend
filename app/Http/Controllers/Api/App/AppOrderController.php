@@ -214,7 +214,8 @@ class AppOrderController extends Controller
         );
 
         $order = DB::transaction(function () use (
-            $request,`n            $data,
+            $request,
+            $data,
             $verification,
             $signedCheckout,
             $sponsoredCheckout,

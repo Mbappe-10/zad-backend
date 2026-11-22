@@ -230,6 +230,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         ->name('api.app.launch.claim');
 
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
+    Route::get('/admin/orders/{order}/schedule-contacts', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'index'])->middleware('permission:orders.view');
+    Route::post('/admin/orders/{order}/schedule-contacts', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'store'])->middleware('permission:orders.edit');
     Route::patch('/admin/control-center/{section}', [ControlCenterController::class, 'update']);
     Route::post('/admin/control-center/actions/{action}', [ControlCenterController::class, 'action']);
 
@@ -352,6 +354,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
+        Route::post('/orders/{order}/schedule-decision', [FamilyOrderController::class, 'scheduleDecision']);
         Route::post(
             '/orders/{order}/ready-proof',
             [FamilyOrderController::class, 'readyProof'],

@@ -311,6 +311,24 @@ class AppOrderController extends Controller
                     $data['checkout_request_id']
                 );
             }
+            // ZAD_SAVE_ORDER_SCHEDULE
+            $schedInput = $request->input('schedule');
+            if (is_array($schedInput) && ! empty($schedInput['delivery_at']) && ! empty($schedInput['occasion'])) {
+                $schedData = \Illuminate\Support\Facades\Validator::make($schedInput, [
+                    'delivery_at' => ['required', 'date', 'after:now'],
+                    'occasion' => ['required', 'string', 'max:120'],
+                    'guest_count' => ['nullable', 'integer', 'min:1', 'max:10000'],
+                ])->validate();
+
+                \App\Models\OrderSchedule::query()->create([
+                    'order_id' => $order->id,
+                    'delivery_at' => \Illuminate\Support\Carbon::parse($schedData['delivery_at'])->utc(),
+                    'occasion' => trim((string) $schedData['occasion']),
+                    'guest_count' => $schedData['guest_count'] ?? null,
+                    'family_status' => 'pending',
+                ]);
+            }
+
             return $order;
         });
 
@@ -375,6 +393,7 @@ class AppOrderController extends Controller
 
         $fundedLookup = array_fill_keys($fundedOrderIds, true);
         $payload = $orders->map(function (Order $order) use ($fundedLookup): array {
+            $order->loadMissing('schedule');
             $data = $order->toArray();
             $data['sponsored_funded'] = isset($fundedLookup[$order->id]);
             return $data;
@@ -416,6 +435,7 @@ class AppOrderController extends Controller
             'deliveryVerification',
             'rating',
             'journeyProofs',
+            'schedule',
         ]);
 
         $payload = $order->toArray();

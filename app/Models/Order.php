@@ -366,4 +366,9 @@ class Order extends Model
 
         return (int) $this->created_at->diffInMinutes($this->delivered_at);
     }
+
+    public function schedule(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(OrderSchedule::class);
+    }
 }

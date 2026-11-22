@@ -221,6 +221,19 @@ class ControlCenterSectionsTest extends TestCase
             ->assertJsonPath('meta.canManagePlatform', true);
     }
 
+    public function test_owner_can_replace_or_disable_reminder_hours(): void
+    {
+        Sanctum::actingAs($this->owner());
+        $endpoint = '/api/admin/control-center/orders_sales';
+        foreach ([[48, 24, 5], [12], []] as $hours) {
+            $this->patchJson($endpoint, ['value' => ['scheduleReminderHours' => $hours], 'confirmation' => true])
+                ->assertOk();
+            $this->assertSame($hours, PlatformControl::where('section', 'orders_sales')->firstOrFail()->value['scheduleReminderHours']);
+        }
+        $this->patchJson($endpoint, ['value' => ['scheduleReminderHours' => [0, 5, 5]]])
+            ->assertUnprocessable();
+    }
+
     public function test_owner_platform_action_buttons_toggle_real_flags(): void
     {
         Sanctum::actingAs($this->owner());

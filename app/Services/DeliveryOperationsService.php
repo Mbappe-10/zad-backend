@@ -214,6 +214,15 @@ class DeliveryOperationsService
             $fromStatus = $order->status;
 
             if (
+                $fromStatus !== Order::STATUS_READY &&
+                ! ($fromStatus === Order::STATUS_ASSIGNED && $order->driver_id !== null)
+            ) {
+                throw ValidationException::withMessages([
+                    'order' => ['يجب أن يكون الطلب جاهزًا قبل إسناده إلى مندوب.'],
+                ]);
+            }
+
+            if (
                 $order->driver_id &&
                 $order->driver_id !== $driver->id
             ) {

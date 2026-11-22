@@ -201,4 +201,41 @@ final class SponsoredCheckoutHttpIntegrationTest extends TestCase
         $this->assertSame(1, DB::table('orders')->count());
         $this->assertSame(1, DB::table('sponsored_order_fundings')->count());
     }
+
+    public function test_scheduled_checkout_returns_schedule_on_create_list_and_show(): void
+    {
+        $f = $this->fixture();
+        $deliveryAt = now()->addDays(4)->startOfHour();
+        $f['payload']['schedule'] = [
+            'delivery_at' => $deliveryAt->toIso8601String(),
+            'occasion' => 'مناسبة عائلية',
+            'guest_count' => 18,
+        ];
+
+        $created = $this->withHeaders($f['headers'])
+            ->postJson('/api/v1/app/orders', $f['payload'])
+            ->assertCreated()
+            ->assertJsonPath('data.schedule.occasion', 'مناسبة عائلية')
+            ->assertJsonPath('data.schedule.guest_count', 18)
+            ->assertJsonPath('data.schedule.family_status', 'pending');
+
+        $orderId = $created->json('data.id');
+
+        $this->assertDatabaseHas('order_schedules', [
+            'order_id' => $orderId,
+            'occasion' => 'مناسبة عائلية',
+            'guest_count' => 18,
+            'family_status' => 'pending',
+        ]);
+
+        $this->withHeaders($f['headers'])
+            ->getJson('/api/v1/app/orders')
+            ->assertOk()
+            ->assertJsonPath('data.0.schedule.occasion', 'مناسبة عائلية');
+
+        $this->withHeaders($f['headers'])
+            ->getJson("/api/v1/app/orders/{$orderId}")
+            ->assertOk()
+            ->assertJsonPath('data.schedule.family_status', 'pending');
+    }
 }

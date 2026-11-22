@@ -23,6 +23,11 @@ class CoreResource extends JsonResource
             $data['primary_image_url'] = $images[0] ?? null;
         }
 
+        if ($this->resource instanceof \App\Models\Order) {
+            $this->resource->loadMissing('schedule');
+            $data['schedule'] = $this->resource->schedule?->toArray();
+        }
+
         return $data;
     }
 

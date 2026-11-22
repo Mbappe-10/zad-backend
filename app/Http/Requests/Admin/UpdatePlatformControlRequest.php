@@ -14,6 +14,8 @@ class UpdatePlatformControlRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'value.scheduleReminderHours' => ['sometimes', 'array', 'list', 'max:12'],
+            'value.scheduleReminderHours.*' => ['required', 'integer', 'between:1,8760', 'distinct'],
             'value.paymentMode' => ['sometimes', 'string', 'in:disabled,sandbox,live,simulation'],
             'value.paymentGatewayEnabled' => ['sometimes', 'boolean'],
             'value' => [

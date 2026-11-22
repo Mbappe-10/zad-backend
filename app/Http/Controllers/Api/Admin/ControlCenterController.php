@@ -79,6 +79,7 @@ class ControlCenterController extends Controller
             'enabled' => true,
             'guestOrdersEnabled' => true,
             'scheduledOrdersEnabled' => true,
+            'scheduleReminderHours' => [48, 24, 5],
             'allowCustomerCancellation' => true,
             'allowRefundRequests' => true,
             'requireCancellationReason' => true,
@@ -299,6 +300,9 @@ class ControlCenterController extends Controller
             $existingValue,
             $incomingValue,
         );
+        if ($section === 'orders_sales' && array_key_exists('scheduleReminderHours', $incomingValue)) {
+            $mergedValue['scheduleReminderHours'] = array_map('intval', $incomingValue['scheduleReminderHours']);
+        }
 
         if ($section === 'services') {
             $mode = (string) ($mergedValue['paymentMode'] ?? 'disabled');

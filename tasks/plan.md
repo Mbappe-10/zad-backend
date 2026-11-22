@@ -99,6 +99,12 @@ Add scheduled-order data and family confirmation without changing the existing o
 
 ## Render Verification Gate
 
+Render Settings screenshots supplied by the owner verify the static site `zad-sync-sa`,
+repository `Mbappe-10/zad_app`, branch `master`, live commit `05f7bcf`, blank root
+directory, build command `test -f build/web/index.html`, and publish directory
+`build/web`. Build and test the Flutter Web bundle before releasing. The screenshots
+do not show the auto-deploy setting or backend service settings.
+
 Before any push or deployment, record the live Render service name/id, repository, branch, root directory, build command, publish path, and auto-deploy setting for both API and `zad-sync-sa`. The checked-in Flutter `render.yaml` is not accepted as proof because its service names and publish paths do not match the live hostname.
 
 ## Risks and Mitigations
@@ -114,4 +120,4 @@ Before any push or deployment, record the live Render service name/id, repositor
 ## Open Questions
 
 - `Mbappe-10/laravel` is currently inaccessible and has no verified local clone; it is not part of the implementation until access is restored.
-- The live Render service mapping remains unverified; deployment is blocked, not implementation.
+- The static website source is verified. Auto-deploy and the backend service settings remain to be checked before release.

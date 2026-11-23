@@ -206,6 +206,8 @@ class AppOrderController extends Controller
             }
         }
 
+        $this->operations->assertMinimumOrderAmount($subtotal);
+
         $vehicleRecommendation = $this->vehicles->recommend(
             $packageSize,
             $distanceKm,

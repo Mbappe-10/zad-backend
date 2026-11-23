@@ -5,11 +5,15 @@ namespace App\Services;
 use App\Models\City;
 use App\Models\DeliveryPricingRule;
 use App\Models\Vehicle;
+use App\Services\App\PlatformOperationGate;
 
 class VehiclePricingService
 {
     public function quote(?int $cityId, string $vehicleType, float $distanceKm): float
     {
+        $gate = app(PlatformOperationGate::class);
+        $gate->assertDeliveryAllowed();
+
         $vehicle = Vehicle::query()
             ->where('type', $vehicleType)
             ->where('is_active', true)
@@ -39,8 +43,11 @@ class VehiclePricingService
             ? (float) (City::query()->whereKey($cityId)->value('delivery_base_fee') ?? 0)
             : 0;
 
-        $base = (float) ($rule?->base_fee ?? $vehicle?->base_fee ?? $cityBaseFee);
-        $perKm = (float) ($rule?->per_km_fee ?? $vehicle?->per_km_fee ?? 0);
+        $controlBaseFee = $gate->number('delivery', 'baseDeliveryFee', $cityBaseFee);
+        $controlPerKm = $gate->number('delivery', 'pricePerKilometer', 0);
+
+        $base = (float) ($rule?->base_fee ?? $vehicle?->base_fee ?? ($cityBaseFee > 0 ? $cityBaseFee : $controlBaseFee));
+        $perKm = (float) ($rule?->per_km_fee ?? $vehicle?->per_km_fee ?? $controlPerKm);
         $minimum = (float) ($rule?->minimum_fee ?? 0);
         $multiplier = max((float) ($rule?->surge_multiplier ?? 1), 1);
 

@@ -301,7 +301,7 @@ class ControlCenterController extends Controller
             $incomingValue,
         );
         if ($section === 'orders_sales' && array_key_exists('scheduleReminderHours', $incomingValue)) {
-            $mergedValue['scheduleReminderHours'] = array_map('intval', $incomingValue['scheduleReminderHours']);
+            $rawH = $incomingValue['scheduleReminderHours']; $arrH = is_string($rawH) ? (preg_split('/[\s,،]+/', trim($rawH)) ?: []) : (is_array($rawH) ? $rawH : []); $mergedValue['scheduleReminderHours'] = array_values(array_unique(array_filter(array_map('intval', $arrH), fn (int $h): bool => $h >= 1 && $h <= 720)));
         }
 
         if ($section === 'services') {

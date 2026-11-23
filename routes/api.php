@@ -232,6 +232,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
     Route::get('/admin/orders/{order}/schedule-contacts', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'index'])->middleware('permission:orders.view');
     Route::post('/admin/orders/{order}/schedule-contacts', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'store'])->middleware('permission:orders.edit');
+    Route::patch('/admin/orders/{order}/schedule', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'updateSchedule'])->middleware('permission:orders.edit');
     Route::patch('/admin/control-center/{section}', [ControlCenterController::class, 'update']);
     Route::post('/admin/control-center/actions/{action}', [ControlCenterController::class, 'action']);
 

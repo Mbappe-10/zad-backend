@@ -14,6 +14,7 @@ class CategoryCatalogController extends Controller
 {
     public function index(): JsonResponse
     {
+        if (! app(\App\Services\App\PlatformOperationGate::class)->enabled('products_categories', 'categoriesEnabled', true)) { return response()->json(['data' => []]); }
         return response()->json(['data' => Category::query()
             ->where('is_active', true)->orderBy('sort_order')->orderBy('id')
             ->get(['id', 'name_ar', 'name_en', 'slug', 'image_path', 'sort_order'])
@@ -29,7 +30,7 @@ class CategoryCatalogController extends Controller
     {
         abort_unless($category->is_active, 404);
         $page = Product::query()->where('category_id', $category->id)
-            ->where('status', 'active')->where('is_available', true)
+            ->where('status', 'active')->when(app(\App\Services\App\PlatformOperationGate::class)->enabled('products_categories', 'hideOutOfStockProducts', true), fn ($q) => $q->where('is_available', true))
             ->whereIn('store_id', Store::query()->select('id')->where('status', 'active')->where('is_open', true))
             ->orderByDesc('updated_at')->orderByDesc('id')
             ->paginate(min(50, max(1, (int) $request->input('per_page', 20))));

@@ -564,6 +564,7 @@ class AppOrderController extends Controller
 
     public function rateDelivery(Request $request, Order $order): JsonResponse
     {
+        abort_unless($this->operations->enabled('stores', 'ratingsEnabled', true), 403, 'التقييمات متوقفة مؤقتًا من مركز التحكم.');
         $this->ensureCustomerOwnsOrder($request, $order);
         abort_unless(
             in_array($order->status, Order::completedStatuses(), true),

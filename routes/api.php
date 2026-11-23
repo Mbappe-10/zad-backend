@@ -1211,6 +1211,8 @@ Route::prefix('v1/app')->group(function (): void {
         [\App\Http\Controllers\Api\App\LegacyOrderRecoveryController::class, 'check'])
         ->whereNumber('order')->middleware('throttle:8,1');
 
+    Route::post('/orders/recover-by-phone', [AppOrderController::class, 'recoverByPhone'])->middleware('throttle:10,1');
+
     Route::get(
         '/orders',
         [AppOrderController::class, 'index'],

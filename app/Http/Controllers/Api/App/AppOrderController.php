@@ -898,4 +898,54 @@ class AppOrderController extends Controller
 
         return $number;
     }
+
+    public function recoverByPhone(Request $request): JsonResponse
+    {
+        $guestSessionId = trim((string) $request->header('X-Guest-Session', ''));
+        abort_unless($guestSessionId !== '', 401, 'جلسة الضيف مطلوبة.');
+
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^05[0-9]{8}$/D'],
+            'device_id' => ['required', 'string', 'max:191'],
+            'order_number' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        $session = $this->guestAuthenticator->authenticate(
+            $guestSessionId,
+            $this->guestAuthenticator->tokenFromRequest($request),
+            $data['device_id'],
+        );
+
+        $query = Order::query()
+            ->where('contact_phone', $data['phone'])
+            ->where('payment_status', Order::PAYMENT_PAID);
+
+        $orderNumber = trim((string) ($data['order_number'] ?? ''));
+        if ($orderNumber !== '') {
+            $query->where(function ($q) use ($orderNumber): void {
+                $q->where('number', $orderNumber);
+                if (ctype_digit($orderNumber)) {
+                    $q->orWhere('id', (int) $orderNumber);
+                }
+            });
+        }
+
+        $orders = $query->orderByDesc('id')->limit(20)->get();
+        if ($orders->isEmpty()) {
+            return response()->json([
+                'message' => 'لا توجد طلبات مدفوعة مسجلة على رقم الجوال المدخل.',
+                'recovered_count' => 0,
+            ], 404);
+        }
+
+        Order::query()
+            ->whereIn('id', $orders->pluck('id')->all())
+            ->update(['guest_session_id' => $session->id]);
+
+        return response()->json([
+            'recovered' => true,
+            'recovered_count' => $orders->count(),
+            'message' => 'تم استرداد الطلبات بنجاح.',
+        ]);
+    }
 }

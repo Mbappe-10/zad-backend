@@ -279,7 +279,8 @@ class ControlCenterController extends Controller
             $control?->is_sensitive ?? $this->isSensitiveSection($section)
         );
 
-        if ($isSensitive && ! $request->boolean('confirmation')) {
+        $requireConfirmation = app(\App\Services\App\PlatformOperationGate::class)->enabled('security', 'requireSensitiveActionConfirmation', true);
+        if ($isSensitive && $requireConfirmation && ! $request->boolean('confirmation')) {
             return response()->json([
                 'message' => 'يجب تأكيد تعديل هذا القسم الحساس.',
                 'errors' => [
@@ -665,6 +666,10 @@ class ControlCenterController extends Controller
         ?string $reason,
         array $context = [],
     ): void {
+        if (! app(\App\Services\App\PlatformOperationGate::class)->enabled('governance', 'auditLogsEnabled', true)) {
+            return;
+        }
+
         DB::transaction(function () use (
             $userId,
             $action,

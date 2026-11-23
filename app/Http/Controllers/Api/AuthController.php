@@ -76,7 +76,7 @@ class AuthController extends Controller
          |--------------------------------------------------------------------------
          */
 
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+        if (RateLimiter::tooManyAttempts($throttleKey, max(1, (int) app(\App\Services\App\PlatformOperationGate::class)->number('security', 'maximumLoginAttempts', 5)))) {
             $seconds = RateLimiter::availableIn($throttleKey);
 
             throw ValidationException::withMessages([

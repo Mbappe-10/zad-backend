@@ -68,11 +68,11 @@ class ImageProcessingService
             $image = $this->manager->decodePath($realPath);
 
             /*
-             * قص وتوحيد الصورة تلقائيًا إلى مربع.
+             * تصغير الصورة نسبيًا داخل الحدود القصوى دون قص أو تكبير.
              */
-            $image->cover(
-                self::OUTPUT_WIDTH,
-                self::OUTPUT_HEIGHT,
+            $image->scaleDown(
+                width: self::OUTPUT_WIDTH,
+                height: self::OUTPUT_HEIGHT,
             );
 
             /*
@@ -80,6 +80,9 @@ class ImageProcessingService
              */
             $image->contrast(3);
             $image->sharpen(5);
+
+            $outputWidth = $image->width();
+            $outputHeight = $image->height();
 
             $encodedResult = $this->encodeWithinLimit($image);
 
@@ -115,8 +118,8 @@ class ImageProcessingService
                 'path' => $savedPath,
                 'size_bytes' => $actualSize,
                 'size_kb' => round($actualSize / 1024, 2),
-                'width' => self::OUTPUT_WIDTH,
-                'height' => self::OUTPUT_HEIGHT,
+                'width' => $outputWidth,
+                'height' => $outputHeight,
                 'mime_type' => 'image/webp',
             ];
         } catch (RuntimeException $exception) {

@@ -28,6 +28,7 @@ class OrderLiveController extends Controller
 
     public function start(Request $request, Order $order): JsonResponse
     {
+        app(\App\Services\App\PlatformOperationGate::class)->assertLiveStreamingAllowed();
         $familyId = $this->ensureFamilyOwnsOrder($request, $order);
 
         if (! in_array($order->status, [
@@ -138,6 +139,7 @@ class OrderLiveController extends Controller
 
     public function resume(Request $request, Order $order): JsonResponse
     {
+        app(\App\Services\App\PlatformOperationGate::class)->assertLiveStreamingAllowed();
         $familyId = $this->ensureFamilyOwnsOrder($request, $order);
         $session = $this->activeSession($order);
 

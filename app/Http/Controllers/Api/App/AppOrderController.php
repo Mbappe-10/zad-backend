@@ -48,6 +48,12 @@ class AppOrderController extends Controller
     public function store(Request $request): JsonResponse
     {
         $this->operations->assertNewOrderAllowed();
+        if ($request->user() === null) {
+            $this->operations->assertGuestOrderAllowed();
+        }
+        if (is_array($request->input('schedule')) && ! empty($request->input('schedule.delivery_at'))) {
+            $this->operations->assertScheduledOrderAllowed();
+        }
 
         // New clients prove ownership through the signed guest session and an
         // idempotent checkout request ID. Older APKs may continue to send the

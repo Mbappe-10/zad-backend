@@ -299,7 +299,7 @@ class ControlCenterController extends Controller
             ? $control->value
             : self::DEFAULT_SECTIONS[$section];
 
-        $incomingValue = $validated['value'] ?? [];
+        $incomingValue = is_array($request->input('value')) ? $request->input('value') : [];
 
         $mergedValue = array_replace_recursive(
             $existingValue,

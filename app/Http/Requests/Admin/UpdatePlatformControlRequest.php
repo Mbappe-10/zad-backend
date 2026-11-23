@@ -11,6 +11,24 @@ class UpdatePlatformControlRequest extends FormRequest
         return $this->isPlatformOwner();
     }
 
+    protected function prepareForValidation(): void
+    {
+        $value = $this->input('value');
+        if (is_array($value) && array_key_exists('scheduleReminderHours', $value)) {
+            $raw = $value['scheduleReminderHours'];
+            $items = is_string($raw)
+                ? (preg_split('/[\s,،]+/u', trim($raw)) ?: [])
+                : (is_array($raw) ? $raw : []);
+
+            $value['scheduleReminderHours'] = array_values(array_unique(array_filter(
+                array_map('intval', $items),
+                static fn (int $h): bool => $h >= 1 && $h <= 8760
+            )));
+
+            $this->merge(['value' => $value]);
+        }
+    }
+
     public function rules(): array
     {
         return [
@@ -18,32 +36,11 @@ class UpdatePlatformControlRequest extends FormRequest
             'value.scheduleReminderHours.*' => ['required', 'integer', 'between:1,8760', 'distinct'],
             'value.paymentMode' => ['sometimes', 'string', 'in:disabled,sandbox,live,simulation'],
             'value.paymentGatewayEnabled' => ['sometimes', 'boolean'],
-            'value' => [
-                'required',
-                'array',
-            ],
-
-            'description' => [
-                'nullable',
-                'string',
-                'max:1000',
-            ],
-
-            'is_sensitive' => [
-                'sometimes',
-                'boolean',
-            ],
-
-            'confirmation' => [
-                'sometimes',
-                'boolean',
-            ],
-
-            'reason' => [
-                'nullable',
-                'string',
-                'max:500',
-            ],
+            'value' => ['required', 'array'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'is_sensitive' => ['sometimes', 'boolean'],
+            'confirmation' => ['sometimes', 'boolean'],
+            'reason' => ['nullable', 'string', 'max:500'],
         ];
     }
 

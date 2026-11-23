@@ -212,7 +212,8 @@ $settings = AppSetting::query()
         // not just the owner dashboard toggle.
         $paymentGatewayEnabled = app(MoyasarModeResolver::class)->availableForCheckout();
 
-        $banners = $this->homeBanners();
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        $banners = $gate->isAdvertisementsEnabled() ? $this->homeBanners() : [];
 
         $cities = City::query()
             ->where('is_active', true)
@@ -239,10 +240,11 @@ $settings = AppSetting::query()
                     'app' => [
                         'name' => 'ZAD Sync',
                         'version' => '1.0.0',
-                        'guest_first' => true,
+                        'guest_first' => $gate->isGuestCheckoutEnabled(),
                     ],
                     'settings' => $settings,
                     'payment_gateway_enabled' => $paymentGatewayEnabled,
+                    'platform_controls' => $gate->publicControlsSnapshot(),
                     'categories' => $categories,
                     'featured_stores' => $stores,
                     'featured_products' => $products,

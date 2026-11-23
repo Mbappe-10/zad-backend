@@ -279,7 +279,11 @@ class ControlCenterController extends Controller
             $control?->is_sensitive ?? $this->isSensitiveSection($section)
         );
 
-        $requireConfirmation = app(\App\Services\App\PlatformOperationGate::class)->enabled('security', 'requireSensitiveActionConfirmation', true);
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        $requireConfirmation = $gate->enabled('security', 'requireSensitiveActionConfirmation', true);
+        if ($isSensitive && $section !== 'governance' && $gate->enabled('governance', 'requireReasonForSensitiveChanges', false)) {
+            abort_unless(filled(trim((string) ($validated['reason'] ?? ''))), 422, 'يجب كتابة سبب التغيير عند تعديل قسم حساس.');
+        }
         if ($isSensitive && $requireConfirmation && ! $request->boolean('confirmation')) {
             return response()->json([
                 'message' => 'يجب تأكيد تعديل هذا القسم الحساس.',

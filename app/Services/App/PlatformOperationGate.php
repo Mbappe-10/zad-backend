@@ -174,6 +174,11 @@ class PlatformOperationGate
             'allow_customer_cancellation' => $this->enabled('orders_sales', 'allowCustomerCancellation', true),
             'cancellation_window_minutes' => (int) $this->number('orders_sales', 'cancellationWindowMinutes', 5),
             'allow_refund_requests' => $this->enabled('orders_sales', 'allowRefundRequests', true),
+            'require_cancellation_reason' => $this->enabled('orders_sales', 'requireCancellationReason', true),
+            'show_distance_to_customer' => $this->enabled('delivery', 'showDistanceToCustomer', false),
+            'courier_acceptance_seconds' => (int) $this->number('delivery', 'courierAcceptanceSeconds', 20),
+            'smart_dispatch_enabled' => $this->enabled('delivery', 'smartDispatchEnabled', true),
+            'automatic_redispatch_enabled' => $this->enabled('delivery', 'automaticRedispatchEnabled', true),
             'advertisements_enabled' => $this->isAdvertisementsEnabled(),
             'live_streaming_enabled' => $this->enabled('modules', 'liveStreamingEnabled', true),
             'delivery_enabled' => $this->enabled('modules', 'deliveryEnabled', true)

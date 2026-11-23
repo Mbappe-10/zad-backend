@@ -184,6 +184,15 @@ return response()->json($q->latest()->paginate(min((int) $request->input('per_pa
     {
         $data = $request->validate(['amount' => 'required|numeric|min:0.01', 'reason' => 'required|string|max:1000']);
 
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        abort_unless($gate->enabled('orders_sales', 'allowRefundRequests', true), 403, 'طلبات الاسترجاع متوقفة مؤقتًا من المركز الرئيسي.');
+        $refundLimit = $gate->number('finance', 'refundApprovalLimit', 0);
+        $reqAmount = (float) ($data['amount'] ?? $payment->amount ?? 0);
+        if ($refundLimit > 0 && $reqAmount > $refundLimit) {
+            $u = $request->user();
+            $isOwner = $u && ((bool) $u->getAttribute('is_platform_owner') === true || $u->getAttribute('role') === 'platform_owner');
+            abort_unless($isOwner, 403, "مبلغ الاسترجاع يتجاوز الحد المسموح ({$refundLimit} ر.س) ويتطلب اعتماد المالك.");
+        }
         return response()->json(['message' => 'تم تنفيذ الاسترداد.', 'data' => $this->service->refund($payment, $data, $request->user()?->id)], 201);
     }
 

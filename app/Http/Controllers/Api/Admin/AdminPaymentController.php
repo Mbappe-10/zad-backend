@@ -115,6 +115,15 @@ class AdminPaymentController extends Controller
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
 
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        abort_unless($gate->enabled('orders_sales', 'allowRefundRequests', true), 403, 'طلبات الاسترجاع متوقفة مؤقتًا من المركز الرئيسي.');
+        $refundLimit = $gate->number('finance', 'refundApprovalLimit', 0);
+        $reqAmount = (float) ($request->input('amount') ?? $payment->amount ?? 0);
+        if ($refundLimit > 0 && $reqAmount > $refundLimit) {
+            $u = $request->user();
+            $isOwner = $u && ((bool) $u->getAttribute('is_platform_owner') === true || $u->getAttribute('role') === 'platform_owner');
+            abort_unless($isOwner, 403, "مبلغ الاسترجاع يتجاوز الحد المسموح ({$refundLimit} ر.س) ويتطلب اعتماد المالك.");
+        }
         $refund = $this->financialService->refund(
             $payment,
             $data,

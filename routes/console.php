@@ -73,3 +73,22 @@ Schedule::command('order-settlement:release-due')
 Schedule::command('order-settlement:release-due')
     ->everyMinute()
     ->withoutOverlapping();
+
+Artisan::command('orders:expire-unaccepted', function (): void {
+    $gate = app(\App\Services\App\PlatformOperationGate::class);
+    if (! $gate->enabled('operations', 'schedulerEnabled', true)) {
+        return;
+    }
+    $minutes = (int) $gate->number('orders_sales', 'automaticOrderExpiryMinutes', 0);
+    if ($minutes < 1) {
+        return;
+    }
+    DB::table('orders')
+        ->whereNull('deleted_at')
+        ->where('status', 'pending')
+        ->where('payment_status', 'unpaid')
+        ->where('created_at', '<=', now('UTC')->subMinutes($minutes))
+        ->update(['status' => 'cancelled', 'cancelled_at' => now('UTC'), 'updated_at' => now('UTC')]);
+});
+
+Schedule::command('orders:expire-unaccepted')->everyMinute()->withoutOverlapping();

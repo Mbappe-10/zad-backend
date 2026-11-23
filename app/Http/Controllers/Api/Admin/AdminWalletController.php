@@ -204,6 +204,11 @@ class AdminWalletController extends Controller
         ]);
 
         $status = $data['status'];
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        abort_unless($gate->enabled('finance', 'walletsEnabled', true), 423, 'نظام المحافظ متوقف مؤقتًا.');
+        if ($status === 'frozen') {
+            abort_unless($gate->enabled('finance', 'allowWalletFreeze', true), 403, 'تجميد المحافظ غير مسموح من إعدادات المركز الرئيسي.');
+        }
 
         if ($status === 'closed') {
             if (

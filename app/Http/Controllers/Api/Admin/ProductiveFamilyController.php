@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
+use App\Models\FamilyStoreGrant;
+use App\Services\App\FamilyStorefrontService;
 use App\Models\ProductiveFamily;
 use App\Models\RolePortalRecord;
 use App\Models\Store;
@@ -58,7 +60,15 @@ class ProductiveFamilyController extends Controller
         }
 
         if ($request->filled('subscription_plan') && $request->string('subscription_plan')->toString() !== 'all') {
-            $query->where('metadata->subscription_plan', $request->string('subscription_plan')->toString());
+            $plan = $request->string('subscription_plan')->toString();
+            $active = FamilyStoreGrant::query()->select('productive_family_id')
+                ->whereNull('revoked_at')->where('starts_at', '<=', now())->where('ends_at', '>', now())
+                ->whereIn('plan_code', ['silver', 'gold']);
+            if ($plan === 'free') {
+                $query->whereNotIn('id', $active);
+            } elseif (in_array($plan, ['silver', 'gold'], true)) {
+                $query->whereIn('id', (clone $active)->where('plan_code', $plan));
+            }
         }
 
         if ($request->filled('city')) {
@@ -456,7 +466,6 @@ class ProductiveFamilyController extends Controller
             'store_name',
             'city',
             'district',
-            'subscription_plan',
             'national_id',
             'notes',
             'wallet_balance',
@@ -497,7 +506,7 @@ class ProductiveFamilyController extends Controller
             'store_is_open' => (bool) ($family->store?->is_open ?? false),
             'city' => $metadata['city'] ?? '',
             'district' => $metadata['district'] ?? '',
-            'subscription_plan' => $metadata['subscription_plan'] ?? 'free',
+            'subscription_plan' => app(FamilyStorefrontService::class)->entitlement($family)['plan'],
             'national_id' => $metadata['national_id'] ?? '',
             'notes' => $metadata['notes'] ?? '',
             'wallet_balance' => (float) ($metadata['wallet_balance'] ?? 0),

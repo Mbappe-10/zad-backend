@@ -34,6 +34,9 @@ class Store extends Model
         'pickup_address',
         'pickup_latitude',
         'pickup_longitude',
+        'storefront_design',
+        'family_logo_changes',
+        'family_name_changed_at',
     ];
 
     /**
@@ -56,6 +59,9 @@ class Store extends Model
             'working_hours' => 'array',
             'pickup_latitude' => 'decimal:7',
             'pickup_longitude' => 'decimal:7',
+            'storefront_design' => 'array',
+            'family_logo_changes' => 'integer',
+            'family_name_changed_at' => 'datetime',
         ];
     }
 

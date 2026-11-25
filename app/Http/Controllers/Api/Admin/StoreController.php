@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppProfile;
+use App\Models\FamilyStoreGrant;
 use App\Models\ProductiveFamily;
 use App\Models\Store;
+use App\Services\App\FamilyStorefrontService;
 use Cloudinary\Cloudinary;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,9 +48,15 @@ class StoreController extends Controller
         }
 
         if ($request->filled('plan') && $request->string('plan')->toString() !== 'all') {
-            $query->whereHas('productiveFamily', fn ($familyQuery) =>
-                $familyQuery->where('metadata->subscription_plan', $request->string('plan')->toString()),
-            );
+            $plan = $request->string('plan')->toString();
+            $active = FamilyStoreGrant::query()->select('productive_family_id')
+                ->whereNull('revoked_at')->where('starts_at', '<=', now())->where('ends_at', '>', now())
+                ->whereIn('plan_code', ['silver', 'gold']);
+            if ($plan === 'free') {
+                $query->whereNotIn('productive_family_id', $active);
+            } elseif (in_array($plan, ['silver', 'gold'], true)) {
+                $query->whereIn('productive_family_id', (clone $active)->where('plan_code', $plan));
+            }
         }
 
         $stores = $query
@@ -338,7 +346,6 @@ class StoreController extends Controller
             'remove_logo' => ['nullable', 'boolean'],
             'cover_url' => ['nullable', 'string', 'max:2048'],
             'status' => ['nullable', 'string', 'in:active,inactive,pending,approved,rejected,suspended,archived'],
-            'plan' => ['nullable', 'string', 'in:free,silver,gold'],
             'is_open' => ['nullable', 'boolean'],
             'is_featured' => ['nullable', 'boolean'],
             'working_hours' => ['nullable', 'array'],
@@ -471,9 +478,7 @@ class StoreController extends Controller
         $metadata = is_array($family->metadata) ? $family->metadata : [];
         $metadata['store_name'] = $store->name_ar;
 
-        if ($request->exists('plan')) {
-            $metadata['subscription_plan'] = $request->string('plan')->toString();
-        } elseif (! array_key_exists('subscription_plan', $metadata)) {
+        if (! array_key_exists('subscription_plan', $metadata)) {
             $metadata['subscription_plan'] = 'free';
         }
 
@@ -568,7 +573,7 @@ class StoreController extends Controller
             'logo_path' => $store->logo_path,
             'cover_url' => $this->fileUrl($store->cover_path),
             'status' => $store->status,
-            'plan' => $metadata['subscription_plan'] ?? 'free',
+            'plan' => app(FamilyStorefrontService::class)->entitlement($store->productiveFamily)['plan'],
             'is_open' => (bool) $store->is_open,
             'is_featured' => (bool) ($metadata['is_featured'] ?? false),
             'rating' => (float) $store->rating,

@@ -16,6 +16,7 @@ class UpdatePlatformControlRequest extends FormRequest
         return [
             'value.paymentMode' => ['sometimes', 'string', 'in:disabled,sandbox,live,simulation'],
             'value.paymentGatewayEnabled' => ['sometimes', 'boolean'],
+            'value.enabled' => ['sometimes', 'boolean'],
             'value' => [
                 'required',
                 'array',

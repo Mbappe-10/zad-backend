@@ -21,6 +21,9 @@ use App\Http\Controllers\Api\Admin\PlatformSettingsController;
 use App\Http\Controllers\Api\Admin\PolicyCenterController;
 use App\Http\Controllers\Api\App\PublicPolicyController;
 use App\Http\Controllers\Api\Admin\StoreController;
+use App\Http\Controllers\Api\Admin\FamilyStoreSubscriptionController;
+use App\Http\Controllers\Api\App\FamilyStorefrontController;
+use App\Http\Controllers\Api\App\FamilyStorePurchaseController;
 use App\Http\Controllers\Api\AdminResourceController;
 use App\Http\Controllers\Api\App\AppOrderController;
 use App\Http\Controllers\Api\App\UnpaidOrderCancellationController;
@@ -230,6 +233,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         ->name('api.app.launch.claim');
 
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
+    Route::get('/admin/family-store-plans', [FamilyStoreSubscriptionController::class, 'plans']);
+    Route::get('/admin/family-store-purchases', [FamilyStoreSubscriptionController::class, 'purchases']);
+    Route::patch('/admin/family-store-plans/{code}', [FamilyStoreSubscriptionController::class, 'updatePlan'])->where('code', 'free|silver|gold');
+    Route::get('/admin/families/{family}/subscription', [FamilyStoreSubscriptionController::class, 'family'])->whereNumber('family');
+    Route::post('/admin/families/{family}/subscription/grants', [FamilyStoreSubscriptionController::class, 'grant'])->whereNumber('family')->middleware('throttle:10,1');
+    Route::post('/admin/families/{family}/subscription/grants/{grant}/revoke', [FamilyStoreSubscriptionController::class, 'revoke'])->whereNumber('family')->whereNumber('grant')->middleware('throttle:10,1');
     Route::patch('/admin/control-center/{section}', [ControlCenterController::class, 'update']);
     Route::post('/admin/control-center/actions/{action}', [ControlCenterController::class, 'action']);
 
@@ -1289,6 +1298,13 @@ Route::prefix('v1/app')->group(function (): void {
     )->middleware('throttle:20,1');
 
     Route::middleware('auth:sanctum')->group(function (): void {
+        Route::post('/productive-family/storefront/purchases', [FamilyStorePurchaseController::class, 'start'])->middleware('throttle:5,1');
+        Route::get('/productive-family/storefront/purchases/latest', [FamilyStorePurchaseController::class, 'latest'])->middleware('throttle:30,1');
+        Route::post('/productive-family/storefront/purchases/{purchase}/verify', [FamilyStorePurchaseController::class, 'verify'])->whereNumber('purchase')->middleware('throttle:10,1');
+        Route::get('/productive-family/storefront/plans', [FamilyStorefrontController::class, 'plans']);
+        Route::get('/productive-family/storefront', [FamilyStorefrontController::class, 'show']);
+        Route::patch('/productive-family/storefront', [FamilyStorefrontController::class, 'update'])->middleware('throttle:20,1');
+        Route::post('/productive-family/storefront/images/{kind}', [FamilyStorefrontController::class, 'upload'])->where('kind', 'logo|banner')->middleware('throttle:5,1');
         Route::get(
             '/productive-family/profile',
             [ProductiveFamilyProfileController::class, 'show'],
@@ -1300,6 +1316,8 @@ Route::prefix('v1/app')->group(function (): void {
         )->middleware('throttle:10,1');
     });
 });
+Route::post('/v1/app/family-store-purchases/callback/{token}', [FamilyStorePurchaseController::class, 'callback'])
+    ->where('token', '[A-Za-z0-9]{64}')->middleware('throttle:30,1');
 /* ZAD_ACCOUNT_SUPPORT_LANGUAGE_V2 */
 Route::post('/v1/app/support/tickets/guest', [\App\Http\Controllers\Api\App\AppSupportTicketController::class, 'guestStore'])
     ->middleware('throttle:10,1')

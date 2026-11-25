@@ -11,6 +11,8 @@ use App\Models\PlatformRecord;
 use App\Services\App\MoyasarModeResolver;
 use App\Models\PlatformControl;
 use App\Models\Product;
+use App\Models\Store;
+use App\Services\App\FamilyStorefrontService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -251,6 +253,36 @@ $settings = AppSetting::query()
                 ];
             },
         );
+
+        // The catalog payload is cached, but an expired or revoked grant must
+        // never leave a premium cover visible for the cache's remaining TTL.
+        $storeIds = collect($payload['featured_stores'] ?? [])->pluck('id')
+            ->merge(collect($payload['featured_products'] ?? [])->pluck('store_id'))
+            ->filter()->unique()->values();
+        if ($storeIds->isNotEmpty()) {
+            $records = Store::query()->with('productiveFamily')->whereIn('id', $storeIds)->get()->keyBy('id');
+            $service = app(FamilyStorefrontService::class);
+            foreach ($payload['featured_stores'] as &$entry) {
+                $record = $records->get($entry['id']);
+                if ($record) {
+                    $public = $service->publicStore($record);
+                    $entry['cover_url'] = $public['design']['banner_url'];
+                    $entry['plan'] = $public['plan'];
+                    $entry['design'] = $public['design'];
+                }
+            }
+            unset($entry);
+            foreach ($payload['featured_products'] as &$entry) {
+                $record = $records->get($entry['store_id']);
+                if ($record && isset($entry['store'])) {
+                    $public = $service->publicStore($record);
+                    $entry['store']['cover_url'] = $public['design']['banner_url'];
+                    $entry['store']['plan'] = $public['plan'];
+                    $entry['store']['design'] = $public['design'];
+                }
+            }
+            unset($entry);
+        }
 
         return response()->json($payload);
     }

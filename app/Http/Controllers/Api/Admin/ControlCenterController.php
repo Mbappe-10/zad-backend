@@ -98,6 +98,10 @@ class ControlCenterController extends Controller
             'approvalSlaHours' => 48,
         ],
 
+        'family_subscriptions' => [
+            'enabled' => false,
+        ],
+
         'stores' => [
             'enabled' => true,
             'automaticStoreActivation' => false,

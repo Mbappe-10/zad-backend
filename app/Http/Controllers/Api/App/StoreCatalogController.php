@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\App;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Models\Store;
+use App\Services\App\FamilyStorefrontService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -28,6 +30,10 @@ class StoreCatalogController extends Controller
                 'message' => 'المتجر غير متاح حاليًا.',
             ], 403);
         }
+
+        $storefront = app(FamilyStorefrontService::class)->publicStore(
+            Store::query()->with('productiveFamily')->findOrFail($storeRecord->id),
+        );
 
         $products = Product::query()
             ->where('store_id', $storeRecord->id)
@@ -92,7 +98,9 @@ class StoreCatalogController extends Controller
                 'description_ar' => $storeRecord->description_ar,
                 'description_en' => $storeRecord->description_en,
                 'logo_url' => $this->publicUrl($storeRecord->logo_path),
-                'cover_url' => $this->publicUrl($storeRecord->cover_path),
+                'cover_url' => $storefront['design']['banner_url'],
+                'plan' => $storefront['plan'],
+                'design' => $storefront['design'],
                 'rating' => (float) $storeRecord->rating,
                 'rating_count' => (int) $storeRecord->rating_count,
                 'working_hours' =>

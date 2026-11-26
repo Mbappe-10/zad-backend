@@ -48,7 +48,12 @@ class FamilyStorefrontController extends Controller
             'draft_design' => $store->storefront_design ?? [],
             'logo_changes_used' => $store->family_logo_changes,
             'products' => Product::query()->where('store_id', $store->id)->where('status', 'active')
-                ->get(['id', 'name_ar', 'description_ar', 'price', 'images', 'is_available']),
+                ->get(['id', 'name_ar', 'description_ar', 'price', 'images', 'is_available'])
+                ->map(fn (Product $product): array => [
+                    ...$product->only(['id', 'name_ar', 'description_ar', 'price', 'is_available']),
+                    'images' => $images = $this->productImages($product->images),
+                    'image_url' => $images[0] ?? null,
+                ]),
         ]);
     }
 
@@ -131,6 +136,23 @@ class FamilyStorefrontController extends Controller
         }
 
         return $this->show($request);
+    }
+
+    /** @return list<string> Absolute image URLs, so the app preview never shows a blank card. */
+    private function productImages(mixed $images): array
+    {
+        if (is_string($images)) {
+            $decoded = json_decode($images, true);
+            $images = is_array($decoded) ? $decoded : [$images];
+        }
+
+        return collect(is_array($images) ? $images : [])
+            ->filter(fn (mixed $path): bool => is_string($path) && trim($path) !== '')
+            ->map(fn (string $path): string => str_starts_with($path, 'http://') || str_starts_with($path, 'https://')
+                ? $path
+                : Storage::disk('public')->url(ltrim($path, '/')))
+            ->values()
+            ->all();
     }
 
     private function familyStore(Request $request): Store

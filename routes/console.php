@@ -112,3 +112,23 @@ Artisan::command('orders:expire-unaccepted', function (): void {
 });
 
 Schedule::command('orders:expire-unaccepted')->everyMinute()->withoutOverlapping();
+
+// Startup diagnostic: shows which commit runs, which database it talks to,
+// and where the family-store tables really live. Never fails the boot.
+Artisan::command('zad:db-diagnose', function (): void {
+    try {
+        $c = DB::connection();
+        $this->line('ZAD-DIAG commit='.(getenv('RENDER_GIT_COMMIT') ?: 'unknown')
+            .' host='.$c->getConfig('host').' db='.$c->getDatabaseName());
+        $row = DB::selectOne('select current_database() as db, current_schema() as schema, current_setting(\'search_path\') as path, current_user as usr');
+        $this->line("ZAD-DIAG server db={$row->db} schema={$row->schema} search_path={$row->path} user={$row->usr}");
+        foreach (DB::select("select table_schema, table_name from information_schema.tables where table_name in ('migrations','family_store_plans','family_store_grants','family_store_purchases') order by table_name, table_schema") as $t) {
+            $this->line("ZAD-DIAG table {$t->table_schema}.{$t->table_name}");
+        }
+        foreach (DB::table('migrations')->where('migration', 'like', '2026_11_2%')->orderBy('id')->get(['migration', 'batch']) as $m) {
+            $this->line("ZAD-DIAG ran {$m->migration} batch={$m->batch}");
+        }
+    } catch (\Throwable $e) {
+        $this->line('ZAD-DIAG failed: '.$e->getMessage());
+    }
+})->purpose('Print database diagnostics at startup');

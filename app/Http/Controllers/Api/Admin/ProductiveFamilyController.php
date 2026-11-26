@@ -61,13 +61,17 @@ class ProductiveFamilyController extends Controller
 
         if ($request->filled('subscription_plan') && $request->string('subscription_plan')->toString() !== 'all') {
             $plan = $request->string('subscription_plan')->toString();
-            $active = FamilyStoreGrant::query()->select('productive_family_id')
-                ->whereNull('revoked_at')->where('starts_at', '<=', now())->where('ends_at', '>', now())
-                ->whereIn('plan_code', ['silver', 'gold']);
-            if ($plan === 'free') {
-                $query->whereNotIn('id', $active);
+            if (app(FamilyStorefrontService::class)->catalogPlansReady()) {
+                $active = FamilyStoreGrant::query()->select('productive_family_id')
+                    ->whereNull('revoked_at')->where('starts_at', '<=', now())->where('ends_at', '>', now())
+                    ->whereIn('plan_code', ['silver', 'gold']);
+                if ($plan === 'free') {
+                    $query->whereNotIn('id', $active);
+                } elseif (in_array($plan, ['silver', 'gold'], true)) {
+                    $query->whereIn('id', (clone $active)->where('plan_code', $plan));
+                }
             } elseif (in_array($plan, ['silver', 'gold'], true)) {
-                $query->whereIn('id', (clone $active)->where('plan_code', $plan));
+                $query->whereRaw('1 = 0');
             }
         }
 
@@ -506,7 +510,7 @@ class ProductiveFamilyController extends Controller
             'store_is_open' => (bool) ($family->store?->is_open ?? false),
             'city' => $metadata['city'] ?? '',
             'district' => $metadata['district'] ?? '',
-            'subscription_plan' => app(FamilyStorefrontService::class)->entitlement($family)['plan'],
+            'subscription_plan' => app(FamilyStorefrontService::class)->catalogEntitlement($family)['plan'],
             'national_id' => $metadata['national_id'] ?? '',
             'notes' => $metadata['notes'] ?? '',
             'wallet_balance' => (float) ($metadata['wallet_balance'] ?? 0),

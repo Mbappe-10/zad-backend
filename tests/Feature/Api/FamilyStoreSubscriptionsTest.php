@@ -10,7 +10,9 @@ use App\Models\FamilyStoreGrant;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -42,6 +44,27 @@ class FamilyStoreSubscriptionsTest extends TestCase
         $user->forceFill(['is_platform_owner' => true])->save();
 
         return $user;
+    }
+
+    public function test_catalog_and_admin_lists_survive_unavailable_subscription_tables(): void
+    {
+        [$family, $store] = $this->family();
+        $productId = DB::table('products')->insertGetId([
+            'store_id' => $store->id, 'name_ar' => 'مشروب سوبو', 'price' => 10,
+            'status' => 'active', 'is_available' => true,
+        ]);
+        Schema::rename('family_store_grants', 'unavailable_grants');
+
+        $this->getJson("/api/v1/app/stores/{$store->id}/products")
+            ->assertOk()->assertJsonPath('store.plan', 'free')->assertJsonPath('products.0.id', $productId);
+        $this->getJson('/api/v1/app/bootstrap')
+            ->assertOk()->assertJsonPath('featured_products.0.id', $productId);
+
+        Sanctum::actingAs($this->owner());
+        $this->getJson('/api/admin/stores')->assertOk()->assertJsonPath('data.0.id', $store->id);
+        $this->getJson('/api/admin/families')->assertOk()->assertJsonPath('data.0.id', $family->id);
+        $this->getJson('/api/admin/stores?plan=free')->assertOk()->assertJsonPath('data.0.plan', 'free');
+        $this->getJson('/api/admin/families?subscription_plan=gold')->assertOk()->assertJsonCount(0, 'data');
     }
 
     public function test_legacy_metadata_does_not_grant_premium_and_only_owner_can_grant(): void

@@ -6,6 +6,7 @@ use App\Models\FamilyStoreGrant;
 use App\Models\FamilyStorePlan;
 use App\Models\ProductiveFamily;
 use App\Models\Store;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -38,6 +39,28 @@ class FamilyStorefrontService
         ];
     }
 
+    // Cache schema availability for this HTTP request only. A worker can serve
+    // the catalog before the subscriptions migration has finished.
+    public function catalogPlansReady(): bool
+    {
+        $attributes = request()->attributes;
+        $key = 'zad.catalog.family_plan_schema';
+        if (! $attributes->has($key)) {
+            $attributes->set($key, Schema::hasTable('family_store_grants') && Schema::hasTable('family_store_plans'));
+        }
+
+        return $attributes->get($key);
+    }
+
+    public function catalogEntitlement(?ProductiveFamily $family): array
+    {
+        if (! $this->catalogPlansReady()) {
+            return ['plan' => 'free', 'capabilities' => []];
+        }
+
+        return $this->entitlement($family);
+    }
+
     public function design(Store $store, array $entitlement): array
     {
         $stored = is_array($store->storefront_design) ? $store->storefront_design : [];
@@ -54,7 +77,7 @@ class FamilyStorefrontService
 
     public function publicStore(Store $store): array
     {
-        $entitlement = $this->entitlement($store->productiveFamily);
+        $entitlement = $this->catalogEntitlement($store->productiveFamily);
 
         return [
             'id' => $store->id,

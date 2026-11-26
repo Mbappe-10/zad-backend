@@ -49,13 +49,17 @@ class StoreController extends Controller
 
         if ($request->filled('plan') && $request->string('plan')->toString() !== 'all') {
             $plan = $request->string('plan')->toString();
-            $active = FamilyStoreGrant::query()->select('productive_family_id')
-                ->whereNull('revoked_at')->where('starts_at', '<=', now())->where('ends_at', '>', now())
-                ->whereIn('plan_code', ['silver', 'gold']);
-            if ($plan === 'free') {
-                $query->whereNotIn('productive_family_id', $active);
+            if (app(FamilyStorefrontService::class)->catalogPlansReady()) {
+                $active = FamilyStoreGrant::query()->select('productive_family_id')
+                    ->whereNull('revoked_at')->where('starts_at', '<=', now())->where('ends_at', '>', now())
+                    ->whereIn('plan_code', ['silver', 'gold']);
+                if ($plan === 'free') {
+                    $query->whereNotIn('productive_family_id', $active);
+                } elseif (in_array($plan, ['silver', 'gold'], true)) {
+                    $query->whereIn('productive_family_id', (clone $active)->where('plan_code', $plan));
+                }
             } elseif (in_array($plan, ['silver', 'gold'], true)) {
-                $query->whereIn('productive_family_id', (clone $active)->where('plan_code', $plan));
+                $query->whereRaw('1 = 0');
             }
         }
 
@@ -574,7 +578,7 @@ class StoreController extends Controller
             'logo_path' => $store->logo_path,
             'cover_url' => $this->fileUrl($store->cover_path),
             'status' => $store->status,
-            'plan' => app(FamilyStorefrontService::class)->entitlement($store->productiveFamily)['plan'],
+            'plan' => app(FamilyStorefrontService::class)->catalogEntitlement($store->productiveFamily)['plan'],
             'is_open' => (bool) $store->is_open,
             'is_featured' => (bool) ($metadata['is_featured'] ?? false),
             'rating' => (float) $store->rating,

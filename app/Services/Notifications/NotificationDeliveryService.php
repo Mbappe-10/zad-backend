@@ -82,9 +82,18 @@ class NotificationDeliveryService
             return $attemptIds;
         }, 3);
 
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        if (! $gate->enabled('services', 'firebaseEnabled', true)) {
+            return;
+        }
+        $useQueue = $gate->enabled('operations', 'queueEnabled', true);
         foreach (array_unique($attemptIds) as $attemptId) {
-            DispatchNotificationPushJob::dispatch($attemptId)
-                ->onQueue((string) config('notifications.queue', 'notifications'));
+            if ($useQueue) {
+                DispatchNotificationPushJob::dispatch($attemptId)
+                    ->onQueue((string) config('notifications.queue', 'notifications'));
+            } else {
+                DispatchNotificationPushJob::dispatchSync($attemptId);
+            }
         }
     }
 

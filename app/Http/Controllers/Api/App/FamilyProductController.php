@@ -39,7 +39,7 @@ class FamilyProductController extends Controller
             'data' => $products,
             'meta' => [
                 'count' => $products->count(),
-                'limit' => self::PRODUCT_LIMIT,
+                'limit' => max(1, (int) app(\App\Services\App\PlatformOperationGate::class)->number('products_categories', 'maximumProductsPerStore', self::PRODUCT_LIMIT)),
             ],
         ]);
     }
@@ -60,18 +60,25 @@ class FamilyProductController extends Controller
                     ->where('store_id', $store->id)
                     ->count();
 
-                if ($productsCount >= self::PRODUCT_LIMIT) {
+                $gate = app(\App\Services\App\PlatformOperationGate::class);
+                abort_unless($gate->enabled('products_categories', 'productsEnabled', true), 423, 'إضافة المنتجات متوقفة مؤقتًا من مركز التحكم.');
+                $maxProducts = max(1, (int) $gate->number('products_categories', 'maximumProductsPerStore', self::PRODUCT_LIMIT));
+                if ($productsCount >= $maxProducts) {
                     throw ValidationException::withMessages([
                         'product' => [
-                            'الحد الأقصى للمتجر هو 10 منتجات.',
+                            "الحد الأقصى للمتجر هو {$maxProducts} منتج.",
                         ],
                     ]);
                 }
 
+                $status = $gate->enabled('products_categories', 'productApprovalRequired', false) ? 'pending' : 'active';
+                $prepMinutes = $data['preparation_minutes'] ?? (int) $gate->number('stores', 'defaultPreparationMinutes', 30);
+
                 return Product::query()->create([
                     ...$data,
+                    'preparation_minutes' => $prepMinutes,
                     'store_id' => $store->id,
-                    'status' => 'active',
+                    'status' => $status,
                 ]);
             },
         );
@@ -89,10 +96,16 @@ class FamilyProductController extends Controller
         $this->ensureOwns($request, $product);
 
         $data = $this->validatedProduct($request);
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        if (! $gate->enabled('products_categories', 'allowPriceChanges', true)
+            && array_key_exists('price', $data)
+            && (float) $data['price'] !== (float) $product->price) {
+            abort(403, 'تغيير أسعار المنتجات متوقف حاليًا من مركز التحكم.');
+        }
 
         $product->update([
             ...$data,
-            'status' => 'active',
+            'status' => $gate->enabled('products_categories', 'productApprovalRequired', false) ? 'pending' : 'active',
         ]);
 
         return response()->json([

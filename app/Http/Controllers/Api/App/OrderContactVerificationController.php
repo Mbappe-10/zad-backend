@@ -29,7 +29,6 @@ final class OrderContactVerificationController extends Controller
 
     public function status(Request $request, Order $order): JsonResponse
     {
-        $this->enabled();
         $data = $request->validate(['device_id' => ['required','string','max:191']]);
         $this->owns($request, $order, $data['device_id']);
         return response()->json(['data' => $this->state($order->fresh())]);
@@ -215,21 +214,17 @@ final class OrderContactVerificationController extends Controller
     private function state(Order $order): array
     {
         $phone = (string) ($order->pending_contact_phone ?: $order->contact_phone);
-        $row = PhoneVerification::query()->where('order_id', $order->id)
-            ->where('purpose', self::PURPOSE)->where('phone', $phone)->latest('id')->first();
-        $verified = $order->contact_verification_state === 'verified';
-        $live = $this->eligiblePaid($order);
+        // Compatibility response for cached clients during rollout. A paid or
+        // sponsored order is released immediately; no challenge is generated.
+        $verified = $order->isPaidOrSponsoredFunded();
         return [
             'order_id' => $order->id, 'payment_status' => $order->payment_status,
-            'paid' => $order->isPaid(), 'otp_payment_authorized' => $live,
-            'verified' => $verified, 'requires_otp' => $order->isPaid() && ! $verified,
+            'paid' => $order->isPaid(), 'otp_payment_authorized' => false,
+            'verified' => $verified, 'requires_otp' => false,
             'phone' => $phone, 'release_state' => $verified ? 'released' : 'held',
-            'can_send' => ! $verified && $live && config('postpay_otp.allow_live_sms', false)
-                && $this->tawked->ready() && (! $row || ! $row->resend_available_at?->isFuture()),
-            'resend_after_seconds' => $row?->resend_available_at?->isFuture()
-                ? max(0, (int) now()->diffInSeconds($row->resend_available_at)) : 0,
-            'challenge' => $row?->status === PhoneVerification::STATUS_PENDING && $row->expires_at?->isFuture()
-                ? ['verification_id' => $row->id, 'expires_in_seconds' => max(0, (int) now()->diffInSeconds($row->expires_at))] : null,
+            'can_send' => false,
+            'resend_after_seconds' => 0,
+            'challenge' => null,
         ];
     }
 
@@ -273,7 +268,7 @@ final class OrderContactVerificationController extends Controller
 
     private function enabled(): void
     {
-        abort_unless((bool) config('postpay_otp.enabled', false), 404);
+        abort(410, 'تم إيقاف التحقق بالرمز لهذا المسار.');
     }
 
     private function held(Order $order): void

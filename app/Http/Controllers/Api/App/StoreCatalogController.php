@@ -14,6 +14,8 @@ class StoreCatalogController extends Controller
 {
     public function show(int $store): JsonResponse
     {
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        abort_unless($gate->enabled('stores', 'enabled', true), 423, 'عرض المتاجر متوقف مؤقتًا من مركز التحكم.');
         $storeRecord = DB::table('stores')
             ->where('id', $store)
             ->whereNull('deleted_at')
@@ -39,7 +41,7 @@ class StoreCatalogController extends Controller
             ->where('store_id', $storeRecord->id)
             ->whereNull('deleted_at')
             ->where('status', 'active')
-            ->where('is_available', true)
+            ->when($gate->enabled('products_categories', 'hideOutOfStockProducts', true), fn ($q) => $q->where('is_available', true))
             ->orderByDesc('updated_at')
             ->get([
                 'id',

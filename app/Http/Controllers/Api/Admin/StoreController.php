@@ -290,6 +290,7 @@ class StoreController extends Controller
             ], 422);
         }
 
+        if (! $request->boolean('is_open')) { abort_unless(app(\App\Services\App\PlatformOperationGate::class)->enabled('stores', 'allowTemporaryClosure', true), 403, 'الإغلاق المؤقت للمتاجر غير مسموح من مركز التحكم.'); }
         if (! in_array($store->status, ['active', 'approved'], true) && $request->boolean('is_open')) {
             return response()->json([
                 'message' => 'لا يمكن فتح متجر غير نشط أو غير معتمد.',

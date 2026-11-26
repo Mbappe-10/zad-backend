@@ -111,10 +111,11 @@ class CoreResourceController extends Controller
                     ->whereIn('store_id', $storeIds)
                     ->count();
 
-                if ($productsCount >= self::FAMILY_PRODUCT_LIMIT) {
+                $maxProducts = max(1, (int) app(\App\Services\App\PlatformOperationGate::class)->number('products_categories', 'maximumProductsPerStore', self::FAMILY_PRODUCT_LIMIT));
+                if ($productsCount >= $maxProducts) {
                     throw ValidationException::withMessages([
                         'store_id' => [
-                            'وصلت الأسرة المنتجة إلى الحد الأقصى المسموح وهو 10 منتجات.',
+                            "وصلت الأسرة المنتجة إلى الحد الأقصى المسموح وهو {$maxProducts} منتج.",
                         ],
                     ]);
                 }
@@ -131,7 +132,7 @@ class CoreResourceController extends Controller
                 'message' => 'تم حفظ المنتج ونشره مباشرة بنجاح.',
                 'data' => new CoreResource($record->fresh()),
                 'meta' => [
-                    'family_product_limit' => self::FAMILY_PRODUCT_LIMIT,
+                    'family_product_limit' => max(1, (int) app(\App\Services\App\PlatformOperationGate::class)->number('products_categories', 'maximumProductsPerStore', self::FAMILY_PRODUCT_LIMIT)),
                 ],
             ], 201);
         }

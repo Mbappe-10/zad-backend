@@ -79,6 +79,7 @@ class ControlCenterController extends Controller
             'enabled' => true,
             'guestOrdersEnabled' => true,
             'scheduledOrdersEnabled' => true,
+            'scheduleReminderHours' => [48, 24, 5],
             'allowCustomerCancellation' => true,
             'allowRefundRequests' => true,
             'requireCancellationReason' => true,
@@ -282,7 +283,12 @@ class ControlCenterController extends Controller
             $control?->is_sensitive ?? $this->isSensitiveSection($section)
         );
 
-        if ($isSensitive && ! $request->boolean('confirmation')) {
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        $requireConfirmation = $gate->enabled('security', 'requireSensitiveActionConfirmation', true);
+        if ($isSensitive && $section !== 'governance' && $gate->enabled('governance', 'requireReasonForSensitiveChanges', false)) {
+            abort_unless(filled(trim((string) ($validated['reason'] ?? ''))), 422, 'يجب كتابة سبب التغيير عند تعديل قسم حساس.');
+        }
+        if ($isSensitive && $requireConfirmation && ! $request->boolean('confirmation')) {
             return response()->json([
                 'message' => 'يجب تأكيد تعديل هذا القسم الحساس.',
                 'errors' => [
@@ -297,12 +303,15 @@ class ControlCenterController extends Controller
             ? $control->value
             : self::DEFAULT_SECTIONS[$section];
 
-        $incomingValue = $validated['value'] ?? [];
+        $incomingValue = is_array($request->input('value')) ? $request->input('value') : [];
 
         $mergedValue = array_replace_recursive(
             $existingValue,
             $incomingValue,
         );
+        if ($section === 'orders_sales' && array_key_exists('scheduleReminderHours', $incomingValue)) {
+            $rawH = $incomingValue['scheduleReminderHours']; $arrH = is_string($rawH) ? (preg_split('/[\s,،]+/', trim($rawH)) ?: []) : (is_array($rawH) ? $rawH : []); $mergedValue['scheduleReminderHours'] = array_values(array_unique(array_filter(array_map('intval', $arrH), fn (int $h): bool => $h >= 1 && $h <= 720)));
+        }
 
         if ($section === 'services') {
             $mode = (string) ($mergedValue['paymentMode'] ?? 'disabled');
@@ -665,6 +674,10 @@ class ControlCenterController extends Controller
         ?string $reason,
         array $context = [],
     ): void {
+        if (! app(\App\Services\App\PlatformOperationGate::class)->enabled('governance', 'auditLogsEnabled', true)) {
+            return;
+        }
+
         DB::transaction(function () use (
             $userId,
             $action,

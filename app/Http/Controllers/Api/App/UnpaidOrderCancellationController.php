@@ -23,6 +23,15 @@ final class UnpaidOrderCancellationController extends Controller
     {
         // A guest UUID by itself is not sufficient. Require the issued guest token.
         $this->access->assert($request, $order);
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        abort_unless($gate->enabled('orders_sales', 'allowCustomerCancellation', true), 403, 'إلغاء الطلب من العميل متوقف مؤقتًا.');
+        $windowMin = (int) $gate->number('orders_sales', 'cancellationWindowMinutes', 0);
+        if ($windowMin > 0 && $order->created_at !== null && $order->created_at->diffInMinutes(now()) > $windowMin) {
+            abort(409, "انتهت مهلة إلغاء الطلب المسموحة ({$windowMin} دقيقة).");
+        }
+        if ($gate->enabled('orders_sales', 'requireCancellationReason', false)) {
+            abort_unless(filled(trim((string) ($request->input('reason') ?? $request->input('note') ?? ''))), 422, 'يجب كتابة سبب إلغاء الطلب.');
+        }
 
         return DB::transaction(function () use ($request, $order): JsonResponse {
             $locked = Order::query()->lockForUpdate()->findOrFail($order->getKey());

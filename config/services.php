@@ -86,4 +86,11 @@ return [
         ),
     ],
 
+    'workgroup_ollama' => [
+        'endpoint' => env('ZAD_WORKGROUP_OLLAMA_ENDPOINT', 'http://127.0.0.1:11434/api/generate'),
+        'model' => env('ZAD_WORKGROUP_OLLAMA_MODEL', 'qwen3:4b'),
+        'api_key' => env('ZAD_WORKGROUP_OLLAMA_API_KEY'),
+        'basic_auth' => env('ZAD_WORKGROUP_OLLAMA_BASIC_AUTH'),
+    ],
+
 ];

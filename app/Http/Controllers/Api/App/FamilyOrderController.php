@@ -122,6 +122,7 @@ class FamilyOrderController extends Controller
                 'journeyProofs',
                 'feedbackItems',
                 'settlement',
+            'schedule',
             ])
             ->latest()
             ->get()
@@ -225,6 +226,18 @@ class FamilyOrderController extends Controller
             }
         }
 
+        // ZAD_SCHEDULE_TRANSITION_GUARD
+        $order->loadMissing('schedule');
+        if (
+            $order->schedule !== null &&
+            $order->schedule->family_status !== 'confirmed' &&
+            in_array($data['status'], [Order::STATUS_PREPARING, Order::STATUS_READY], true)
+        ) {
+            throw ValidationException::withMessages([
+                'schedule' => ['يجب تأكيد موعد الطلب المجدول أولاً قبل بدء التجهيز أو الجاهزية.'],
+            ]);
+        }
+
         $order = DB::transaction(function () use (
             $order,
             $data,
@@ -294,6 +307,14 @@ class FamilyOrderController extends Controller
         ], true)) {
             throw ValidationException::withMessages([
                 'status' => ['لا يمكن توثيق الجاهزية في حالة الطلب الحالية.'],
+            ]);
+        }
+
+        // ZAD_SCHEDULE_READY_GUARD
+        $order->loadMissing('schedule');
+        if ($order->schedule !== null && $order->schedule->family_status !== 'confirmed') {
+            throw ValidationException::withMessages([
+                'schedule' => ['يجب تأكيد موعد الطلب المجدول أولاً قبل توثيق الجاهزية.'],
             ]);
         }
 
@@ -463,6 +484,7 @@ class FamilyOrderController extends Controller
             'package_size' => $order->package_size,
 
             'notes' => $order->notes,
+            'schedule' => $order->loadMissing('schedule')->schedule?->toArray(),
 
             'created_at' => $order->created_at,
             'updated_at' => $order->updated_at,
@@ -515,5 +537,63 @@ class FamilyOrderController extends Controller
                 ]
                 : null,
         ];
+    }
+
+    public function scheduleDecision(Request $request, Order $order): JsonResponse
+    {
+        $this->ensureBelongsToFamily($request, $order);
+        $order->loadMissing('schedule');
+
+        $schedule = $order->schedule;
+        if ($schedule === null) {
+            throw ValidationException::withMessages([
+                'schedule' => ['هذا الطلب غير مجدول.'],
+            ]);
+        }
+
+        $data = $request->validate([
+            'decision' => ['required', 'string', 'in:confirmed,declined'],
+            'reason' => ['required_if:decision,declined', 'nullable', 'string', 'max:500'],
+        ]);
+
+        $decision = $data['decision'];
+        $reason = $decision === 'declined' ? trim((string) ($data['reason'] ?? '')) : null;
+
+        DB::transaction(function () use ($request, $order, $schedule, $decision, $reason): void {
+            $schedule->forceFill([
+                'family_status' => $decision,
+                'decline_reason' => $reason,
+                'decided_at' => now(),
+                'decided_by_user_id' => $request->user()?->getKey(),
+            ])->save();
+
+            $key = hash('sha256', "schedule-decision|{$order->id}|{$decision}");
+            \App\Models\InAppNotification::query()->firstOrCreate(
+                ['idempotency_key' => $key],
+                [
+                    'guest_session_id' => $order->guest_session_id,
+                    'type' => 'transactional',
+                    'title' => $decision === 'confirmed'
+                        ? 'تم تأكيد موعد طلبك المجدول'
+                        : 'اعتذار الأسرة عن موعد الطلب المجدول',
+                    'body' => $decision === 'confirmed'
+                        ? "أكدت الأسرة تنفيذ طلبك {$order->number} في الموعد المحدد."
+                        : "اعتذرت الأسرة عن تنفيذ الطلب {$order->number}: {$reason}",
+                    'action_url' => "/orders/{$order->id}",
+                    'data' => [
+                        'order_id' => $order->id,
+                        'decision' => $decision,
+                        'reason' => $reason,
+                    ],
+                ],
+            );
+        });
+
+        $order->refresh();
+        $this->loadOrderRelations($order);
+
+        return response()->json([
+            'data' => $this->familyPayload($order),
+        ]);
     }
 }

@@ -132,12 +132,22 @@ class OrderSettlementService
             $familyGross = max(round((float) $order->subtotal, 2), 0);
             $driverGross = max(round((float) $order->delivery_fee, 2), 0);
 
-            [$familyCommission, $familyRule] = $this->commission(
-                $order,
-                'store',
-                $familyGross,
-                (float) $this->setting('settlements.family_commission_percentage', 0),
-            );
+            $gate = app(\App\Services\App\PlatformOperationGate::class);
+            if (! $gate->enabled('finance', 'commissionsEnabled', true)) {
+                [$familyCommission, $familyRule] = [0.0, null];
+            } else {
+                $defaultFamilyPct = $gate->number(
+                    'finance',
+                    'platformCommissionPercent',
+                    (float) $this->setting('settlements.family_commission_percentage', 0),
+                );
+                [$familyCommission, $familyRule] = $this->commission(
+                    $order,
+                    'store',
+                    $familyGross,
+                    $defaultFamilyPct,
+                );
+            }
 
             [$driverCommission, $driverRule] = $this->commission(
                 $order,

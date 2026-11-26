@@ -41,7 +41,8 @@ $settings = AppSetting::query()
                 ];
             })->all();
 
-        $categories = Category::query()
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        $categories = ! $gate->enabled('products_categories', 'categoriesEnabled', true) ? [] : Category::query()
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->orderBy('sort_order')
@@ -69,10 +70,13 @@ $settings = AppSetting::query()
             })
             ->values()->all();
 
-        $stores = DB::table('stores')
+        $showOnlyOpenStores = $gate->enabled('stores', 'showOnlyOpenStores', true);
+        $minStoreRating = $gate->number('stores', 'minimumRatingForVisibility', 0);
+        $stores = ! $gate->enabled('stores', 'enabled', true) ? [] : DB::table('stores')
             ->whereNull('deleted_at')
             ->where('status', 'active')
-            ->where('is_open', true)
+            ->when($showOnlyOpenStores, fn ($q) => $q->where('is_open', true))
+            ->when($minStoreRating > 0, fn ($q) => $q->where('rating', '>=', $minStoreRating))
             ->orderByDesc('rating')
             ->orderByDesc('rating_count')
             ->limit(12)
@@ -114,7 +118,7 @@ $settings = AppSetting::query()
          * نربط المنتجات بالمتاجر هنا حتى يرجع اسم المتجر مع المنتج،
          * ولا يضطر تطبيق Flutter إلى عرض اسم افتراضي غير موجود.
          */
-        $products = Product::query()
+        $products = (! $gate->enabled('products_categories', 'productsEnabled', true) || ! $gate->enabled('stores', 'enabled', true)) ? [] : Product::query()
             ->join('stores', 'stores.id', '=', 'products.store_id')
             ->whereNull('products.deleted_at')
             ->where('products.status', 'active')
@@ -214,7 +218,8 @@ $settings = AppSetting::query()
         // not just the owner dashboard toggle.
         $paymentGatewayEnabled = app(MoyasarModeResolver::class)->availableForCheckout();
 
-        $banners = $this->homeBanners();
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        $banners = $gate->isAdvertisementsEnabled() ? $this->homeBanners() : [];
 
         $cities = City::query()
             ->where('is_active', true)
@@ -241,10 +246,11 @@ $settings = AppSetting::query()
                     'app' => [
                         'name' => 'ZAD Sync',
                         'version' => '1.0.0',
-                        'guest_first' => true,
+                        'guest_first' => $gate->isGuestCheckoutEnabled(),
                     ],
                     'settings' => $settings,
                     'payment_gateway_enabled' => $paymentGatewayEnabled,
+                    'platform_controls' => $gate->publicControlsSnapshot(),
                     'categories' => $categories,
                     'featured_stores' => $stores,
                     'featured_products' => $products,

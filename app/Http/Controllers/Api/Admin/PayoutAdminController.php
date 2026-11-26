@@ -44,7 +44,14 @@ class PayoutAdminController extends Controller
             'reason' => ['nullable', 'string', 'max:1000'],
         ]);
 
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        abort_unless($gate->enabled('finance', 'walletsEnabled', true), 423, 'نظام المحافظ متوقف مؤقتًا.');
         if ($data['decision'] === 'approve') {
+            if ($gate->enabled('finance', 'ownerApprovalRequired', false) && ! $gate->enabled('finance', 'automaticPayoutsEnabled', false)) {
+                $u = $request->user();
+                $isOwner = $u && ((bool) $u->getAttribute('is_platform_owner') === true || $u->getAttribute('role') === 'platform_owner');
+                abort_unless($isOwner, 403, 'اعتماد صرف الأرباح يتطلب موافقة مالك المنصة.');
+            }
             abort_unless(
                 $payout->declaration_reference && $payout->declaration_signature &&
                 $payout->declaration_hash && $payout->contract_reference &&

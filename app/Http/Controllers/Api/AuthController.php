@@ -76,7 +76,7 @@ class AuthController extends Controller
          |--------------------------------------------------------------------------
          */
 
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+        if (RateLimiter::tooManyAttempts($throttleKey, max(1, (int) app(\App\Services\App\PlatformOperationGate::class)->number('security', 'maximumLoginAttempts', 5)))) {
             $seconds = RateLimiter::availableIn($throttleKey);
 
             throw ValidationException::withMessages([
@@ -112,7 +112,7 @@ class AuthController extends Controller
                 $user->password,
             )
         ) {
-            RateLimiter::hit($throttleKey, 60);
+            RateLimiter::hit($throttleKey, max(60, (int) app(\App\Services\App\PlatformOperationGate::class)->number('security', 'accountLockMinutes', 1) * 60));
 
             throw ValidationException::withMessages([
                 'email' => [
@@ -128,7 +128,7 @@ class AuthController extends Controller
          */
 
         if ($user->status !== 'active') {
-            RateLimiter::hit($throttleKey, 60);
+            RateLimiter::hit($throttleKey, max(60, (int) app(\App\Services\App\PlatformOperationGate::class)->number('security', 'accountLockMinutes', 1) * 60));
 
             return response()->json([
                 'message' => 'الحساب غير نشط حاليًا.',
@@ -137,7 +137,7 @@ class AuthController extends Controller
         }
 
         if (! $user->is_approved) {
-            RateLimiter::hit($throttleKey, 60);
+            RateLimiter::hit($throttleKey, max(60, (int) app(\App\Services\App\PlatformOperationGate::class)->number('security', 'accountLockMinutes', 1) * 60));
 
             return response()->json([
                 'message' => 'الحساب لم يتم اعتماده بعد.',
@@ -156,9 +156,11 @@ class AuthController extends Controller
          |
          */
 
-        $user->tokens()
-            ->where('name', 'zad-admin-dashboard')
-            ->delete();
+        if (! app(\App\Services\App\PlatformOperationGate::class)->enabled('security', 'allowMultipleSessions', false)) {
+            $user->tokens()
+                ->where('name', 'zad-admin-dashboard')
+                ->delete();
+        }
 
         /*
          |--------------------------------------------------------------------------
@@ -178,9 +180,10 @@ class AuthController extends Controller
 
         $remember = (bool) ($validated['remember'] ?? false);
 
+        $sessionMinutes = max(5, (int) app(\App\Services\App\PlatformOperationGate::class)->number('security', 'sessionTimeoutMinutes', 120));
         $expiration = $remember
             ? now()->addDays(30)
-            : now()->addHours(12);
+            : now()->addMinutes($sessionMinutes);
 
         /*
          |--------------------------------------------------------------------------

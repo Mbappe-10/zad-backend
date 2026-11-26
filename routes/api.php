@@ -246,6 +246,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/admin/families/{family}/subscription', [FamilyStoreSubscriptionController::class, 'family'])->whereNumber('family');
     Route::post('/admin/families/{family}/subscription/grants', [FamilyStoreSubscriptionController::class, 'grant'])->whereNumber('family')->middleware('throttle:10,1');
     Route::post('/admin/families/{family}/subscription/grants/{grant}/revoke', [FamilyStoreSubscriptionController::class, 'revoke'])->whereNumber('family')->whereNumber('grant')->middleware('throttle:10,1');
+    Route::get('/admin/orders/{order}/schedule-contacts', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'index'])->middleware('permission:orders.view');
+    Route::post('/admin/orders/{order}/schedule-contacts', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'store'])->middleware('permission:orders.edit');
+    Route::patch('/admin/orders/{order}/schedule', [\App\Http\Controllers\Api\Admin\OrderScheduleContactController::class, 'updateSchedule'])->middleware('permission:orders.edit');
     Route::patch('/admin/control-center/{section}', [ControlCenterController::class, 'update']);
     Route::post('/admin/control-center/actions/{action}', [ControlCenterController::class, 'action']);
 
@@ -368,6 +371,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
+        Route::post('/orders/{order}/schedule-decision', [FamilyOrderController::class, 'scheduleDecision']);
         Route::post(
             '/orders/{order}/ready-proof',
             [FamilyOrderController::class, 'readyProof'],
@@ -509,6 +513,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post(
         '/orders/{order}/arrive-customer',
         [DriverOrderController::class, 'arriveAtCustomer'],
+    )->middleware('throttle:10,1');
+
+    Route::post(
+        '/orders/{order}/deliver',
+        [DriverOrderController::class, 'deliver'],
     )->middleware('throttle:10,1');
 
     /* ZAD_DELIVERY_OTP_DRIVER_ROUTE_V1 */
@@ -661,6 +670,15 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/digital-employee-tasks/{task}/approval', [DigitalEmployeeController::class, 'approveTask']);
     Route::post('/digital-employees/{digitalEmployee}/rules', [DigitalEmployeeController::class, 'addRule']);
     Route::post('/automation-rules/{rule}/toggle', [DigitalEmployeeController::class, 'toggleRule']);
+
+    Route::prefix('digital-workgroup')->middleware(\App\Http\Middleware\RequireSponsoredCouponOwner::class)
+        ->controller(\App\Http\Controllers\Api\DigitalWorkgroupController::class)
+        ->group(function (): void {
+            Route::get('/', 'index');
+            Route::post('/messages', 'store');
+            Route::post('/replies', 'reply')->middleware('throttle:12,1');
+            Route::post('/tasks/{digitalEmployee}', 'createTask')->whereNumber('digitalEmployee');
+        });
 
     /*
     |--------------------------------------------------------------------------
@@ -1208,6 +1226,8 @@ Route::prefix('v1/app')->group(function (): void {
     Route::post('/orders/{order}/legacy-recovery/check',
         [\App\Http\Controllers\Api\App\LegacyOrderRecoveryController::class, 'check'])
         ->whereNumber('order')->middleware('throttle:8,1');
+
+    Route::post('/orders/recover-by-phone', [AppOrderController::class, 'recoverByPhone'])->middleware('throttle:10,1');
 
     Route::get(
         '/orders',

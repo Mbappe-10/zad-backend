@@ -15,6 +15,9 @@ class DigitalEmployeeOrderTaskController extends Controller
 {
     public function store(Request $request): JsonResponse
     {
+        $gate = app(\App\Services\App\PlatformOperationGate::class);
+        abort_unless($gate->enabled('modules', 'digitalEmployeesEnabled', true), 423, 'وحدة الموظفين الرقميين متوقفة مؤقتًا من مركز التحكم.');
+        abort_unless($gate->enabled('artificial_intelligence', 'enabled', true), 423, 'الذكاء الاصطناعي متوقف مؤقتًا من مركز التحكم.');
         $user = $request->user();
 
         // قراءة الطلبات الحقيقية في هذه المرحلة لمالك المنصة النشط فقط.
@@ -70,7 +73,10 @@ class DigitalEmployeeOrderTaskController extends Controller
                 'الموظف الرقمي غير نشط.'
             );
 
-            $dailyLimit = (int) $employee->max_daily_tasks;
+            $controlDailyLimit = (int) app(\App\Services\App\PlatformOperationGate::class)->number('artificial_intelligence', 'dailyTaskLimit', 0);
+            $dailyLimit = $controlDailyLimit > 0
+                ? min((int) $employee->max_daily_tasks, $controlDailyLimit)
+                : (int) $employee->max_daily_tasks;
 
             abort_unless(
                 $dailyLimit > 0,

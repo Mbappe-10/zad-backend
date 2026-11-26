@@ -110,6 +110,7 @@ class DeliveryOperationsController extends Controller
 
     public function quote(Request $request): JsonResponse
     {
+        app(\App\Services\App\PlatformOperationGate::class)->assertDeliveryAllowed();
         $data = $request->validate(['city_id' => 'nullable|exists:cities,id', 'vehicle_id' => 'nullable|exists:vehicles,id', 'distance_km' => 'required|numeric|min:0|max:500']);
         $rule = DeliveryPricingRule::query()->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('city_id')->orWhere('city_id', $data['city_id'] ?? null))

@@ -97,6 +97,13 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Neon's pooler keeps server-side prepared statements. After a
+            // migration alters a table, those cached plans fail with
+            // "cached plan must not change result type". Emulated prepares
+            // send plain queries, so schema changes never break live traffic.
+            'options' => extension_loaded('pdo_pgsql') ? [
+                PDO::ATTR_EMULATE_PREPARES => (bool) env('DB_EMULATE_PREPARES', true),
+            ] : [],
         ],
 
         'sqlsrv' => [

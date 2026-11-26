@@ -6,15 +6,24 @@ use App\Http\Controllers\Controller;
 use App\Models\FamilyStoreGrant;
 use App\Models\FamilyStorePlan;
 use App\Models\FamilyStorePurchase;
+use App\Models\PlatformControl;
 use App\Models\ProductiveFamily;
 use App\Services\App\FamilyStorefrontService;
+use App\Services\App\FamilyStorePurchaseService;
+use App\Services\App\FamilySubscriptionReceiptService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class FamilyStoreSubscriptionController extends Controller
 {
-    public function __construct(private readonly FamilyStorefrontService $storefront) {}
+    public function __construct(
+        private readonly FamilyStorefrontService $storefront,
+        private readonly FamilyStorePurchaseService $purchasesService,
+        private readonly FamilySubscriptionReceiptService $receipts,
+    ) {}
 
     private function owner(Request $request): void
     {
@@ -88,9 +97,99 @@ class FamilyStoreSubscriptionController extends Controller
         return response()->json(['data' => FamilyStorePurchase::query()
             ->latest('id')->paginate(30, [
                 'id', 'productive_family_id', 'plan_code', 'amount_halalas',
-                'currency', 'status', 'invoice_id', 'provider_payment_id',
-                'created_at', 'paid_at',
+                'currency', 'status', 'given_id', 'provider_payment_id',
+                'receipt_number', 'receipt_hash', 'created_at', 'paid_at',
             ])]);
+    }
+
+    public function lookup(Request $request): JsonResponse
+    {
+        $this->owner($request);
+        $data = $request->validate(['reference' => ['required', 'string', 'max:100']]);
+        $reference = trim($data['reference']);
+        $purchase = FamilyStorePurchase::query()->where('receipt_number', $reference)
+            ->orWhere('provider_payment_id', $reference)
+            ->orWhere('given_id', $reference)
+            ->when(ctype_digit($reference), fn ($query) => $query->orWhere('id', (int) $reference))
+            ->firstOrFail();
+        return response()->json(['data' => $purchase,
+            'entitlement' => $this->storefront->entitlement(ProductiveFamily::query()->findOrFail($purchase->productive_family_id))]);
+    }
+
+    public function receiptSettings(Request $request): JsonResponse
+    {
+        $this->owner($request);
+        return response()->json(['data' => $this->receipts->settings()]);
+    }
+
+    public function updateReceiptSettings(Request $request): JsonResponse
+    {
+        $this->owner($request);
+        $validated = $request->validate([
+            'issuer_name' => ['required', 'string', 'max:120'],
+            'heading' => ['required', 'string', 'max:120'],
+            'intro' => ['required', 'string', 'max:500'],
+            'footer' => ['required', 'string', 'max:500'],
+            'accent_color' => ['required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'layout' => ['required', 'in:classic,compact'],
+        ]);
+        $settings = array_replace($this->receipts->settings(), $validated);
+        PlatformControl::query()->updateOrCreate(['section' => 'family_subscription_receipt'], [
+            'value' => $settings, 'updated_by' => $request->user()->id,
+            'description' => 'New family subscription receipt wording',
+        ]);
+        return response()->json(['data' => $this->receipts->settings()]);
+    }
+
+    public function uploadReceiptImage(Request $request, string $kind): JsonResponse
+    {
+        $this->owner($request);
+        abort_unless(in_array($kind, ['logo', 'image'], true), 404);
+        $data = $request->validate(['image' => ['required', 'file', 'image', 'mimes:png,jpg,jpeg', 'max:2048']]);
+        $file = $data['image'];
+        $bytes = file_get_contents($file->getRealPath());
+        abort_unless(is_string($bytes) && $bytes !== '', 422);
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
+        abort_unless(in_array($mime, ['image/png', 'image/jpeg'], true), 422);
+        $path = 'family-subscription-receipt-assets/'.Str::uuid().($mime === 'image/png' ? '.png' : '.jpg');
+        abort_unless(Storage::disk('r2_contracts')->put($path, $bytes), 503, 'تعذر حفظ صورة الإيصال.');
+        $settings = $this->receipts->settings();
+        $settings[$kind.'_path'] = $path;
+        PlatformControl::query()->updateOrCreate(['section' => 'family_subscription_receipt'], [
+            'value' => $settings, 'updated_by' => $request->user()->id,
+            'description' => 'New family subscription receipt wording and layout',
+        ]);
+        return response()->json(['data' => $this->receipts->settings()]);
+    }
+
+    public function receiptImage(Request $request, string $kind): JsonResponse
+    {
+        $this->owner($request);
+        abort_unless(in_array($kind, ['logo', 'image'], true), 404);
+        $path = $this->receipts->settings()[$kind.'_path'] ?? null;
+        abort_unless(is_string($path) && $path !== '', 404);
+        $bytes = Storage::disk('r2_contracts')->get($path);
+        abort_unless(is_string($bytes) && $bytes !== '', 404);
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
+        abort_unless(in_array($mime, ['image/png', 'image/jpeg'], true), 500);
+        return response()->json(['mime' => $mime, 'image_base64' => base64_encode($bytes)]);
+    }
+
+    public function verifyPurchase(Request $request, FamilyStorePurchase $purchase): JsonResponse
+    {
+        $this->owner($request);
+        $data = $request->validate(['payment_id' => ['sometimes', 'uuid']]);
+        $purchase = $this->purchasesService->reconcile($purchase, $data['payment_id'] ?? null);
+        return response()->json(['data' => $purchase]);
+    }
+
+    public function receipt(Request $request, FamilyStorePurchase $purchase): JsonResponse
+    {
+        $this->owner($request);
+        abort_unless($purchase->status === 'paid', 404);
+        $bytes = $this->receipts->pdf($purchase);
+        return response()->json(['number' => $purchase->receipt_number,
+            'sha256' => hash('sha256', $bytes), 'pdf_base64' => base64_encode($bytes)]);
     }
 
     public function grant(Request $request, ProductiveFamily $family): JsonResponse

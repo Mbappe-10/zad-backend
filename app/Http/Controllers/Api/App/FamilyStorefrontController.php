@@ -31,6 +31,9 @@ class FamilyStorefrontController extends Controller
         return response()->json([
             'enabled' => (bool) ($control['enabled'] ?? false),
             'purchase_available' => $this->purchases->available(),
+            'web_purchase_available' => $this->purchases->available()
+                && (bool) config('zad_web_payment.enabled', false)
+                && app(\App\Services\App\MoyasarModeResolver::class)->currentMode() === 'live',
             'plans' => FamilyStorePlan::query()->where('is_visible', true)->orderBy('sort_order')->get(),
         ]);
     }

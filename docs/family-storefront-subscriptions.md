@@ -1,12 +1,15 @@
 # Family storefront subscriptions API
 
-This feature keeps subscription invoices separate from order checkout and all
-existing order payment files. A family may buy silver or gold through a hosted
-Moyasar invoice only when the owner enables subscriptions and the existing
-Moyasar mode is configured. The server verifies the invoice and paid payment
-directly with Moyasar before activating an entitlement. Client redirects and
-callback payloads never prove payment. Test mode remains isolated by the
-existing Moyasar mode policy.
+Family subscription purchases use the same Moyasar live/sandbox credentials and
+native card/Apple Pay SDK as orders, with a separate purchase/payment record.
+Web checkout uses a single-use Payment Intent while the existing order payment
+files remain untouched. The server fetches the provider payment and matches
+its ID or intent, amount, currency, environment and family/purchase metadata
+before activating an entitlement. Neither a client redirect nor a webhook
+body proves payment. Test mode remains isolated by the existing policy.
+ZAD Sync then issues its own immutable subscription invoice PDF, without tax
+fields or a Moyasar hosted invoice. The owner controls the invoice wording and
+design; payment facts remain server-generated and locked.
 
 ## Owner console
 
@@ -22,8 +25,16 @@ existing Moyasar mode policy.
   `PATCH /api/admin/control-center/family_subscriptions` with
   `{ "value": { "enabled": true } }`: owner switch for subscription offers.
   Turning off offers does not confiscate existing grants or alter product orders.
-- `GET /api/admin/family-store-purchases`: latest purchase statuses and verified
-  invoice and payment IDs. Family details include the purchase history.
+- `GET /api/admin/family-store-purchases`: purchase status, invoice number and
+  verified Moyasar payment ID. The owner can verify a purchase again by provider
+  payment ID and download its archived PDF.
+- `GET/PATCH /api/admin/family-store-receipt-settings`: owner-editable issuer,
+  heading, intro, footer, layout and accent color. The owner can upload an
+  optional logo and image (PNG/JPEG, private R2) and preview them. Changes
+  affect future invoices only; money, payer, payment reference, dates and
+  hashes cannot be edited.
+- `GET /api/admin/family-store-purchases/lookup?reference=...` searches by
+  ZAD receipt number, payment UUID, given ID or internal ID across all history.
 
 The `features` array contains editable display cards (`id`, `title`, optional
 `description`). The `capabilities` object contains server-enforced design gates:
@@ -44,22 +55,33 @@ behavior by itself. Only the owner can edit plans or grants.
   multipart `image`. Free families get one logo replacement; banner needs an
   entitled plan. Images use the existing Cloudinary public-disk configuration.
 - `POST /api/v1/app/productive-family/storefront/purchases` with
-  `{ "plan": "silver" }`: reserves a price snapshot and returns the hosted
-  checkout URL. Repeated requests reuse an unexpired invoice for that plan.
+  `{ "plan": "silver" }`: reserves a price and 30-day duration snapshot,
+  returning the native SDK configuration. Repeated requests reuse an open
+  attempt for the same plan and amount.
+- `POST /api/v1/app/productive-family/storefront/purchases/{id}/web-intent`:
+  creates or safely reuses a single-use Moyasar Payment Intent for the web.
 - `GET /api/v1/app/productive-family/storefront/purchases/latest`: recover the
-  pending invoice after reopening the app.
+  pending attempt after reopening the app.
 - `POST /api/v1/app/productive-family/storefront/purchases/{id}/verify`: fetches
-  the invoice from Moyasar, verifies paid status, currency, amount, invoice
-  identity and paid payment, then creates exactly one grant.
-- Moyasar invoice callback also triggers that server-side verification. If it
-  arrives before the invoice ID is saved, the family can use Verify in the app.
-  The invoice's checkout URL is never a proof of payment.
+  the payment directly from Moyasar and creates exactly one grant and immutable
+  receipt snapshot. The PDF is stored in the existing private R2 contract disk.
+- `GET /api/v1/app/productive-family/storefront/purchases/{id}/receipt`:
+  authenticated family PDF download; the owner has a separate admin endpoint.
+- The independent subscription webhook requires the existing Moyasar secret,
+  and the `family-subscriptions:reconcile` scheduler checks pending native
+  attempts. Configure `POST /api/v1/app/family-store-purchases/webhook` in
+  Moyasar and ensure the scheduler runs in production before enabling sales.
+  A web payment can also be verified by its ID from the original family tab
+  or from the owner's purchase lookup. An uncertain web intent creation is
+  never retried blindly; the owner reviews the provider payment first.
 
 Purchased plans begin after the last unexpired entitlement, so changing plans
-does not discard paid or gifted days. New invoices expire after 25 minutes;
-uncertain provider responses temporarily block additional invoices to avoid
-duplicate charges. A paid grant cannot be revoked through the owner gift
-revoke endpoint. Provider refunds require a separate refund review workflow.
+does not discard paid or gifted days. Each plan lasts the configured number of
+calendar days (30 by default) from its actual start time. An uncertain web
+intent response blocks additional payment intents to avoid duplicate charges.
+At expiry the customer storefront falls back to the free design. A paid grant
+cannot be revoked through the owner gift revoke endpoint. Provider refunds and
+chargebacks require a separate finance review before broad availability.
 
 The storefront page belongs inside **إدارة المتجر**, with separate tabs for
 **بيانات الأسرة**, **واجهة المتجر**, and **الباقات والاشتراكات**. The preview

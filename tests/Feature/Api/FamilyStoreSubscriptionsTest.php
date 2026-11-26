@@ -11,6 +11,7 @@ use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -118,8 +119,9 @@ class FamilyStoreSubscriptionsTest extends TestCase
             ->assertJsonPath('store.plan', 'free');
     }
 
-    public function test_subscription_is_activated_only_after_provider_invoice_verification_and_only_once(): void
+    public function test_subscription_is_activated_only_after_provider_payment_verification_and_receipt_is_immutable(): void
     {
+        Storage::fake('r2_contracts');
         [$family] = $this->family();
         $member = User::factory()->create();
         AppProfile::query()->create([
@@ -138,30 +140,20 @@ class FamilyStoreSubscriptionsTest extends TestCase
         PlatformControl::query()->create(['section' => 'services', 'value' => [
             'paymentGatewayEnabled' => true, 'paymentMode' => 'sandbox',
         ]]);
-        $invoiceId = 'b778fefa-78d2-4f1d-81e5-e36ba29fd132';
-        $paymentId = 'e6678436-c540-4078-93d5-505d3852c031';
-        $callback = null;
         $paid = false;
-        Http::fake(function ($request) use ($invoiceId, $paymentId, &$callback, &$paid) {
-            if ($request->method() === 'POST') {
-                $callback = $request['callback_url'];
-                return Http::response([
-                    'id' => $invoiceId,
-                    'status' => 'initiated',
-                    'amount' => 4900,
-                    'currency' => 'SAR',
-                    'url' => 'https://checkout.moyasar.com/invoices/'.$invoiceId,
-                ], 201);
-            }
+        Http::fake(function () use (&$paid) {
+            $purchase = FamilyStorePurchase::query()->latest('id')->firstOrFail();
             return Http::response([
-                'id' => $invoiceId,
+                'id' => $purchase->given_id,
                 'status' => $paid ? 'paid' : 'initiated',
                 'amount' => 4900,
                 'currency' => 'SAR',
-                'payments' => $paid ? [[
-                    'id' => $paymentId, 'invoice_id' => $invoiceId,
-                    'amount' => 4900, 'status' => 'paid',
-                ]] : [],
+                'live' => false,
+                'metadata' => [
+                    'family_store_purchase_id' => (string) $purchase->id,
+                    'productive_family_id' => (string) $purchase->productive_family_id,
+                    'environment' => 'sandbox',
+                ],
             ]);
         });
 
@@ -169,21 +161,53 @@ class FamilyStoreSubscriptionsTest extends TestCase
             ->assertOk()->assertJsonPath('purchase_available', true);
         $first = $this->postJson('/api/v1/app/productive-family/storefront/purchases', ['plan' => 'silver'])
             ->assertCreated()->assertJsonPath('data.status', 'pending')->json('data');
+        $this->assertSame('pk_test_fake', $first['payment_config']['publishable_key']);
         $this->assertDatabaseCount('family_store_grants', 0);
-        $this->postJson(parse_url($callback, PHP_URL_PATH), ['status' => 'paid'])
-            ->assertOk(); // A forged callback alone cannot grant a plan.
+        $this->postJson('/api/v1/app/family-store-purchases/webhook', ['type' => 'payment_paid', 'data' => ['id' => $first['given_id']]])
+            ->assertUnauthorized(); // A forged webhook cannot activate an entitlement.
         $this->assertDatabaseCount('family_store_grants', 0);
         $this->postJson('/api/v1/app/productive-family/storefront/purchases/'.$first['id'].'/verify')
             ->assertOk()->assertJsonPath('data.status', 'pending');
         $paid = true;
         $this->postJson('/api/v1/app/productive-family/storefront/purchases/'.$first['id'].'/verify')
-            ->assertOk()->assertJsonPath('entitlement.plan', 'silver');
+            ->assertOk()->assertJsonPath('entitlement.plan', 'silver')->assertJsonPath('data.status', 'paid');
         $this->postJson('/api/v1/app/productive-family/storefront/purchases/'.$first['id'].'/verify')
             ->assertOk();
         $this->assertDatabaseCount('family_store_grants', 1);
+        $receipt = $this->getJson('/api/v1/app/productive-family/storefront/purchases/'.$first['id'].'/receipt')
+            ->assertOk()->json();
+        $this->assertStringStartsWith('%PDF-', base64_decode($receipt['pdf_base64']));
+        $this->assertSame(hash('sha256', base64_decode($receipt['pdf_base64'])), $receipt['sha256']);
         $this->assertDatabaseHas('family_store_purchases', [
-            'id' => $first['id'], 'status' => 'paid', 'provider_payment_id' => $paymentId,
+            'id' => $first['id'], 'status' => 'paid', 'provider_payment_id' => $first['given_id'],
         ]);
+        $paidPurchase = FamilyStorePurchase::query()->findOrFail($first['id']);
+        $grant = FamilyStoreGrant::query()->findOrFail($paidPurchase->grant_id);
+        $this->assertSame(30, (int) round($grant->starts_at->diffInDays($grant->ends_at)));
+        $otherFamily = ProductiveFamily::query()->create([
+            'code' => 'PF-TEST02', 'owner_name' => 'أسرة أخرى',
+            'phone' => '0551234568', 'status' => 'approved',
+        ]);
+        $otherUser = User::factory()->create();
+        AppProfile::query()->create([
+            'user_id' => $otherUser->id, 'productive_family_id' => $otherFamily->id,
+            'roles' => ['productive_family'], 'active_mode' => 'productive_family',
+        ]);
+        Sanctum::actingAs($otherUser);
+        $this->getJson('/api/v1/app/productive-family/storefront/purchases/'.$first['id'].'/receipt')
+            ->assertNotFound();
+        Sanctum::actingAs($this->owner());
+        $this->patchJson('/api/admin/family-store-receipt-settings', [
+            'issuer_name' => 'زاد سينك', 'heading' => 'إيصال جديد',
+            'intro' => 'رسالة جديدة', 'footer' => 'نص جديد',
+            'accent_color' => '#9A3412', 'layout' => 'classic',
+        ])->assertOk();
+        $this->assertSame('فاتورة اشتراك زاد سينك', FamilyStorePurchase::query()->findOrFail($first['id'])->receipt_snapshot['heading']);
+        $this->getJson('/api/admin/family-store-purchases/'.$first['id'].'/receipt')
+            ->assertOk()->assertJsonPath('number', $receipt['number']);
+        $this->travel(31)->days();
+        $this->getJson('/api/v1/app/stores/'.Store::query()->firstOrFail()->id.'/products')
+            ->assertOk()->assertJsonPath('store.plan', 'free');
     }
 
     public function test_subscription_payment_cannot_be_activated_by_a_different_amount(): void
@@ -204,17 +228,17 @@ class FamilyStoreSubscriptionsTest extends TestCase
         PlatformControl::query()->create(['section' => 'services', 'value' => [
             'paymentGatewayEnabled' => true, 'paymentMode' => 'sandbox',
         ]]);
-        $invoiceId = 'b778fefa-78d2-4f1d-81e5-e36ba29fd132';
-        Http::fake(function ($request) use ($invoiceId) {
-            return $request->method() === 'POST'
-                ? Http::response([
-                    'id' => $invoiceId, 'amount' => 4900, 'currency' => 'SAR',
-                    'url' => 'https://checkout.moyasar.com/invoices/'.$invoiceId,
-                ], 201)
-                : Http::response([
-                    'id' => $invoiceId, 'status' => 'paid', 'amount' => 1,
-                    'currency' => 'SAR', 'payments' => [],
-                ]);
+        Http::fake(function () {
+            $purchase = FamilyStorePurchase::query()->latest('id')->firstOrFail();
+            return Http::response([
+                'id' => $purchase->given_id, 'status' => 'paid', 'amount' => 1,
+                'currency' => 'SAR', 'live' => false,
+                'metadata' => [
+                    'family_store_purchase_id' => (string) $purchase->id,
+                    'productive_family_id' => (string) $purchase->productive_family_id,
+                    'environment' => 'sandbox',
+                ],
+            ]);
         });
         $purchase = $this->postJson('/api/v1/app/productive-family/storefront/purchases', ['plan' => 'silver'])
             ->assertCreated()->json('data');
@@ -222,6 +246,39 @@ class FamilyStoreSubscriptionsTest extends TestCase
             ->assertStatus(422);
         $this->assertDatabaseCount('family_store_grants', 0);
         $this->assertSame('pending', FamilyStorePurchase::query()->findOrFail($purchase['id'])->status);
+    }
+
+    public function test_owner_price_change_is_reflected_exactly_in_new_checkout_and_existing_attempt_is_snapshotted(): void
+    {
+        [$family] = $this->family();
+        $member = User::factory()->create();
+        AppProfile::query()->create([
+            'user_id' => $member->id, 'productive_family_id' => $family->id,
+            'roles' => ['productive_family'], 'active_mode' => 'productive_family',
+        ]);
+        config([
+            'moyasar.non_live_isolated' => true,
+            'moyasar.test_publishable_key' => 'pk_test_fake',
+            'moyasar.test_secret_key' => 'sk_test_fake',
+        ]);
+        PlatformControl::query()->create(['section' => 'family_subscriptions', 'value' => ['enabled' => true]]);
+        PlatformControl::query()->create(['section' => 'services', 'value' => [
+            'paymentGatewayEnabled' => true, 'paymentMode' => 'sandbox',
+        ]]);
+        Sanctum::actingAs($this->owner());
+        $this->patchJson('/api/admin/family-store-plans/silver', ['price' => 45, 'duration_days' => 30])
+            ->assertOk();
+        Sanctum::actingAs($member);
+        $purchase = $this->postJson('/api/v1/app/productive-family/storefront/purchases', ['plan' => 'silver'])
+            ->assertCreated()->assertJsonPath('data.amount_halalas', 4500)
+            ->assertJsonPath('data.payment_config.amount_halalas', 4500)->json('data');
+        Sanctum::actingAs($this->owner());
+        $this->patchJson('/api/admin/family-store-plans/silver', ['price' => 60])->assertOk();
+        Sanctum::actingAs($member);
+        $this->getJson('/api/v1/app/productive-family/storefront/purchases/latest')
+            ->assertOk()->assertJsonPath('data.amount_halalas', 4500)
+            ->assertJsonPath('data.payment_config.amount_halalas', 4500)
+            ->assertJsonPath('data.given_id', $purchase['given_id']);
     }
 
     public function test_revoking_a_gift_moves_a_queued_paid_plan_forward_without_losing_its_days(): void

@@ -235,6 +235,13 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
     Route::get('/admin/family-store-plans', [FamilyStoreSubscriptionController::class, 'plans']);
     Route::get('/admin/family-store-purchases', [FamilyStoreSubscriptionController::class, 'purchases']);
+    Route::get('/admin/family-store-purchases/lookup', [FamilyStoreSubscriptionController::class, 'lookup']);
+    Route::get('/admin/family-store-receipt-settings', [FamilyStoreSubscriptionController::class, 'receiptSettings']);
+    Route::patch('/admin/family-store-receipt-settings', [FamilyStoreSubscriptionController::class, 'updateReceiptSettings']);
+    Route::post('/admin/family-store-receipt-settings/images/{kind}', [FamilyStoreSubscriptionController::class, 'uploadReceiptImage'])->where('kind', 'logo|image');
+    Route::get('/admin/family-store-receipt-settings/images/{kind}', [FamilyStoreSubscriptionController::class, 'receiptImage'])->where('kind', 'logo|image');
+    Route::post('/admin/family-store-purchases/{purchase}/verify', [FamilyStoreSubscriptionController::class, 'verifyPurchase'])->whereNumber('purchase')->middleware('throttle:10,1');
+    Route::get('/admin/family-store-purchases/{purchase}/receipt', [FamilyStoreSubscriptionController::class, 'receipt'])->whereNumber('purchase')->middleware('throttle:10,1');
     Route::patch('/admin/family-store-plans/{code}', [FamilyStoreSubscriptionController::class, 'updatePlan'])->where('code', 'free|silver|gold');
     Route::get('/admin/families/{family}/subscription', [FamilyStoreSubscriptionController::class, 'family'])->whereNumber('family');
     Route::post('/admin/families/{family}/subscription/grants', [FamilyStoreSubscriptionController::class, 'grant'])->whereNumber('family')->middleware('throttle:10,1');
@@ -1301,6 +1308,8 @@ Route::prefix('v1/app')->group(function (): void {
         Route::post('/productive-family/storefront/purchases', [FamilyStorePurchaseController::class, 'start'])->middleware('throttle:5,1');
         Route::get('/productive-family/storefront/purchases/latest', [FamilyStorePurchaseController::class, 'latest'])->middleware('throttle:30,1');
         Route::post('/productive-family/storefront/purchases/{purchase}/verify', [FamilyStorePurchaseController::class, 'verify'])->whereNumber('purchase')->middleware('throttle:10,1');
+        Route::post('/productive-family/storefront/purchases/{purchase}/web-intent', [FamilyStorePurchaseController::class, 'webIntent'])->whereNumber('purchase')->middleware('throttle:10,1');
+        Route::get('/productive-family/storefront/purchases/{purchase}/receipt', [FamilyStorePurchaseController::class, 'receipt'])->whereNumber('purchase')->middleware('throttle:10,1');
         Route::get('/productive-family/storefront/plans', [FamilyStorefrontController::class, 'plans']);
         Route::get('/productive-family/storefront', [FamilyStorefrontController::class, 'show']);
         Route::patch('/productive-family/storefront', [FamilyStorefrontController::class, 'update'])->middleware('throttle:20,1');
@@ -1316,8 +1325,8 @@ Route::prefix('v1/app')->group(function (): void {
         )->middleware('throttle:10,1');
     });
 });
-Route::post('/v1/app/family-store-purchases/callback/{token}', [FamilyStorePurchaseController::class, 'callback'])
-    ->where('token', '[A-Za-z0-9]{64}')->middleware('throttle:30,1');
+Route::post('/v1/app/family-store-purchases/webhook', [FamilyStorePurchaseController::class, 'webhook'])
+    ->middleware('throttle:60,1');
 /* ZAD_ACCOUNT_SUPPORT_LANGUAGE_V2 */
 Route::post('/v1/app/support/tickets/guest', [\App\Http\Controllers\Api\App\AppSupportTicketController::class, 'guestStore'])
     ->middleware('throttle:10,1')

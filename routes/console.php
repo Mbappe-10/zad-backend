@@ -35,3 +35,24 @@ Schedule::command('order-settlement:release-due')
 Schedule::command('order-settlement:release-due')
     ->everyMinute()
     ->withoutOverlapping();
+
+Artisan::command('family-subscriptions:reconcile', function (): void {
+    \App\Models\FamilyStorePurchase::query()
+        ->whereIn('status', ['pending', 'expired', 'unknown'])
+        ->whereNotNull('given_id')
+        ->where('created_at', '>=', now()->subDays(2))
+        ->where(function ($query): void {
+            $query->whereNull('last_checked_at')->orWhere('last_checked_at', '<=', now()->subMinutes(1));
+        })
+        ->orderBy('id')->limit(50)->get()->each(function ($purchase): void {
+            try {
+                app(\App\Services\App\FamilyStorePurchaseService::class)->reconcile($purchase);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Family subscription payment reconciliation failed', [
+                    'purchase_id' => $purchase->id, 'error' => $e->getMessage(),
+                ]);
+            }
+        });
+})->purpose('Verify pending family subscriptions directly with Moyasar');
+
+Schedule::command('family-subscriptions:reconcile')->everyMinute()->withoutOverlapping();

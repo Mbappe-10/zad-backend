@@ -10,6 +10,7 @@ use App\Models\ProductiveFamily;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -18,22 +19,19 @@ class FamilyStorePurchaseService
     public function __construct(
         private readonly MoyasarModeResolver $modes,
         private readonly PlatformOperationGate $operations,
+        private readonly FamilySubscriptionReceiptService $receipts,
     ) {}
 
     public function available(): bool
     {
-        $control = PlatformControl::cachedValues()['family_subscriptions'] ?? [];
-        if (! ($control['enabled'] ?? false)) {
+        if (! (PlatformControl::cachedValues()['family_subscriptions']['enabled'] ?? false)) {
             return false;
         }
-
         try {
             $mode = $this->modes->currentMode();
             $this->modes->credentials($mode);
-            if ($mode === 'live' && ! str_starts_with((string) config('app.url'), 'https://')) {
-                return false;
-            }
-            return in_array($mode, ['live', 'sandbox'], true);
+            return in_array($mode, ['live', 'sandbox'], true)
+                && ($mode !== 'live' || str_starts_with((string) config('app.url'), 'https://'));
         } catch (\Throwable) {
             return false;
         }
@@ -44,32 +42,25 @@ class FamilyStorePurchaseService
         abort_unless($this->available(), 503, 'شراء الباقات غير متاح حالياً.');
         $this->operations->assertNewPaymentAttemptAllowed();
         $mode = $this->modes->currentMode();
-        $secret = $this->modes->credentials($mode)['secret_key'];
         $plan = FamilyStorePlan::query()->where('code', $code)->where('is_visible', true)->firstOrFail();
         abort_unless(in_array($code, ['silver', 'gold'], true), 422);
         $amount = $this->halalas((string) $plan->price);
         abort_unless($amount >= 100 && $plan->duration_days >= 1 && $plan->duration_days <= 3650, 422);
 
-        $base = rtrim((string) config('app.url'), '/');
-        if ($mode === 'live') {
-            abort_unless(str_starts_with($base, 'https://'), 503, 'رابط الخدمة الآمن غير مضبوط.');
-        }
-
-        $token = Str::random(64);
-        $purchase = DB::transaction(function () use ($family, $userId, $plan, $amount, $mode, $token): FamilyStorePurchase {
+        return DB::transaction(function () use ($family, $userId, $plan, $amount, $mode): FamilyStorePurchase {
             ProductiveFamily::query()->whereKey($family->id)->lockForUpdate()->firstOrFail();
             $previous = FamilyStorePurchase::query()->where('productive_family_id', $family->id)
-                ->whereIn('status', ['creating', 'unknown', 'pending'])->latest('id')->lockForUpdate()->first();
+                ->whereIn('status', ['pending', 'unknown'])->latest('id')->lockForUpdate()->first();
             if ($previous && $previous->expires_at->isFuture()) {
-                if ($previous->status === 'pending' && $previous->plan_code === $plan->code && $previous->checkout_url) {
+                if ($previous->status === 'pending' && $previous->plan_code === $plan->code
+                    && $previous->amount_halalas === $amount && $previous->mode === $mode) {
                     return $previous;
                 }
-                abort(409, 'لديك فاتورة مفتوحة. أكملها أو انتظر انتهاءها قبل اختيار باقة أخرى.');
+                abort(409, 'توجد محاولة دفع مفتوحة. تحقق من حالتها قبل بدء باقة أخرى.');
             }
-            if ($previous && $previous->status !== 'paid') {
+            if ($previous) {
                 $previous->update(['status' => 'expired']);
             }
-
             return FamilyStorePurchase::query()->create([
                 'productive_family_id' => $family->id,
                 'created_by' => $userId,
@@ -78,97 +69,160 @@ class FamilyStorePurchaseService
                 'duration_days' => $plan->duration_days,
                 'currency' => 'SAR',
                 'mode' => $mode,
-                'status' => 'creating',
-                'callback_token_hash' => hash('sha256', $token),
-                'expires_at' => now()->addMinutes(25),
+                'status' => 'pending',
+                'given_id' => (string) Str::uuid(),
+                // Kept to satisfy the existing schema; no hosted invoice or callback is created.
+                'callback_token_hash' => hash('sha256', Str::random(64)),
+                'expires_at' => now()->addHour(),
             ]);
         }, 3);
+    }
 
-        if ($purchase->status === 'pending') {
-            return $purchase;
+    public function clientConfig(FamilyStorePurchase $purchase): array
+    {
+        if (! $this->available() || $purchase->status !== 'pending' || $purchase->expires_at->isPast()) {
+            return [];
         }
+        $credentials = $this->modes->credentials($purchase->mode);
+        return [
+            'publishable_key' => $credentials['publishable_key'],
+            'given_id' => $purchase->given_id,
+            'amount_halalas' => $purchase->amount_halalas,
+            'currency' => $purchase->currency,
+            'description' => 'ZAD Sync family store subscription '.$purchase->plan_code.' #'.$purchase->id,
+            'metadata' => [
+                'family_store_purchase_id' => (string) $purchase->id,
+                'productive_family_id' => (string) $purchase->productive_family_id,
+                'environment' => $purchase->mode,
+            ],
+            'apple_pay_merchant_id' => trim((string) config('moyasar.apple_pay_merchant_id', '')),
+            'apple_pay_label' => (string) config('moyasar.apple_pay_label', 'ZAD Sync'),
+            'web_checkout_available' => $purchase->mode === 'live'
+                && (bool) config('zad_web_payment.enabled', false),
+        ];
+    }
 
-        $callback = $base.'/api/v1/app/family-store-purchases/callback/'.$token;
+    public function webIntent(FamilyStorePurchase $purchase): array
+    {
+        abort_unless($this->available() && $purchase->mode === 'live'
+            && (bool) config('zad_web_payment.enabled', false), 503);
+        $this->operations->assertNewPaymentAttemptAllowed();
+        $secret = $this->modes->credentials('live')['secret_key'];
+        $callback = 'https://zad-sync-sa.onrender.com/zad-family-subscription-return.html';
+
+        $state = DB::transaction(function () use ($purchase): array {
+            ProductiveFamily::query()->whereKey($purchase->productive_family_id)->lockForUpdate()->firstOrFail();
+            $locked = FamilyStorePurchase::query()->whereKey($purchase->id)->lockForUpdate()->firstOrFail();
+            abort_unless($locked->status === 'pending' && $locked->expires_at->isFuture(), 409);
+            if ($locked->web_intent_state === 'ready' && $locked->web_intent_id) {
+                return ['action' => 'reuse', 'purchase' => $locked];
+            }
+            abort_if($locked->web_intent_state !== null, 409, 'محاولة الدفع غير مؤكدة؛ تحقق من الحالة أولاً.');
+            $locked->update(['web_intent_state' => 'creating']);
+            return ['action' => 'create', 'purchase' => $locked];
+        }, 3);
+        $purchase = $state['purchase'];
+        if ($state['action'] === 'reuse') {
+            $existing = Http::acceptJson()->withBasicAuth($secret, '')->timeout(20)
+                ->get('https://api.moyasar.com/v1/payment_intents/'.$purchase->web_intent_id);
+            abort_unless($existing->successful() && ($existing->json('status') === 'created')
+                && (int) $existing->json('amount') === $purchase->amount_halalas
+                && $existing->json('currency') === 'SAR'
+                && $existing->json('callback_url') === $callback
+                && \Carbon\Carbon::parse($existing->json('expires_at'))->isFuture(), 409);
+            return ['intent_id' => $purchase->web_intent_id,
+                'client_secret' => Crypt::decryptString($purchase->web_client_secret_enc),
+                'given_id' => $purchase->given_id];
+        }
 
         try {
             $response = Http::acceptJson()->withBasicAuth($secret, '')->timeout(20)
-                ->post('https://api.moyasar.com/v1/invoices', [
-                    'amount' => $purchase->amount_halalas,
-                    'currency' => 'SAR',
-                    'description' => 'ZAD Sync family store '.$purchase->plan_code.' #'.$purchase->id,
+                ->post('https://api.moyasar.com/v1/payment_intents', [
+                    'amount' => $purchase->amount_halalas, 'currency' => 'SAR',
+                    'description' => 'ZAD Sync family subscription #'.$purchase->id,
                     'callback_url' => $callback,
-                    'expired_at' => $purchase->expires_at->toISOString(),
                 ]);
         } catch (ConnectionException) {
-            $purchase->update(['status' => 'unknown']);
-            throw ValidationException::withMessages(['payment' => ['تعذر الاتصال بميسر. انتظر انتهاء الفاتورة قبل إعادة المحاولة.']]);
+            abort(503, 'نتيجة إنشاء جلسة الدفع غير مؤكدة. راجع حالة الدفع قبل المحاولة مجددًا.');
         }
-
-        if (! $response->created()) {
-            $purchase->update(['status' => $response->status() >= 500 ? 'unknown' : 'failed']);
-            throw ValidationException::withMessages(['payment' => ['تعذر إنشاء فاتورة الاشتراك لدى ميسر.']]);
-        }
-
-        $invoice = $response->json();
-        $id = is_array($invoice) ? (string) ($invoice['id'] ?? '') : '';
-        $url = is_array($invoice) ? (string) ($invoice['url'] ?? '') : '';
-        if (! Str::isUuid($id) || ! $this->validInvoiceUrl($url)
-            || ! str_contains((string) parse_url($url, PHP_URL_PATH), $id)
-            || (int) ($invoice['amount'] ?? 0) !== $purchase->amount_halalas
-            || ($invoice['currency'] ?? '') !== 'SAR') {
-            $purchase->update(['status' => 'unknown']);
-            throw ValidationException::withMessages(['payment' => ['فاتورة ميسر غير متطابقة؛ تواصل مع الدعم قبل إعادة المحاولة.']]);
-        }
-        $purchase->update(['invoice_id' => $id, 'checkout_url' => $url, 'status' => 'pending']);
-
-        return $purchase;
+        $intent = $response->json();
+        abort_unless($response->created() && is_array($intent)
+            && Str::isUuid((string) ($intent['id'] ?? ''))
+            && str_starts_with((string) ($intent['client_secret'] ?? ''), 'pi_secret_')
+            && ($intent['status'] ?? '') === 'created'
+            && (int) ($intent['amount'] ?? 0) === $purchase->amount_halalas
+            && ($intent['currency'] ?? '') === 'SAR'
+            && ($intent['callback_url'] ?? '') === $callback
+            && isset($intent['expires_at'])
+            && \Carbon\Carbon::parse($intent['expires_at'])->between(now(), now()->addHours(2)), 503,
+            'لم تتأكد جلسة الدفع؛ تحقق من حالتها قبل إعادة المحاولة.');
+        DB::transaction(function () use ($purchase, $intent): void {
+            $locked = FamilyStorePurchase::query()->whereKey($purchase->id)->lockForUpdate()->firstOrFail();
+            abort_unless($locked->web_intent_state === 'creating' && $locked->status === 'pending', 409);
+            $locked->update(['web_intent_state' => 'ready', 'web_intent_id' => $intent['id'],
+                'web_client_secret_enc' => Crypt::encryptString($intent['client_secret']),
+                'expires_at' => \Carbon\Carbon::parse($intent['expires_at'])]);
+        });
+        return ['intent_id' => $intent['id'], 'client_secret' => $intent['client_secret'],
+            'given_id' => $purchase->given_id];
     }
 
-    public function reconcile(FamilyStorePurchase $purchase): FamilyStorePurchase
+    /** Only a direct server-to-Moyasar lookup may activate a plan. */
+    public function reconcile(FamilyStorePurchase $purchase, ?string $paymentId = null): FamilyStorePurchase
     {
-        if (! $purchase->invoice_id || ! in_array($purchase->status, ['pending', 'expired'], true)) {
+        if ($purchase->status === 'paid' && $purchase->receipt_snapshot) {
+            $this->receipts->pdf($purchase);
+            return $purchase->fresh();
+        }
+        if (! $purchase->given_id || ! in_array($purchase->status, ['pending', 'expired', 'unknown'], true)) {
             return $purchase->fresh();
         }
         $secret = $this->modes->credentials($purchase->mode)['secret_key'];
+        $paymentId ??= $purchase->given_id;
+        abort_unless(Str::isUuid($paymentId), 422);
         try {
             $response = Http::acceptJson()->withBasicAuth($secret, '')->timeout(20)
-                ->get('https://api.moyasar.com/v1/invoices/'.rawurlencode($purchase->invoice_id));
+                ->get('https://api.moyasar.com/v1/payments/'.rawurlencode($paymentId));
         } catch (ConnectionException) {
             throw ValidationException::withMessages(['payment' => ['تعذر التأكد من الدفع؛ حاول التحقق لاحقاً.']]);
         }
-        if (! $response->successful() || ! is_array($response->json())) {
-            throw ValidationException::withMessages(['payment' => ['تعذر التحقق من فاتورة ميسر.']]);
+        if ($response->notFound()) {
+            $purchase->update(['last_checked_at' => now()]);
+            return $purchase->fresh();
         }
-        $invoice = $response->json();
-        abort_unless(($invoice['id'] ?? '') === $purchase->invoice_id
-            && (int) ($invoice['amount'] ?? 0) === $purchase->amount_halalas
-            && ($invoice['currency'] ?? '') === $purchase->currency, 422, 'فاتورة ميسر غير متطابقة.');
-
-        if (($invoice['status'] ?? '') !== 'paid') {
-            if (in_array($invoice['status'] ?? '', ['failed', 'canceled', 'expired', 'voided'], true)) {
+        if (! $response->successful() || ! is_array($response->json())) {
+            throw ValidationException::withMessages(['payment' => ['تعذر التحقق من عملية ميسر.']]);
+        }
+        $payment = $response->json();
+        abort_unless(
+            ($payment['id'] ?? null) === $paymentId
+            && ($paymentId === $purchase->given_id || ($purchase->web_intent_id !== null
+                && ($payment['payment_intent_id'] ?? null) === $purchase->web_intent_id))
+            && (int) ($payment['amount'] ?? -1) === $purchase->amount_halalas
+            && ($payment['currency'] ?? null) === $purchase->currency
+            && (int) data_get($payment, 'metadata.family_store_purchase_id', 0) === $purchase->id
+            && (int) data_get($payment, 'metadata.productive_family_id', 0) === $purchase->productive_family_id
+            && (string) data_get($payment, 'metadata.environment', '') === $purchase->mode
+            && (! array_key_exists('live', $payment) || $payment['live'] === ($purchase->mode === 'live')),
+            422, 'بيانات الدفع لا تطابق اشتراك الأسرة.'
+        );
+        if (($payment['status'] ?? '') !== 'paid') {
+            if (in_array($payment['status'] ?? '', ['failed', 'canceled', 'voided'], true)) {
                 $purchase->update(['status' => 'failed']);
+            } else {
+                $purchase->update(['last_checked_at' => now()]);
             }
             return $purchase->fresh();
         }
 
-        $paidPayment = collect($invoice['payments'] ?? [])->first(fn ($payment) =>
-            is_array($payment) && ($payment['status'] ?? '') === 'paid'
-            && ($payment['invoice_id'] ?? '') === $purchase->invoice_id
-            && (int) ($payment['amount'] ?? 0) === $purchase->amount_halalas
-            && Str::isUuid((string) ($payment['id'] ?? ''))
-        );
-        abort_unless($paidPayment, 422, 'لم يُتحقق من دفعة الفاتورة لدى ميسر.');
-
-        DB::transaction(function () use ($purchase, $paidPayment): void {
+        DB::transaction(function () use ($purchase, $payment): void {
             ProductiveFamily::query()->whereKey($purchase->productive_family_id)->lockForUpdate()->firstOrFail();
             $locked = FamilyStorePurchase::query()->whereKey($purchase->id)->lockForUpdate()->firstOrFail();
             if ($locked->paid_at || $locked->grant_id) {
                 return;
             }
-            $lastGrant = FamilyStoreGrant::query()
-                ->where('productive_family_id', $locked->productive_family_id)
-                ->whereNull('revoked_at')->where('ends_at', '>', now())
-                ->orderByDesc('ends_at')->first();
+            $lastGrant = FamilyStoreGrant::query()->where('productive_family_id', $locked->productive_family_id)
+                ->whereNull('revoked_at')->where('ends_at', '>', now())->orderByDesc('ends_at')->first();
             $start = $lastGrant?->ends_at?->isFuture() ? $lastGrant->ends_at->copy() : now();
             $grant = FamilyStoreGrant::query()->create([
                 'productive_family_id' => $locked->productive_family_id,
@@ -176,28 +230,22 @@ class FamilyStorePurchaseService
                 'source' => 'purchase',
                 'starts_at' => $start,
                 'ends_at' => $start->copy()->addDays($locked->duration_days),
-                'reason' => 'Moyasar invoice '.$locked->invoice_id,
+                'reason' => 'Moyasar payment '.$payment['id'],
             ]);
             $locked->update([
-                'status' => 'paid',
-                'paid_at' => now(),
-                'provider_payment_id' => $paidPayment['id'],
-                'grant_id' => $grant->id,
+                'status' => 'paid', 'paid_at' => now(),
+                'provider_payment_id' => $payment['id'], 'grant_id' => $grant->id,
             ]);
+            $this->receipts->issue($locked, $payment['id']);
         }, 3);
-
+        // PDF is archived before reporting success. A later retry can recover a failed render.
+        $this->receipts->pdf($purchase->fresh());
         return $purchase->fresh();
     }
 
     private function halalas(string $price): int
     {
-        abort_unless(preg_match('/^([0-9]{1,8})(?:\.([0-9]{1,2}))?$/', $price, $matches), 422);
-        return ((int) $matches[1] * 100) + (int) str_pad($matches[2] ?? '0', 2, '0');
-    }
-
-    private function validInvoiceUrl(string $url): bool
-    {
-        return parse_url($url, PHP_URL_SCHEME) === 'https'
-            && parse_url($url, PHP_URL_HOST) === 'checkout.moyasar.com';
+        abort_unless(preg_match('/^([0-9]{1,8})(?:\.([0-9]{1,2}))?$/', $price, $m), 422);
+        return ((int) $m[1] * 100) + (int) str_pad($m[2] ?? '0', 2, '0');
     }
 }

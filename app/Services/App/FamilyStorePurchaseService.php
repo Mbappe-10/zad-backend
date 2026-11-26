@@ -24,7 +24,8 @@ class FamilyStorePurchaseService
 
     public function available(): bool
     {
-        if (! (PlatformControl::cachedValues()['family_subscriptions']['enabled'] ?? false)) {
+        if (! (bool) config('zad_family_subscription_payment.enabled', false)
+            || ! (PlatformControl::cachedValues()['family_subscriptions']['enabled'] ?? false)) {
             return false;
         }
         try {
@@ -98,14 +99,14 @@ class FamilyStorePurchaseService
             'apple_pay_merchant_id' => trim((string) config('moyasar.apple_pay_merchant_id', '')),
             'apple_pay_label' => (string) config('moyasar.apple_pay_label', 'ZAD Sync'),
             'web_checkout_available' => $purchase->mode === 'live'
-                && (bool) config('zad_web_payment.enabled', false),
+                && (bool) config('zad_family_subscription_payment.enabled', false),
         ];
     }
 
     public function webIntent(FamilyStorePurchase $purchase): array
     {
         abort_unless($this->available() && $purchase->mode === 'live'
-            && (bool) config('zad_web_payment.enabled', false), 503);
+            && (bool) config('zad_family_subscription_payment.enabled', false), 503);
         $this->operations->assertNewPaymentAttemptAllowed();
         $secret = $this->modes->credentials('live')['secret_key'];
         $callback = 'https://zad-sync-sa.onrender.com/zad-family-subscription-return.html';

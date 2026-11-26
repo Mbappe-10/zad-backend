@@ -119,6 +119,58 @@ class FamilyStoreSubscriptionsTest extends TestCase
             ->assertJsonPath('store.plan', 'free');
     }
 
+    public function test_family_payment_switch_is_independent_of_order_web_intents(): void
+    {
+        [$family] = $this->family();
+        $member = User::factory()->create();
+        AppProfile::query()->create([
+            'user_id' => $member->id,
+            'productive_family_id' => $family->id,
+            'roles' => ['productive_family'],
+            'active_mode' => 'productive_family',
+        ]);
+        Sanctum::actingAs($member);
+        app()->detectEnvironment(static fn (): string => 'production');
+        config([
+            'app.url' => 'https://zad-backend-w2a2.onrender.com',
+            'moyasar.live_publishable_key' => 'pk_live_fake',
+            'moyasar.live_secret_key' => 'sk_live_fake',
+            'zad_web_payment.enabled' => false,
+            'zad_family_subscription_payment.enabled' => true,
+        ]);
+        PlatformControl::query()->create(['section' => 'family_subscriptions', 'value' => ['enabled' => true]]);
+        PlatformControl::query()->create(['section' => 'services', 'value' => [
+            'paymentGatewayEnabled' => true, 'paymentMode' => 'live',
+        ]]);
+
+        $this->getJson('/api/v1/app/productive-family/storefront/plans')
+            ->assertOk()->assertJsonPath('purchase_available', true)
+            ->assertJsonPath('web_purchase_available', true);
+        $purchase = $this->postJson('/api/v1/app/productive-family/storefront/purchases', ['plan' => 'silver'])
+            ->assertCreated()->assertJsonPath('data.payment_config.web_checkout_available', true)->json('data');
+        $intentId = '8f4d1c3e-6a52-4f0b-9a1e-2c7b5d8e0f31';
+        Http::fake(['https://api.moyasar.com/v1/payment_intents' => Http::response([
+            'id' => $intentId,
+            'client_secret' => 'pi_secret_fake',
+            'status' => 'created',
+            'amount' => $purchase['amount_halalas'],
+            'currency' => 'SAR',
+            'callback_url' => 'https://zad-sync-sa.onrender.com/zad-family-subscription-return.html',
+            'expires_at' => now()->addHour()->toISOString(),
+        ], 201)]);
+        $this->postJson('/api/v1/app/productive-family/storefront/purchases/'.$purchase['id'].'/web-intent', [
+            'given_id' => $purchase['given_id'],
+        ])->assertOk()->assertJsonPath('data.intent_id', $intentId);
+
+        config(['zad_web_payment.enabled' => true, 'zad_family_subscription_payment.enabled' => false]);
+        $this->getJson('/api/v1/app/productive-family/storefront/plans')
+            ->assertOk()->assertJsonPath('purchase_available', false)
+            ->assertJsonPath('web_purchase_available', false);
+        $this->postJson('/api/v1/app/productive-family/storefront/purchases/'.$purchase['id'].'/web-intent', [
+            'given_id' => $purchase['given_id'],
+        ])->assertStatus(503);
+    }
+
     public function test_subscription_is_activated_only_after_provider_payment_verification_and_receipt_is_immutable(): void
     {
         Storage::fake('r2_contracts');
@@ -132,6 +184,7 @@ class FamilyStoreSubscriptionsTest extends TestCase
         ]);
         Sanctum::actingAs($member);
         config([
+            'zad_family_subscription_payment.enabled' => true,
             'moyasar.non_live_isolated' => true,
             'moyasar.test_publishable_key' => 'pk_test_fake',
             'moyasar.test_secret_key' => 'sk_test_fake',
@@ -220,6 +273,7 @@ class FamilyStoreSubscriptionsTest extends TestCase
         ]);
         Sanctum::actingAs($member);
         config([
+            'zad_family_subscription_payment.enabled' => true,
             'moyasar.non_live_isolated' => true,
             'moyasar.test_publishable_key' => 'pk_test_fake',
             'moyasar.test_secret_key' => 'sk_test_fake',
@@ -257,6 +311,7 @@ class FamilyStoreSubscriptionsTest extends TestCase
             'roles' => ['productive_family'], 'active_mode' => 'productive_family',
         ]);
         config([
+            'zad_family_subscription_payment.enabled' => true,
             'moyasar.non_live_isolated' => true,
             'moyasar.test_publishable_key' => 'pk_test_fake',
             'moyasar.test_secret_key' => 'sk_test_fake',

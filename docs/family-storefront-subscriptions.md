@@ -11,6 +11,20 @@ ZAD Sync then issues its own immutable subscription invoice PDF, without tax
 fields or a Moyasar hosted invoice. The owner controls the invoice wording and
 design; payment facts remain server-generated and locked.
 
+## Payment switches
+
+- `ZAD_FAMILY_SUBSCRIPTION_PAYMENT_ENABLED=false` by default. Set to `true`
+  on the backend for a controlled live payment test after deploying the
+  subscription checkout, before broader sales. It gates native card/Apple Pay and web
+  subscription purchases. It does not gate order checkout.
+- The owner control-center `family_subscriptions.enabled` toggle must also be
+  on. Turning that toggle off blocks new purchases without erasing grants.
+- Subscription web intents no longer read `ZAD_WEB_INTENTS_ENABLED`, which is
+  reserved for order checkout. Subscription purchases still use the existing
+  Moyasar live/test merchant keys and platform payment mode.
+- Confirm that the deployed family web checkout and return pages are served at
+  `zad-sync-sa.onrender.com` before enabling live web sales.
+
 ## Owner console
 
 - `GET /api/admin/family-store-plans`: all three plans, including hidden ones.

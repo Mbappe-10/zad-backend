@@ -77,7 +77,7 @@ class CashierZadTest extends TestCase
         ]);
 
         return $this->postJson('/api/v1/app/family/cashier/sales', array_replace([
-            'items' => [['product_id' => $product->id, 'quantity' => 2], ['name' => 'كيس ثلج', 'unit_price' => 3, 'quantity' => 1]],
+            'items' => [['product_id' => $product->id, 'quantity' => 2]],
             'payment_method' => 'network', 'channel' => 'shop',
         ], $extra));
     }
@@ -108,13 +108,13 @@ class CashierZadTest extends TestCase
             ->assertJsonPath('data.features.quick_sale', true)->assertJsonPath('data.features.batches', false);
 
         $receipt = $this->sale(['customer_phone' => '0551234812'])->assertCreated()
-            ->assertJsonPath('data.sale_type', 'quick')->assertJsonPath('data.total', 53)
+            ->assertJsonPath('data.sale_type', 'quick')->assertJsonPath('data.total', 50)
             ->assertJsonPath('data.payment_method_label', 'شبكة (مدى)')->json('data');
         $this->assertStringStartsWith('ZS-M-', $receipt['number']);
         $this->getJson('/api/v1/app/family/cashier/display')->assertOk()
             ->assertJsonPath('data.number', $receipt['number'])->assertJsonPath('data.url', $receipt['url']);
         $this->getJson('/api/v1/app/family/cashier/day')->assertOk()
-            ->assertJsonPath('data.direct_total', 53)->assertJsonPath('data.methods.0.method', 'network');
+            ->assertJsonPath('data.direct_total', 50)->assertJsonPath('data.methods.0.method', 'network');
         $this->get(parse_url($receipt['url'], PHP_URL_PATH))->assertOk()->assertSee('سوبو');
 
         $this->travel(4)->minutes();
@@ -146,7 +146,8 @@ class CashierZadTest extends TestCase
         $this->getJson('/api/v1/app/family/cashier')->assertJsonPath('data.tier', 'pro')->assertJsonPath('data.features.batches', true);
         // The store plan stays free.
         $this->getJson('/api/v1/app/productive-family/storefront/status')->assertJsonPath('data.plan', 'free');
-        $this->sale()->assertCreated();
+        // Pro may sell an item that is not in the store.
+        $this->sale(['items' => [['name' => 'كيس ثلج', 'unit_price' => 3, 'quantity' => 1]]])->assertCreated()->assertJsonPath('data.total', 3);
 
         Sanctum::actingAs($this->owner());
         $this->patchJson('/api/admin/cashier-zad/settings', [

@@ -189,4 +189,37 @@ class CashierZadTest extends TestCase
         Sanctum::actingAs($this->member);
         $this->getJson('/api/admin/cashier-zad/settings')->assertForbidden();
     }
+
+    public function test_store_products_appear_in_cashier_for_gold_and_pro(): void
+    {
+        $make = fn (string $name, array $extra = []) => Product::query()->forceCreate(array_replace([
+            'store_id' => $this->store->id, 'name_ar' => $name, 'price' => 12, 'status' => 'active',
+            'is_available' => true, 'preparation_minutes' => 10, 'package_size' => 'small',
+            'images' => ['products/x.jpg'],
+        ], $extra));
+        $a = $make('كيكة');
+        $b = $make('معمول', ['is_available' => false]);
+        // another store's product must not leak in
+        $otherFamily = ProductiveFamily::query()->create(['code' => 'PF-OTH', 'owner_name' => 'x', 'phone' => '0550000009', 'status' => 'approved']);
+        $other = Store::query()->create(['productive_family_id' => $otherFamily->id, 'name_ar' => 'غير', 'slug' => 'oth', 'status' => 'active', 'is_open' => true]);
+        Product::query()->forceCreate(['store_id' => $other->id, 'name_ar' => 'غريب', 'price' => 5, 'status' => 'active', 'is_available' => true, 'preparation_minutes' => 5, 'package_size' => 'small']);
+
+        // free plan: no cashier
+        $this->getJson('/api/v1/app/family/cashier')->assertOk()->assertJsonPath('data.tier', 'none');
+
+        // gold: basic cashier, same products as the store (what quick sale loads)
+        $this->gold();
+        $this->getJson('/api/v1/app/family/cashier')->assertOk()->assertJsonPath('data.tier', 'basic');
+        $list = $this->getJson('/api/v1/app/family/products')->assertOk()->json('data');
+        $this->assertEqualsCanonicalizing([$a->id, $b->id], array_column($list, 'id'));
+        $this->assertNotEmpty($list[0]['image_url']);
+        $inv = $this->getJson('/api/v1/app/family/cashier/inventory')->assertOk()->json('data.products') ?? $this->getJson('/api/v1/app/family/cashier/inventory')->json('products');
+        $this->assertEqualsCanonicalizing([$a->id, $b->id], array_column($inv, 'id'));
+        $this->postJson('/api/v1/app/family/cashier/sales', ['items' => [['product_id' => $a->id, 'quantity' => 1]], 'payment_method' => 'cash', 'channel' => 'shop'])->assertCreated();
+
+        // pro grant: still the same products
+        FamilyCashierGrant::query()->create(['productive_family_id' => $this->family->id, 'source' => 'owner_grant', 'starts_at' => now()->subMinute(), 'ends_at' => now()->addDays(30)]);
+        $this->getJson('/api/v1/app/family/cashier')->assertOk()->assertJsonPath('data.tier', 'pro');
+        $this->assertCount(2, $this->getJson('/api/v1/app/family/products')->json('data'));
+    }
 }

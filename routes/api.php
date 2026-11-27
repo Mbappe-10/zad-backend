@@ -1589,7 +1589,8 @@ foreach (\Illuminate\Support\Facades\Route::getRoutes() as $route) {
     if (! str_starts_with($uri, 'api/') || str_starts_with($uri, 'api/v1/') || in_array($uri, $zadDashboardSelfService, true)) {
         continue;
     }
-    if (! in_array('auth:sanctum', $route->gatherMiddleware(), true)) {
+    // Read the route's own list: gatherMiddleware() would cache it before we add ours.
+    if (! in_array('auth:sanctum', (array) $route->middleware(), true)) {
         continue;
     }
     $route->middleware(\App\Http\Middleware\EnsureDashboardToken::class);

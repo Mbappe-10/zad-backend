@@ -215,7 +215,7 @@ class CashierZadTest extends TestCase
         $this->assertNotEmpty($list[0]['image_url']);
         $inv = $this->getJson('/api/v1/app/family/cashier/inventory')->assertOk()->json('data.products') ?? $this->getJson('/api/v1/app/family/cashier/inventory')->json('products');
         $this->assertEqualsCanonicalizing([$a->id, $b->id], array_column($inv, 'id'));
-        $this->postJson('/api/v1/app/family/cashier/sales', ['items' => [['product_id' => $a->id, 'quantity' => 1]], 'payment_method' => 'cash'])->assertCreated();
+        $this->postJson('/api/v1/app/family/cashier/sales', ['items' => [['product_id' => $a->id, 'quantity' => 1]], 'payment_method' => 'cash', 'channel' => 'shop'])->assertCreated();
 
         // pro grant: still the same products
         FamilyCashierGrant::query()->create(['productive_family_id' => $this->family->id, 'source' => 'owner_grant', 'starts_at' => now()->subMinute(), 'ends_at' => now()->addDays(30)]);

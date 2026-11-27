@@ -29,7 +29,9 @@ class CashierDeviceController extends Controller
             'store' => ['id' => $store->id, 'name' => $store->name_ar, 'logo_url' => $store->logo_url ?? null],
             'device' => ['id' => $ctx->device->id, 'name' => $ctx->device->name],
             'enabled' => $enabled,
+            'personal' => $ctx->device->personal_staff_id !== null,
             'people' => $this->staff->members($store)->filter(fn ($s) => $s->active && ($enabled || $s->isOwner()))
+                ->filter(fn ($s) => $ctx->device->personal_staff_id === null || (int) $s->id === (int) $ctx->device->personal_staff_id)
                 ->map(fn ($s) => [
                     'id' => $s->id,
                     'name' => $s->name,
@@ -40,6 +42,27 @@ class CashierDeviceController extends Controller
             'unlocked' => $ctx->staff ? CashierStaffController::me($ctx) : null,
             'locked_until' => $ctx->device->locked_until?->isFuture() ? $ctx->device->locked_until->toISOString() : null,
         ]]);
+    }
+
+    /** "I work at a store": link this phone with the invite code, no Zad login needed. */
+    public function join(Request $request): JsonResponse
+    {
+        abort_unless($this->staff->ready(), 503, 'الميزة قيد التجهيز.');
+        $data = $request->validate([
+            'code' => ['required', 'string', 'min:6', 'max:40'],
+            'device_name' => ['nullable', 'string', 'max:60'],
+        ]);
+        $code = preg_match('/([A-Za-z2-9]{6})\s*$/', trim($data['code']), $m) ? $m[1] : $data['code'];
+        [$device, $token, $member] = $this->staff->joinWithDevice($code, $data['device_name'] ?? 'جوال الموظفة');
+        if (empty($data['device_name'])) {
+            $device->forceFill(['name' => 'جوال '.$member->name])->save();
+        }
+        $store = \App\Models\Store::query()->find($member->store_id);
+
+        return response()->json([
+            'message' => 'أهلاً '.$member->name.'! صار جوالك كاشير '.$store?->name_ar.'.',
+            'data' => ['token' => $token, 'store_name' => $store?->name_ar, 'staff_id' => $member->id, 'name' => $member->name],
+        ], 201);
     }
 
     public function unlock(Request $request): JsonResponse

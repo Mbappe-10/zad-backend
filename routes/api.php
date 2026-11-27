@@ -1556,6 +1556,7 @@ $zadCashierShared = function (): void {
 Route::prefix('v1/cashier-device')->middleware('throttle:300,1')->group(function () use ($zadCashierShared): void {
     $d = \App\Http\Controllers\Api\App\CashierDeviceController::class;
     Route::get('/me', [$d, 'me']);
+    Route::post('/join', [$d, 'join'])->middleware('throttle:10,1');
     Route::post('/unlock', [$d, 'unlock'])->middleware('throttle:20,1');
     Route::post('/lock', [$d, 'lock']);
     Route::prefix('cashier')->group($zadCashierShared);

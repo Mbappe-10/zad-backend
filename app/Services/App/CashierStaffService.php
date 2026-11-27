@@ -209,6 +209,7 @@ class CashierStaffService
     {
         abort_if($staff->isOwner(), 422, 'ما تقدرين تحذفين حساب المالكة.');
         $staff->forceFill(['active' => false, 'removed_at' => now(), 'user_id' => null])->save();
+        CashierDevice::query()->where('personal_staff_id', $staff->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
         CashierStaffInvite::query()->where('staff_id', $staff->id)->whereNull('used_at')->delete();
         $this->endSessions($staff);
     }
@@ -294,7 +295,8 @@ class CashierStaffService
     /** @return array{0: CashierDevice, 1: string} the device and its token, shown once. */
     public function linkDevice(Store $store, string $kind, string $name, ?int $userId): array
     {
-        $count = CashierDevice::query()->where('store_id', $store->id)->where('kind', $kind)->whereNull('revoked_at')->count();
+        $count = CashierDevice::query()->where('store_id', $store->id)->where('kind', $kind)
+            ->whereNull('personal_staff_id')->whereNull('revoked_at')->count();
         $limit = $kind === 'cashier' ? self::CASHIER_DEVICE_LIMIT : $this->cashier->settings()['screens_limit'];
         abort_if($count >= $limit, 422, "وصلتِ للحد: {$limit} أجهزة.");
         $token = Str::random(64);
@@ -310,10 +312,43 @@ class CashierStaffService
         return [$device, $token];
     }
 
+    /**
+     * The employee types or scans her invite on her own phone (no Zad login needed).
+     * The phone becomes her personal cashier: only she appears on it, with her PIN.
+     *
+     * @return array{0: CashierDevice, 1: string, 2: CashierStaff}
+     */
+    public function joinWithDevice(string $code, string $name): array
+    {
+        $code = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $code));
+
+        return DB::transaction(function () use ($code, $name): array {
+            $invite = CashierStaffInvite::query()->where('code', $code)->lockForUpdate()->first();
+            abort_unless($invite !== null && $invite->used_at === null && $invite->expires_at->isFuture(), 422,
+                'الكود غير صحيح أو انتهى. اطلب كود جديد من صاحبة المتجر.');
+            $staff = CashierStaff::query()->whereKey($invite->staff_id)->whereNull('removed_at')->where('active', true)->first();
+            abort_unless($staff !== null, 422, 'هذه الدعوة ما عادت صالحة.');
+            CashierDevice::query()->where('personal_staff_id', $staff->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+            $token = Str::random(64);
+            $device = CashierDevice::query()->create([
+                'store_id' => $staff->store_id,
+                'kind' => 'cashier',
+                'name' => $name,
+                'personal_staff_id' => $staff->id,
+                'token_hash' => hash('sha256', $token),
+                'last_seen_at' => now(),
+            ]);
+            $invite->forceFill(['used_at' => now()])->save();
+
+            return [$device, $token, $staff];
+        });
+    }
+
     /** @return string the employee's session token on this device */
     public function unlock(CashierDevice $device, int $staffId, string $pin): array
     {
         abort_if($device->locked_until?->isFuture(), 429, 'محاولات كثيرة. جرّبي بعد دقائق.');
+        abort_if($device->personal_staff_id !== null && (int) $device->personal_staff_id !== $staffId, 403, 'هذا الجوال لموظفة ثانية.');
         $staff = CashierStaff::query()->whereKey($staffId)->where('store_id', $device->store_id)
             ->where('active', true)->whereNull('removed_at')->first();
         abort_unless($staff !== null, 404, 'الموظفة غير موجودة.');

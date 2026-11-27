@@ -218,4 +218,34 @@ class CashierStaffTest extends TestCase
         $this->getJson('/api/admin/sale-receipts?staff=نوف')->assertOk()->assertJsonPath('data.0.staff_name', 'نوف');
         $this->get('/api/admin/sale-receipts/export?format=csv')->assertOk();
     }
+
+    public function test_employee_links_her_own_phone_with_the_invite_without_a_zad_login(): void
+    {
+        $this->pro();
+        $noof = $this->addStaff('نوف', '2468');
+        $reem = $this->addStaff('ريم', '1357');
+        $this->app['auth']->forgetGuards();
+
+        $this->postJson('/api/v1/cashier-device/join', ['code' => 'XXXXXX'])->assertStatus(422);
+        $joined = $this->postJson('/api/v1/cashier-device/join', ['code' => 'ZADSTAFF:'.$noof['invite']['code']])
+            ->assertCreated()->assertJsonPath('data.store_name', 'سوبو')->assertJsonPath('data.name', 'نوف')->json('data');
+        $this->postJson('/api/v1/cashier-device/join', ['code' => $noof['invite']['code']])->assertStatus(422); // used
+
+        $phone = ['X-Cashier-Device' => $joined['token']];
+        $people = $this->withHeaders($phone)->getJson('/api/v1/cashier-device/me')->assertOk()
+            ->assertJsonPath('data.personal', true)->json('data.people');
+        $this->assertSame(['نوف'], array_column($people, 'name'));
+        $this->withHeaders($phone)->postJson('/api/v1/cashier-device/unlock', ['staff_id' => $reem['id'], 'pin' => '1357'])->assertForbidden();
+        $tok = $this->withHeaders($phone)->postJson('/api/v1/cashier-device/unlock', ['staff_id' => $noof['id'], 'pin' => '2468'])
+            ->assertOk()->json('data.staff_token');
+        $this->withHeaders($phone + ['X-Cashier-Staff' => $tok])->getJson('/api/v1/cashier-device/cashier')->assertOk()
+            ->assertJsonPath('data.me.name', 'نوف');
+
+        // Removing her unlinks her phone.
+        $this->flushHeaders();
+        Sanctum::actingAs($this->owner);
+        $this->deleteJson('/api/v1/app/family/cashier/staff/'.$noof['id'])->assertOk();
+        $this->app['auth']->forgetGuards();
+        $this->withHeaders($phone)->getJson('/api/v1/cashier-device/me')->assertStatus(401);
+    }
 }

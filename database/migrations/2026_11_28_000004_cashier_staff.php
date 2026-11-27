@@ -51,6 +51,8 @@ return new class extends Migration {
                 $table->string('name', 60);
                 $table->char('token_hash', 64)->unique();
                 $table->json('settings')->nullable();
+                // An employee's own phone, linked with her invite code: only she can open it.
+                $table->unsignedBigInteger('personal_staff_id')->nullable()->index();
                 $table->unsignedBigInteger('staff_id')->nullable();
                 $table->char('staff_token_hash', 64)->nullable();
                 $table->timestamp('unlocked_at')->nullable();

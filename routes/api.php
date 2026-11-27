@@ -234,10 +234,10 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
     Route::get('/admin/sale-receipts', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'index'])->middleware('permission:orders.view');
-    Route::get('/admin/sale-receipts/export', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'export'])->middleware(['permission:orders.view', 'throttle:10,1']);
-    Route::get('/admin/sale-receipts/zip', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'zip'])->middleware(['permission:orders.view', 'throttle:5,1']);
+    Route::get('/admin/sale-receipts/export', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'export'])->middleware(['permission:orders.view', 'throttle:30,1']);
+    Route::get('/admin/sale-receipts/zip', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'zip'])->middleware(['permission:orders.view', 'throttle:30,1']);
     Route::get('/admin/sale-receipts/{receipt}', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'show'])->whereNumber('receipt')->middleware('permission:orders.view');
-    Route::get('/admin/sale-receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware(['permission:orders.view', 'throttle:60,1']);
+    Route::get('/admin/sale-receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware('permission:orders.view');
     Route::get('/admin/family-store-plans', [FamilyStoreSubscriptionController::class, 'plans']);
     Route::get('/admin/family-store-purchases', [FamilyStoreSubscriptionController::class, 'purchases']);
     Route::get('/admin/family-store-purchases/lookup', [FamilyStoreSubscriptionController::class, 'lookup']);

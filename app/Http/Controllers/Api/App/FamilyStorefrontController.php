@@ -58,6 +58,31 @@ class FamilyStorefrontController extends Controller
         ]);
     }
 
+    /** Light plan status for the family dashboard: plan, end time and usage. */
+    public function status(Request $request): JsonResponse
+    {
+        $store = $this->familyStore($request);
+        $entitlement = $this->storefront->catalogEntitlement($store->productiveFamily);
+        $capabilities = $entitlement['capabilities'] ?? [];
+        $products = Product::query()->where('store_id', $store->id);
+        $limit = $this->storefront->productLimit($store, (int) app(\App\Services\App\PlatformOperationGate::class)
+            ->number('products_categories', 'maximumProductsPerStore', 10));
+
+        return response()->json(['data' => [
+            'plan' => $entitlement['plan'] ?? 'free',
+            'source' => $entitlement['source'] ?? 'free',
+            'starts_at' => $entitlement['starts_at'] ?? null,
+            'ends_at' => $entitlement['ends_at'] ?? null,
+            'server_time' => now()->toISOString(),
+            'capabilities' => $capabilities,
+            'products' => ['count' => (clone $products)->count(), 'limit' => $limit],
+            'featured' => [
+                'count' => \Illuminate\Support\Facades\Schema::hasColumn('products', 'is_featured') ? (clone $products)->where('is_featured', true)->count() : 0,
+                'limit' => is_numeric($capabilities['featured_products'] ?? null) ? (int) $capabilities['featured_products'] : 0,
+            ],
+        ]]);
+    }
+
     public function update(Request $request): JsonResponse
     {
         $store = $this->familyStore($request);

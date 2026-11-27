@@ -66,6 +66,7 @@ class FamilyStoreSubscriptionController extends Controller
             'capabilities.max_products' => ['sometimes', 'integer', 'between:0,10000'],
             'capabilities.sales_insights' => ['sometimes', 'boolean'],
             'capabilities.sales_pro' => ['sometimes', 'boolean'],
+            'capabilities.featured_products' => ['sometimes', 'integer', 'between:0,100'],
         ]);
         if ($code === 'free') {
             abort_if(isset($validated['price']) && (float) $validated['price'] !== 0.0, 422, 'الباقة المجانية بلا رسوم.');
@@ -76,7 +77,7 @@ class FamilyStoreSubscriptionController extends Controller
         // A feature card is presentation copy; capabilities are the enforced server gates.
         $validated = array_intersect_key($validated, array_flip(['name', 'description', 'price', 'duration_days', 'sort_order', 'is_visible', 'features', 'capabilities']));
         if (isset($validated['capabilities'])) {
-            $validated['capabilities'] = array_replace($plan->capabilities ?? [], array_intersect_key($validated['capabilities'], array_flip(['banner', 'themes', 'fonts', 'product_cards', 'rename_store', 'weekly_promotions', 'coupons', 'max_products', 'sales_insights', 'sales_pro'])));
+            $validated['capabilities'] = array_replace($plan->capabilities ?? [], array_intersect_key($validated['capabilities'], array_flip(['banner', 'themes', 'fonts', 'product_cards', 'rename_store', 'weekly_promotions', 'coupons', 'max_products', 'sales_insights', 'sales_pro', 'featured_products'])));
         }
         $plan->update($validated);
 

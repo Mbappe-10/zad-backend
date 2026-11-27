@@ -396,6 +396,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/products', [FamilyProductController::class, 'store'])
             ->middleware('throttle:10,1');
         Route::put('/products/{product}', [FamilyProductController::class, 'update']);
+        Route::post('/products/{product}/featured', [FamilyProductController::class, 'featured'])->middleware('throttle:30,1');
         Route::patch(
             '/products/{product}/availability',
             [FamilyProductController::class, 'availability'],
@@ -1352,6 +1353,7 @@ Route::prefix('v1/app')->group(function (): void {
         Route::get('/productive-family/storefront/purchases/{purchase}/receipt', [FamilyStorePurchaseController::class, 'receipt'])->whereNumber('purchase')->middleware('throttle:10,1');
         Route::get('/productive-family/storefront/plans', [FamilyStorefrontController::class, 'plans']);
         Route::get('/productive-family/storefront', [FamilyStorefrontController::class, 'show']);
+        Route::get('/productive-family/storefront/status', [FamilyStorefrontController::class, 'status']);
         Route::patch('/productive-family/storefront', [FamilyStorefrontController::class, 'update'])->middleware('throttle:20,1');
         Route::post('/productive-family/storefront/images/{kind}', [FamilyStorefrontController::class, 'upload'])->where('kind', 'logo|banner')->middleware('throttle:5,1');
         Route::get(

@@ -75,7 +75,7 @@ class AppOrderController extends Controller
             'address' => ['required', 'array'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'driver_notes' => ['nullable', 'string', 'max:1000'],
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:60'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1', 'max:50'],
             'items.*.options' => ['nullable', 'array'],
@@ -176,9 +176,14 @@ class AppOrderController extends Controller
         }
 
         // Cashier Zad stock: a tracked product cannot be ordered beyond what is left.
+        // Lines for the same product are added up, so splitting an order cannot get past the stock.
+        $wanted = [];
         foreach ($data['items'] as $item) {
-            $stocked = $products[(int) $item['product_id']] ?? null;
-            if ($stocked && $stocked->track_stock && (int) $item['quantity'] > (int) $stocked->stock_quantity) {
+            $wanted[(int) $item['product_id']] = ($wanted[(int) $item['product_id']] ?? 0) + (int) $item['quantity'];
+        }
+        foreach ($wanted as $productId => $quantity) {
+            $stocked = $products[$productId] ?? null;
+            if ($stocked && $stocked->track_stock && $quantity > (int) $stocked->stock_quantity) {
                 throw ValidationException::withMessages([
                     'items' => [(int) $stocked->stock_quantity > 0
                         ? 'باقي '.(int) $stocked->stock_quantity.' فقط من '.$stocked->name_ar.'.'

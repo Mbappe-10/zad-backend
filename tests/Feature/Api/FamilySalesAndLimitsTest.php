@@ -85,8 +85,14 @@ class FamilySalesAndLimitsTest extends TestCase
         $this->getJson('/api/v1/app/family/products')->assertJsonPath('meta.limit', 10);
 
         // The owner sets 0 = unlimited for silver from the dashboard.
-        $silver = FamilyStorePlan::query()->where('code', 'silver')->firstOrFail();
-        $silver->update(['capabilities' => [...$silver->capabilities, 'max_products' => 0]]);
+        $member = auth()->user();
+        $owner = User::factory()->create();
+        $owner->forceFill(['is_platform_owner' => true])->save();
+        Sanctum::actingAs($owner);
+        $this->patchJson('/api/admin/family-store-plans/silver', ['capabilities' => ['max_products' => 0]])
+            ->assertOk()->assertJsonPath('data.capabilities.max_products', 0)
+            ->assertJsonPath('data.capabilities.banner', true);
+        Sanctum::actingAs($member);
         $this->getJson('/api/v1/app/family/products')->assertJsonPath('meta.unlimited', true);
     }
 

@@ -45,6 +45,19 @@ class SecurityProbeTest extends TestCase
             }
         }
         fwrite(STDERR, "\nPROBE-OPEN-COUNT ".count($open)."\n".implode("\n", array_map(fn ($l) => 'PROBE '.$l, $open))."\n");
-        $this->assertTrue(true);
+        $leaks = array_filter($open, fn ($l) => ! preg_match('#(/api/me|/api/profile|/api/auth/logout|/api/system/dictionaries|/api/digital-employee-order-tasks)#', $l));
+        $this->assertSame([], array_values($leaks), 'An app token reached a dashboard API.');
+    }
+
+    public function test_dashboard_token_still_works_and_app_token_is_refused(): void
+    {
+        $staff = User::factory()->create();
+        $dash = $staff->createToken(\App\Http\Middleware\EnsureDashboardToken::TOKEN_NAME)->plainTextToken;
+        $app = $staff->createToken('zad-mobile-app')->plainTextToken;
+        $this->withToken($app)->getJson('/api/finance/summary')->assertForbidden();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($app)->postJson('/api/finance/wallets/1/credit', ['amount' => 1000, 'type' => 'x', 'description' => 'x'])->assertForbidden();
+        $this->app['auth']->forgetGuards();
+        $this->assertNotSame(403, $this->withToken($dash)->getJson('/api/finance/summary')->getStatusCode());
     }
 }

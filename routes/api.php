@@ -1570,3 +1570,27 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->prefix('v1/app/staff')->gro
     Route::prefix('{membership}/cashier')->whereNumber('membership')
         ->middleware(\App\Http\Middleware\ResolveCashierMembership::class)->group($zadCashierShared);
 });
+
+// ZAD SECURITY: dashboard-only APIs. Every authenticated route outside the app
+// (api/v1/...) needs a dashboard sign-in; app tokens get 403. Must stay last.
+$zadDashboardSelfService = [
+    'api/me',
+    'api/auth/logout',
+    'api/auth/logout-all',
+    'api/profile',
+    'api/profile/password',
+    'api/profile/photo',
+    'api/profile/photo/content',
+    'api/system/dictionaries',
+    'api/digital-employee-order-tasks',
+];
+foreach (\Illuminate\Support\Facades\Route::getRoutes() as $route) {
+    $uri = $route->uri();
+    if (! str_starts_with($uri, 'api/') || str_starts_with($uri, 'api/v1/') || in_array($uri, $zadDashboardSelfService, true)) {
+        continue;
+    }
+    if (! in_array('auth:sanctum', $route->gatherMiddleware(), true)) {
+        continue;
+    }
+    $route->middleware(\App\Http\Middleware\EnsureDashboardToken::class);
+}

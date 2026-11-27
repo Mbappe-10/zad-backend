@@ -137,19 +137,45 @@ class CashierStaffController extends Controller
             ->whereBetween('issued_at', [$from->copy()->utc(), $to->copy()->utc()]);
 
         $people = [];
-        foreach ((clone $base)->get(['cashier_staff_id', 'staff_name', 'payment_method', 'total', 'discount']) ->groupBy(fn ($r) => (int) $r->cashier_staff_id) as $staffId => $group) {
+        $shiftRows = CashierShift::query()->where('store_id', $store->id)
+            ->whereBetween('opened_at', [$from->copy()->utc(), $to->copy()->utc()])->get();
+        $staffRows = CashierStaff::query()->where('store_id', $store->id)->get()->keyBy('id');
+        foreach ((clone $base)->get(['cashier_staff_id', 'staff_name', 'payment_method', 'total', 'discount', 'subtotal'])->groupBy(fn ($r) => (int) $r->cashier_staff_id) as $staffId => $group) {
+            $total = round((float) $group->sum('total'), 2);
+            $gross = (float) $group->sum('subtotal');
+            $discounts = round((float) $group->sum('discount'), 2);
+            $shifts = $shiftRows->where('staff_id', $staffId ?: -1);
+            $diff = round((float) $shifts->sum(fn ($sh) => (float) ($sh->summary['difference'] ?? 0)), 2);
+            $member = $staffRows->get($staffId);
             $people[] = [
                 'staff_id' => $staffId ?: null,
                 'name' => $group->first()->staff_name ?: 'المالكة',
+                'role' => $member?->role,
                 'sales_count' => $group->count(),
-                'sales_total' => round((float) $group->sum('total'), 2),
+                'sales_total' => $total,
+                'average_ticket' => $group->count() ? round($total / $group->count(), 2) : 0,
                 'cash' => round((float) $group->where('payment_method', 'cash')->sum('total'), 2),
                 'network' => round((float) $group->where('payment_method', 'network')->sum('total'), 2),
                 'other' => round((float) $group->whereNotIn('payment_method', ['cash', 'network'])->sum('total'), 2),
-                'discounts' => round((float) $group->sum('discount'), 2),
+                'discounts' => $discounts,
+                'discount_percent' => $gross > 0 ? round($discounts / $gross * 100, 1) : 0,
+                'shifts' => $shifts->count(),
+                'cash_difference' => $diff,
+                'rating' => $member?->rating,
+                'rating_note' => $member?->rating_note,
             ];
         }
+        // Automatic score out of 100: sales (50), cash accuracy (30), discount discipline (20).
+        $top = max(1, max(array_column($people, 'sales_total') ?: [1]));
+        foreach ($people as &$row) {
+            $sales = 50 * $row['sales_total'] / $top;
+            $cash = 30 * (1 - min(1, abs($row['cash_difference']) / max(50, $row['sales_total'] * 0.02)));
+            $disc = 20 * (1 - min(1, $row['discount_percent'] / 20));
+            $row['score'] = (int) round($sales + $cash + $disc);
+        }
+        unset($row);
         usort($people, fn ($a, $b) => $b['sales_total'] <=> $a['sales_total']);
+        $products = isset($data['staff_id']) ? $this->topProducts((clone $base)->where('cashier_staff_id', $data['staff_id'])->get(['items'])) : [];
 
         $receipts = (clone $base)->when(isset($data['staff_id']), fn ($q) => $q->where('cashier_staff_id', $data['staff_id']))
             ->latest('issued_at')->limit(200)->get();
@@ -163,6 +189,7 @@ class CashierStaffController extends Controller
             'from' => $from->toDateString(),
             'to' => $to->toDateString(),
             'staff' => $people,
+            'top_products' => $products,
             'shifts' => $shifts->map(fn ($s) => $this->staff->shiftPayload($s))->values(),
             'receipts' => $receipts->map(fn (SaleReceipt $r) => [
                 'id' => $r->id,
@@ -176,6 +203,66 @@ class CashierStaffController extends Controller
                 'url' => app(SaleReceiptService::class)->publicUrl($r),
             ])->values(),
         ]]);
+    }
+
+    /** Best sellers and slow movers across the shop and the online store. */
+    public function productSales(Request $request): JsonResponse
+    {
+        $ctx = $this->staff->resolve($request);
+        abort_unless($ctx->can('reports') && $ctx->device === null, 403, 'ما عندك صلاحية التقارير.');
+        $store = $ctx->store;
+        $data = $request->validate([
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+        ]);
+        $from = Carbon::parse($data['from'] ?? now(self::TZ)->subDays(29)->toDateString(), self::TZ)->startOfDay();
+        $to = Carbon::parse($data['to'] ?? now(self::TZ)->toDateString(), self::TZ)->endOfDay();
+        abort_if($from->diffInDays($to) > 366, 422, 'اختاري سنة أو أقل.');
+        $receipts = SaleReceipt::query()->where('store_id', $store->id)->where('status', 'paid')
+            ->whereBetween('issued_at', [$from->copy()->utc(), $to->copy()->utc()])->get(['items', 'sale_type']);
+        $rows = [];
+        foreach ($receipts as $r) {
+            $channel = $r->sale_type === SaleReceipt::TYPE_PLATFORM ? 'online' : 'direct';
+            foreach ((array) $r->items as $i) {
+                $key = ($i['product_id'] ?? null) ? 'p'.$i['product_id'] : 'n'.($i['name'] ?? '');
+                $rows[$key] ??= ['product_id' => $i['product_id'] ?? null, 'name' => $i['name'] ?? '', 'quantity' => 0, 'revenue' => 0.0, 'direct' => 0, 'online' => 0];
+                $rows[$key]['quantity'] += (int) ($i['quantity'] ?? 0);
+                $rows[$key]['revenue'] += (float) ($i['total'] ?? ((float) ($i['unit_price'] ?? 0) * (int) ($i['quantity'] ?? 0)));
+                $rows[$key][$channel] += (int) ($i['quantity'] ?? 0);
+            }
+        }
+        $all = array_values($rows);
+        usort($all, fn ($a, $b) => $b['revenue'] <=> $a['revenue']);
+        $revenue = array_sum(array_column($all, 'revenue')) ?: 1;
+        $all = array_map(fn ($r) => ['revenue' => round($r['revenue'], 2), 'share' => round($r['revenue'] / $revenue * 100, 1)] + $r, $all);
+        $sold = array_filter(array_column($all, 'product_id'));
+        $slow = \App\Models\Product::query()->where('store_id', $store->id)->whereNull('deleted_at')->where('status', 'active')
+            ->whereNotIn('id', $sold ?: [0])->orderBy('name_ar')->limit(30)->get(['id', 'name_ar'])
+            ->map(fn ($p) => ['product_id' => $p->id, 'name' => $p->name_ar])->values();
+
+        return response()->json(['data' => [
+            'from' => $from->toDateString(),
+            'to' => $to->toDateString(),
+            'products' => array_slice($all, 0, 100),
+            'not_sold' => $slow,
+            'total_revenue' => round(array_sum(array_column($all, 'revenue')), 2),
+        ]]);
+    }
+
+    private function topProducts($receipts): array
+    {
+        $rows = [];
+        foreach ($receipts as $r) {
+            foreach ((array) $r->items as $i) {
+                $name = (string) ($i['name'] ?? '');
+                $rows[$name] ??= ['name' => $name, 'quantity' => 0, 'revenue' => 0.0];
+                $rows[$name]['quantity'] += (int) ($i['quantity'] ?? 0);
+                $rows[$name]['revenue'] += (float) ($i['total'] ?? 0);
+            }
+        }
+        usort($rows, fn ($a, $b) => $b['quantity'] <=> $a['quantity']);
+
+        return array_map(fn ($r) => ['revenue' => round($r['revenue'], 2)] + $r, array_slice(array_values($rows), 0, 5));
     }
 
     // ------------------------------------------------------------ anyone: shifts
@@ -252,6 +339,8 @@ class CashierStaffController extends Controller
             'permissions.*' => [Rule::in(array_keys(CashierStaffService::PERMISSIONS))],
             'max_discount_percent' => ['sometimes', 'integer', 'min:0', 'max:100'],
             'active' => ['sometimes', 'boolean'],
+            'rating' => ['sometimes', 'nullable', 'integer', 'between:1,5'],
+            'rating_note' => ['sometimes', 'nullable', 'string', 'max:200'],
         ]);
     }
 

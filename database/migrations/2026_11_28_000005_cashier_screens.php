@@ -20,6 +20,17 @@ return new class extends Migration {
                 $table->timestamps();
             });
         }
+        // The owner's own rating of each employee (stars + note), next to the automatic score.
+        if (Schema::hasTable('cashier_staff')) {
+            Schema::table('cashier_staff', function (Blueprint $table): void {
+                if (! Schema::hasColumn('cashier_staff', 'rating')) {
+                    $table->unsignedTinyInteger('rating')->nullable();
+                }
+                if (! Schema::hasColumn('cashier_staff', 'rating_note')) {
+                    $table->string('rating_note', 200)->nullable();
+                }
+            });
+        }
         if (Schema::hasTable('sale_receipts') && ! Schema::hasColumn('sale_receipts', 'cashier_device_id')) {
             Schema::table('sale_receipts', function (Blueprint $table): void {
                 $table->unsignedBigInteger('cashier_device_id')->nullable()->index();

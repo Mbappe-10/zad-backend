@@ -400,6 +400,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/cashier/staff/{member}/invite', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'invite'])->whereNumber('member')->middleware('throttle:20,1');
         Route::post('/cashier/devices', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'linkDevice'])->middleware('throttle:10,1');
         Route::delete('/cashier/devices/{device}', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'unlinkDevice'])->whereNumber('device');
+        Route::get('/cashier/product-sales', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'productSales'])->middleware('throttle:30,1');
         Route::get('/cashier/staff-sales', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'sales'])->middleware('throttle:30,1');
         Route::get('/cashier/products', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'products']);
         Route::get('/cashier/shift', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'currentShift']);

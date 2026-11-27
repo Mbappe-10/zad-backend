@@ -130,6 +130,17 @@ class CashierStaffTest extends TestCase
         $this->assertEquals(50, $byName['نوف']['sales_total']);
         $this->assertEquals(1, $byName['نوف']['sales_count']);
         $this->assertEquals(50, $byName['أم سارة']['sales_total']);
+        $this->assertEquals(50, $byName['نوف']['average_ticket']);
+        $this->assertGreaterThan(0, $byName['نوف']['score']);
+        $this->patchJson('/api/v1/app/family/cashier/staff/'.$noof['id'], ['rating' => 5, 'rating_note' => 'سريعة ومرتبة'])->assertOk()
+            ->assertJsonPath('data.rating', 5);
+        $this->getJson('/api/v1/app/family/cashier/staff-sales')->assertJsonPath('data.staff.0.rating', 5);
+        $this->getJson('/api/v1/app/family/cashier/staff-sales?staff_id='.$noof['id'])->assertJsonPath('data.top_products.0.name', 'حبحبوه')
+            ->assertJsonPath('data.top_products.0.quantity', 2);
+        $products = $this->getJson('/api/v1/app/family/cashier/product-sales')->assertOk()->json('data');
+        $this->assertSame('حبحبوه', $products['products'][0]['name']);
+        $this->assertEquals(4, $products['products'][0]['quantity']);
+        $this->assertEquals(100, $products['products'][0]['share']);
         $this->getJson('/api/v1/app/family/cashier/staff-sales?staff_id='.$noof['id'])->assertOk()
             ->assertJsonCount(1, 'data.receipts')->assertJsonPath('data.receipts.0.staff_name', 'نوف');
 

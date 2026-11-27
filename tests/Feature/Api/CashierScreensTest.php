@@ -92,6 +92,9 @@ class CashierScreensTest extends TestCase
             'ticker' => 'طلبات المناسبات قبل يومين',
         ])->assertOk();
         $this->putJson('/api/v1/app/family/cashier/menu', ['theme' => 'pink'])->assertStatus(422);
+        $this->putJson('/api/v1/app/family/cashier/menu', ['theme' => 'white_navy', 'layout' => 'board'])->assertOk()
+            ->assertJsonPath('data.menu.theme', 'white_navy');
+        $this->putJson('/api/v1/app/family/cashier/menu', ['theme' => 'night', 'layout' => 'list'])->assertOk();
         $this->putJson('/api/v1/app/family/cashier/menu', ['accent' => 'red'])->assertStatus(422);
 
         $this->app['auth']->forgetGuards();

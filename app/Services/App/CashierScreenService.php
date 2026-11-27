@@ -23,9 +23,9 @@ class CashierScreenService
 {
     public const KINDS = ['menu', 'customer'];
 
-    public const THEMES = ['navy', 'light', 'night', 'rose', 'white_orange', 'white_black', 'white_gold'];
+    public const THEMES = ['navy', 'white_orange', 'white_black', 'white_gold', 'night', 'white_navy', 'blue_orange', 'light', 'rose', 'forest'];
 
-    public const LAYOUTS = ['grid', 'list', 'hero'];
+    public const LAYOUTS = ['grid', 'list', 'hero', 'compact', 'board'];
 
     private const PAIR_TTL = 600;
 

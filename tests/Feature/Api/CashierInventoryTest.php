@@ -27,6 +27,8 @@ class CashierInventoryTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $cashierPlan = \App\Models\FamilyStorePlan::query()->where('code', 'cashier_pro')->first();
+        $cashierPlan?->update(['capabilities' => array_replace((array) $cashierPlan->capabilities, ['trial_enabled' => false])]);
         $this->family = ProductiveFamily::query()->create([
             'code' => 'PF-INV1', 'owner_name' => 'أسرة المخزون', 'phone' => '0551114444', 'status' => 'approved',
         ]);

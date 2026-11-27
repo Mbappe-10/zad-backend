@@ -29,6 +29,8 @@ class CashierZadTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $cashierPlan = \App\Models\FamilyStorePlan::query()->where('code', 'cashier_pro')->first();
+        $cashierPlan?->update(['capabilities' => array_replace((array) $cashierPlan->capabilities, ['trial_enabled' => false])]);
         Storage::fake('r2_contracts');
         $this->family = ProductiveFamily::query()->create([
             'code' => 'PF-CASH1', 'owner_name' => 'أسرة الكاشير', 'phone' => '0551113333', 'status' => 'approved',
@@ -188,5 +190,19 @@ class CashierZadTest extends TestCase
 
         Sanctum::actingAs($this->member);
         $this->getJson('/api/admin/cashier-zad/settings')->assertForbidden();
+    }
+
+    public function test_every_family_gets_the_free_pro_trial_once(): void
+    {
+        $plan = \App\Models\FamilyStorePlan::query()->where('code', 'cashier_pro')->first();
+        $plan->update(['capabilities' => array_replace((array) $plan->capabilities, ['trial_enabled' => true, 'trial_days' => 3, 'compare_at_price' => 169])]);
+        $this->getJson('/api/v1/app/family/cashier')->assertOk()
+            ->assertJsonPath('data.tier', 'pro')->assertJsonPath('data.trial', true)
+            ->assertJsonPath('data.trial_started.days', 3)->assertJsonPath('data.compare_at_price', '169');
+        $this->getJson('/api/v1/app/family/cashier')->assertJsonPath('data.trial_started', null);
+        $this->assertSame(1, FamilyCashierGrant::query()->where('source', 'trial')->count());
+        $this->travel(4)->days();
+        $this->getJson('/api/v1/app/family/cashier')->assertJsonPath('data.tier', 'none')->assertJsonPath('data.trial_started', null);
+        $this->assertSame(1, FamilyCashierGrant::query()->where('source', 'trial')->count());
     }
 }

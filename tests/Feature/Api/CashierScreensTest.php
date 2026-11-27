@@ -25,6 +25,8 @@ class CashierScreensTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $cashierPlan = \App\Models\FamilyStorePlan::query()->where('code', 'cashier_pro')->first();
+        $cashierPlan?->update(['capabilities' => array_replace((array) $cashierPlan->capabilities, ['trial_enabled' => false])]);
         Storage::fake('r2_contracts');
         $this->family = ProductiveFamily::query()->create([
             'code' => 'PF-SCREEN', 'owner_name' => 'أم سارة', 'phone' => '0551118888', 'status' => 'approved',

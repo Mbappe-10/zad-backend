@@ -79,6 +79,11 @@ class CashierZadService
             // Store plans that include the basic cashier (owner's choice; gold by default).
             'basic_for' => array_values((array) ($caps['basic_for'] ?? ['gold'])),
             'features' => $features,
+            // Free Pro trial every family gets once, the first time she opens the cashier.
+            'trial_enabled' => (bool) ($caps['trial_enabled'] ?? true),
+            'trial_days' => (int) ($caps['trial_days'] ?? 3),
+            // Optional "was" price shown struck through next to the real price.
+            'compare_at_price' => isset($caps['compare_at_price']) && $caps['compare_at_price'] !== null ? (string) $caps['compare_at_price'] : null,
             'launch_offer' => [
                 'enabled' => (bool) ($offer['enabled'] ?? false),
                 'plan' => (string) ($offer['plan'] ?? 'gold'),
@@ -120,6 +125,8 @@ class CashierZadService
             'features' => $features,
             'can_buy_pro' => $settings['selling_enabled'] && in_array($storePlan, $settings['available_for'], true),
             'price' => $settings['price'],
+            'compare_at_price' => $settings['compare_at_price'],
+            'trial' => $pro?->source === 'trial',
             'duration_days' => $settings['duration_days'],
             'launch_offer' => $family ? $this->launchOfferFor($family, $storePlan, $settings) : null,
         ];
@@ -143,6 +150,24 @@ class CashierZadService
     }
 
     /** Pro time is added after any Pro time the family already has. */
+    /** Gives the free trial once per family (never again, even after it ends). */
+    public function startTrialIfEligible(ProductiveFamily $family): ?FamilyCashierGrant
+    {
+        $settings = $this->settings();
+        if (! $this->ready() || ! $settings['trial_enabled'] || $settings['trial_days'] < 1) {
+            return null;
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($family, $settings): ?FamilyCashierGrant {
+            ProductiveFamily::query()->whereKey($family->id)->lockForUpdate()->first();
+            if (FamilyCashierGrant::query()->where('productive_family_id', $family->id)->exists()) {
+                return null;
+            }
+
+            return $this->addTime($family->id, $settings['trial_days'] * 86400, 'trial', 'تجربة مجانية');
+        });
+    }
+
     public function addTime(int $familyId, int $seconds, string $source, ?string $reason = null, ?int $purchaseId = null, ?int $by = null): FamilyCashierGrant
     {
         abort_unless($seconds >= 3600 && $seconds <= 3650 * 86400, 422, 'المدة غير صحيحة.');

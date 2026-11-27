@@ -31,6 +31,10 @@ class FamilyCashierController extends Controller
     public function status(Request $request): JsonResponse
     {
         $store = $this->store($request);
+        $trialStarted = null;
+        if ($this->ctx($request)->isOwner() && $this->ctx($request)->device === null && $store->productiveFamily) {
+            $trialStarted = $this->cashier->startTrialIfEligible($store->productiveFamily);
+        }
         $entitlement = $this->cashier->entitlement($store->productiveFamily);
         $settings = $this->cashier->settings();
 
@@ -43,6 +47,7 @@ class FamilyCashierController extends Controller
             'me' => CashierStaffController::me($this->ctx($request)),
             'shift' => ($shift = $this->staffService->openShift($this->ctx($request))) ? $this->staffService->shiftPayload($shift) : null,
             'staff_enabled' => $this->staffService->ready() && $this->staffService->enabled($store),
+            'trial_started' => $trialStarted ? ['days' => $this->cashier->settings()['trial_days'], 'ends_at' => $trialStarted->ends_at->toISOString()] : null,
         ]]);
     }
 

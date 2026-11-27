@@ -75,6 +75,11 @@ class SaleReceiptsTest extends TestCase
         $order->update(['status' => 'preparing']);
         $this->assertSame(1, SaleReceipt::query()->count());
 
+        $unpaid = $this->unpaidOrder('ORD-1B');
+        $unpaid->update(['status' => 'accepted']);
+        $this->assertNull(SaleReceipt::query()->where('order_id', $unpaid->id)->first());
+        $this->assertSame(1, SaleReceipt::query()->count());
+
         $order->update(['payment_status' => Order::PAYMENT_REFUNDED]);
         $this->assertSame('refunded', $receipt->fresh()->status);
     }

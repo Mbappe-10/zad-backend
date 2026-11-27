@@ -18,7 +18,7 @@ use Mpdf\Mpdf;
 
 /**
  * One non-tax sale receipt for every sale on the platform.
- * Order receipts are issued after payment is confirmed; the order and payment
+ * Receipts are issued only for actual paid sales, after payment is confirmed; the order and payment
  * flows are only observed, never changed.
  */
 class SaleReceiptService
@@ -68,7 +68,8 @@ class SaleReceiptService
             if ($existing) {
                 return $this->refresh($existing, $order);
             }
-            if (! $order->isPaidOrSponsoredFunded()) {
+            // Only an actual paid sale gets a receipt.
+            if (! $order->isPaid()) {
                 return null;
             }
 
@@ -216,7 +217,7 @@ class SaleReceiptService
     {
         $status = match (true) {
             $order->payment_status === Order::PAYMENT_REFUNDED => 'refunded',
-            $order->status === Order::STATUS_CANCELLED && ! $order->isPaidOrSponsoredFunded() => 'cancelled',
+            $order->status === Order::STATUS_CANCELLED && ! $order->isPaid() => 'cancelled',
             default => 'paid',
         };
         $changes = [];
@@ -240,9 +241,6 @@ class SaleReceiptService
     {
         $store = $order->store_id ? Store::query()->find($order->store_id) : null;
         $method = Payment::query()->where('order_id', $order->id)->where('status', 'paid')->latest('id')->value('method');
-        if (! $method && ! $order->isPaid()) {
-            $method = 'sponsored';
-        }
         $phone = $order->contact_phone;
         if (! $phone && $order->customer_id) {
             $phone = Customer::query()->whereKey($order->customer_id)->value('phone');

@@ -23,8 +23,11 @@ class FamilyStorePurchaseController extends Controller
     public function start(Request $request): JsonResponse
     {
         $family = $this->family($request);
-        $data = $request->validate(['plan' => ['required', 'in:silver,gold']]);
-        $purchase = $this->purchases->start($family, $request->user()->id, $data['plan']);
+        $data = $request->validate([
+            'plan' => ['required', 'in:silver,gold'],
+            'coupon' => ['sometimes', 'nullable', 'string', 'max:40'],
+        ]);
+        $purchase = $this->purchases->start($family, $request->user()->id, $data['plan'], $data['coupon'] ?? null);
 
         return response()->json(['data' => $this->summary($purchase)], $purchase->wasRecentlyCreated ? 201 : 200);
     }
@@ -105,12 +108,79 @@ class FamilyStorePurchaseController extends Controller
         return ProductiveFamily::query()->findOrFail($profile->productive_family_id);
     }
 
+    /** Public check of a receipt scanned from its QR code. Shows nothing beyond what the PDF already prints. */
+    public function verifyReceipt(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'number' => ['required', 'string', 'max:40'],
+            'fp' => ['required', 'string', 'size:16', 'regex:/^[0-9a-f]+$/'],
+        ]);
+        $purchase = FamilyStorePurchase::query()->where('receipt_number', $data['number'])->where('status', 'paid')->first();
+        $valid = $purchase && hash_equals(substr((string) $purchase->receipt_hash, 0, 16), $data['fp']);
+        if (! $valid) {
+            return response()->json(['valid' => false, 'message' => 'لم يتم العثور على فاتورة مطابقة.'], 404);
+        }
+        $snapshot = $purchase->receipt_snapshot ?? [];
+
+        return response()->json([
+            'valid' => true,
+            'message' => 'فاتورة صحيحة صادرة من زاد سينك.',
+            'number' => $purchase->receipt_number,
+            'store_name' => $snapshot['store_name'] ?? null,
+            'plan' => $snapshot['plan_name'] ?? $purchase->plan_code,
+            'amount' => number_format($purchase->amount_halalas / 100, 2).' '.$purchase->currency,
+            'paid_at' => $purchase->paid_at?->timezone('Asia/Riyadh')->format('Y-m-d H:i:s'),
+        ]);
+    }
+
+    /** Prices a plan with a subscription coupon before the family pays. Orders coupons do not work here. */
+    public function quote(Request $request): JsonResponse
+    {
+        $family = $this->family($request);
+        $data = $request->validate([
+            'plan' => ['required', 'in:silver,gold'],
+            'coupon' => ['required', 'string', 'max:40'],
+        ]);
+        $quote = $this->purchases->quote($family, $data['plan'], $data['coupon']);
+
+        return response()->json(['data' => [
+            'plan' => $data['plan'],
+            'coupon' => $quote['coupon']?->code,
+            'original_halalas' => $quote['original_halalas'],
+            'discount_halalas' => $quote['discount_halalas'],
+            'final_halalas' => $quote['final_halalas'],
+        ]]);
+    }
+
+    /** The family stops its plan now. Paid amounts are refunded only by the platform owner through Moyasar. */
+    public function cancel(Request $request): JsonResponse
+    {
+        $family = $this->family($request);
+        $data = $request->validate([
+            'confirm' => ['required', 'accepted'],
+            'reason' => ['sometimes', 'nullable', 'string', 'max:300'],
+        ]);
+        $count = \Illuminate\Support\Facades\DB::transaction(function () use ($family, $request, $data): int {
+            ProductiveFamily::query()->whereKey($family->id)->lockForUpdate()->firstOrFail();
+
+            return $this->storefront->cancelAll($family->id, 'family', $request->user()->id,
+                'Cancelled by family'.(! empty($data['reason']) ? ': '.$data['reason'] : ''));
+        });
+        abort_if($count === 0, 422, 'لا يوجد اشتراك فعّال لإلغائه.');
+
+        return response()->json(['cancelled' => $count, 'entitlement' => $this->storefront->entitlement($family)]);
+    }
+
     private function summary(FamilyStorePurchase $purchase): array
     {
         return [
             'id' => $purchase->id,
             'plan' => $purchase->plan_code,
             'amount_halalas' => $purchase->amount_halalas,
+            'original_amount_halalas' => $purchase->original_amount_halalas ?? $purchase->amount_halalas,
+            'discount_halalas' => (int) $purchase->discount_halalas,
+            'coupon_code' => $purchase->coupon_code,
+            'mode' => $purchase->mode,
             'currency' => $purchase->currency,
             'status' => $purchase->status,
             'payment_config' => $purchase->status === 'pending' ? $this->purchases->clientConfig($purchase) : null,

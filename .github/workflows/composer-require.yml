@@ -1,0 +1,35 @@
+name: Composer require
+
+# Adds the packages listed in .github/composer-require.txt and commits
+# composer.json/composer.lock back to the branch. Used when the development
+# environment cannot reach Packagist. Delete the list file afterwards.
+on:
+  push:
+    paths:
+      - '.github/composer-require.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  require:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, gd, zip
+      - name: Require listed packages
+        run: |
+          packages=$(grep -v '^\s*#' .github/composer-require.txt | xargs)
+          [ -n "$packages" ] || exit 0
+          composer require $packages --no-interaction --no-install --no-scripts
+      - name: Commit lock file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add composer.json composer.lock
+          git diff --cached --quiet && exit 0
+          git commit -m "deps: add $(grep -v '^\s*#' .github/composer-require.txt | xargs)"
+          git push

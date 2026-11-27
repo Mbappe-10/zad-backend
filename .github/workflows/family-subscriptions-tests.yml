@@ -1,0 +1,30 @@
+name: Family subscriptions tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/**'
+      - 'database/**'
+      - 'routes/**'
+      - 'resources/views/family-subscriptions/**'
+      - 'tests/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - '.github/workflows/family-subscriptions-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, gd, zip, intl, bcmath
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: touch database/database.sqlite && cp .env.example .env && php artisan key:generate
+      - name: Family store plans, coupons and receipts
+        run: php artisan test tests/Feature/Api/FamilyStoreSubscriptionsTest.php tests/Feature/Api/FamilySubscriptionCouponsTest.php

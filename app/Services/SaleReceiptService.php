@@ -134,7 +134,8 @@ class SaleReceiptService
                 ], $items),
                 'status' => 'paid',
                 'issued_at' => now(),
-            ] + array_intersect_key($actor, array_flip(['cashier_staff_id', 'cashier_shift_id', 'staff_name'])));
+            ] + array_intersect_key($actor, array_flip(array_filter(['cashier_staff_id', 'cashier_shift_id', 'staff_name',
+                \Illuminate\Support\Facades\Schema::hasColumn('sale_receipts', 'cashier_device_id') ? 'cashier_device_id' : null]))));
             $receipt->update(['number' => $this->number($receipt)]);
 
             return $receipt;

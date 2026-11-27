@@ -30,6 +30,7 @@ class CashierZadService
         'bulk_orders' => 'طلبات الكميات والعربون',
         'credit_book' => 'دفتر الآجل',
         'assistants' => 'الموظفين والصلاحيات والورديات',
+        'menu_screens' => 'المنيو على الشاشات وإيصال الدفع عليها',
         'bazaar_mode' => 'وضع المعارض',
     ];
 

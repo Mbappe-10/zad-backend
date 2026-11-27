@@ -387,6 +387,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::get('/receipts', [\App\Http\Controllers\Api\Receipts\FamilySaleReceiptController::class, 'index']);
+        Route::get('/cashier/screens', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'index']);
+        Route::post('/cashier/screens/claim', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'claim'])->middleware('throttle:20,1');
+        Route::patch('/cashier/screens/{device}', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'update'])->whereNumber('device');
+        Route::delete('/cashier/screens/{device}', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'destroy'])->whereNumber('device');
+        Route::get('/cashier/menu', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'menu']);
+        Route::put('/cashier/menu', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'saveMenu'])->middleware('throttle:30,1');
         Route::get('/cashier/staff', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'index']);
         Route::post('/cashier/staff', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'store'])->middleware('throttle:20,1');
         Route::patch('/cashier/staff/{member}', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'update'])->whereNumber('member')->middleware('throttle:30,1');
@@ -1569,4 +1575,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->prefix('v1/app/staff')->gro
     Route::delete('/memberships/{membership}', [$m, 'leave'])->whereNumber('membership');
     Route::prefix('{membership}/cashier')->whereNumber('membership')
         ->middleware(\App\Http\Middleware\ResolveCashierMembership::class)->group($zadCashierShared);
+});
+
+/* Menu screens (TV / iPad): pairing code, menu feed and the receipt QR after payment. */
+Route::prefix('v1/screens')->group(function (): void {
+    Route::post('/pair', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'pair'])->middleware('throttle:10,1');
+    Route::get('/pair/{poll}', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'pollPair'])->middleware('throttle:60,1');
+    Route::get('/feed', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'feed'])->middleware('throttle:60,1');
+    Route::get('/receipt', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'receipt'])->middleware('throttle:90,1');
 });

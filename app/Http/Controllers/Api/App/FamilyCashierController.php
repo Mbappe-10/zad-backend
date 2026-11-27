@@ -122,6 +122,7 @@ class FamilyCashierController extends Controller
                 'cashier_staff_id' => $ctx->staff->id,
                 'cashier_shift_id' => $shift?->id,
                 'staff_name' => $ctx->staff->name,
+                'cashier_device_id' => $ctx->device?->id,
             ] : []);
 
         return response()->json(['message' => 'تم حفظ البيع وإصدار الإيصال.', 'data' => $this->receipts->payload($receipt)], 201);

@@ -38,7 +38,7 @@ class CashierStaffController extends Controller
             'limit' => $this->staff->limit(),
             'count' => $this->staff->employeeCount($store),
             'staff' => $this->staff->members($store)->map(fn ($s) => $this->staff->staffPayload($s))->values(),
-            'devices' => CashierDevice::query()->where('store_id', $store->id)->whereNull('revoked_at')->latest('id')->get()
+            'devices' => CashierDevice::query()->where('store_id', $store->id)->where('kind', 'cashier')->whereNull('revoked_at')->latest('id')->get()
                 ->map(fn (CashierDevice $d) => $this->devicePayload($d))->values(),
             'permissions' => CashierStaffService::PERMISSIONS,
             'roles' => array_map(fn ($r) => $r, CashierStaffService::ROLES),

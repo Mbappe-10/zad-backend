@@ -233,6 +233,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         ->name('api.app.launch.claim');
 
     Route::get('/admin/control-center', [ControlCenterController::class, 'index']);
+    Route::get('/admin/sale-receipts', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'index'])->middleware('permission:orders.view');
+    Route::get('/admin/sale-receipts/export', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'export'])->middleware(['permission:orders.view', 'throttle:30,1']);
+    Route::get('/admin/sale-receipts/zip', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'zip'])->middleware(['permission:orders.view', 'throttle:30,1']);
+    Route::get('/admin/sale-receipts/{receipt}', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'show'])->whereNumber('receipt')->middleware('permission:orders.view');
+    Route::get('/admin/sale-receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware('permission:orders.view');
     Route::get('/admin/family-store-plans', [FamilyStoreSubscriptionController::class, 'plans']);
     Route::get('/admin/family-store-purchases', [FamilyStoreSubscriptionController::class, 'purchases']);
     Route::get('/admin/family-store-purchases/lookup', [FamilyStoreSubscriptionController::class, 'lookup']);
@@ -376,6 +381,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             ->middleware('throttle:5,1');
 
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
+        Route::get('/receipts', [\App\Http\Controllers\Api\Receipts\FamilySaleReceiptController::class, 'index']);
+        Route::get('/receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\FamilySaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware('throttle:30,1');
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
         Route::post('/orders/{order}/schedule-decision', [FamilyOrderController::class, 'scheduleDecision']);
         Route::post(
@@ -1251,6 +1258,9 @@ Route::prefix('v1/app')->group(function (): void {
         '/orders/{order}',
         [AppOrderController::class, 'show'],
     );
+
+    Route::get('/orders/{order}/receipt', [\App\Http\Controllers\Api\Receipts\CustomerOrderReceiptController::class, 'show'])
+        ->whereNumber('order')->middleware('throttle:30,1');
 
     // ZAD_V5_UNPAID_CANCEL: authenticated guest, never an in-flight payment.
     Route::post('/orders/{order}/cancel-unpaid',

@@ -383,6 +383,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             [FamilyOrderController::class, 'readyProof'],
         )->middleware('throttle:10,1');
 
+        Route::get('/sales', [\App\Http\Controllers\Api\App\FamilySalesController::class, 'show']);
+        Route::get('/sales/export', [\App\Http\Controllers\Api\App\FamilySalesController::class, 'export'])->middleware('throttle:10,1');
         Route::get('/products', [FamilyProductController::class, 'index']);
         Route::post('/products', [FamilyProductController::class, 'store'])
             ->middleware('throttle:10,1');

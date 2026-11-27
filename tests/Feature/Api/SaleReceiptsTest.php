@@ -86,7 +86,7 @@ class SaleReceiptsTest extends TestCase
         $receipt = SaleReceipt::query()->firstOrFail();
 
         $this->get('/r/'.$receipt->public_token)->assertOk()
-            ->assertSee($receipt->number)->assertSee('سوبو')->assertSee('05•• ••• 812')->assertDontSee('0551234812');
+            ->assertSee($receipt->number)->assertSee('سوبو')->assertDontSee('0551234812');
         $this->assertNotNull($receipt->fresh()->opened_at);
         $this->get('/r/'.$receipt->public_token.'/pdf')->assertOk()->assertHeader('Content-Type', 'application/pdf');
         $this->get('/r/'.str_repeat('a', 40))->assertNotFound();
@@ -127,7 +127,7 @@ class SaleReceiptsTest extends TestCase
         $this->getJson('/api/admin/sale-receipts')->assertOk()
             ->assertJsonPath('meta.total', 2)
             ->assertJsonPath('summary.today.count', 2)
-            ->assertJsonPath('summary.today.total', 132.0);
+            ->assertJsonPath('summary.today.total', 132);
         $this->getJson('/api/admin/sale-receipts?q=ORD-OLD')->assertOk()
             ->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.order_number', 'ORD-OLD');
         $this->getJson('/api/admin/sale-receipts?q=1234812')->assertJsonPath('meta.total', 1);

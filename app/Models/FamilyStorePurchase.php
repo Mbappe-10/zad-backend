@@ -13,6 +13,7 @@ class FamilyStorePurchase extends Model
         'paid_at', 'grant_id', 'created_by', 'given_id', 'receipt_number',
         'receipt_snapshot', 'receipt_hash', 'receipt_pdf_path', 'receipt_pdf_sha256', 'last_checked_at',
         'web_intent_id', 'web_intent_state', 'web_client_secret_enc',
+        'original_amount_halalas', 'discount_halalas', 'coupon_id', 'coupon_code',
     ];
 
     protected $hidden = ['callback_token_hash', 'web_client_secret_enc'];
@@ -21,6 +22,8 @@ class FamilyStorePurchase extends Model
     {
         return [
             'amount_halalas' => 'integer',
+            'original_amount_halalas' => 'integer',
+            'discount_halalas' => 'integer',
             'duration_days' => 'integer',
             'expires_at' => 'datetime',
             'paid_at' => 'datetime',

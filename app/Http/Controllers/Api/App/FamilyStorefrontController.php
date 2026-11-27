@@ -30,6 +30,7 @@ class FamilyStorefrontController extends Controller
 
         return response()->json([
             'enabled' => (bool) ($control['enabled'] ?? false),
+            'purchasing_enabled' => $this->purchases->purchasingEnabled(),
             'purchase_available' => $this->purchases->available(),
             'web_purchase_available' => $this->purchases->available()
                 && app(\App\Services\App\MoyasarModeResolver::class)->currentMode() === 'live',

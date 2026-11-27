@@ -2,7 +2,6 @@
 
 namespace App\Services\App;
 
-use App\Models\FamilyStoreGrant;
 use App\Models\FamilyStorePlan;
 use App\Models\FamilyStorePurchase;
 use App\Models\PlatformControl;
@@ -20,12 +19,20 @@ class FamilyStorePurchaseService
         private readonly MoyasarModeResolver $modes,
         private readonly PlatformOperationGate $operations,
         private readonly FamilySubscriptionReceiptService $receipts,
+        private readonly FamilyStorefrontService $storefront,
+        private readonly FamilySubscriptionCouponService $coupons,
     ) {}
+
+    /** Owner switches only. A 100% coupon may activate a plan even when Moyasar is unavailable. */
+    public function purchasingEnabled(): bool
+    {
+        return (bool) config('zad_family_subscription_payment.enabled', false)
+            && (bool) (PlatformControl::cachedValues()['family_subscriptions']['enabled'] ?? false);
+    }
 
     public function available(): bool
     {
-        if (! (bool) config('zad_family_subscription_payment.enabled', false)
-            || ! (PlatformControl::cachedValues()['family_subscriptions']['enabled'] ?? false)) {
+        if (! $this->purchasingEnabled()) {
             return false;
         }
         try {
@@ -38,35 +45,60 @@ class FamilyStorePurchaseService
         }
     }
 
-    public function start(ProductiveFamily $family, int $userId, string $code): FamilyStorePurchase
+    /** @return array{coupon: ?\App\Models\FamilySubscriptionCoupon, original_halalas: int, discount_halalas: int, final_halalas: int} */
+    public function quote(ProductiveFamily $family, string $code, ?string $couponCode): array
     {
-        abort_unless($this->available(), 503, 'شراء الباقات غير متاح حالياً.');
-        $this->operations->assertNewPaymentAttemptAllowed();
-        $mode = $this->modes->currentMode();
         $plan = FamilyStorePlan::query()->where('code', $code)->where('is_visible', true)->firstOrFail();
         abort_unless(in_array($code, ['silver', 'gold'], true), 422);
         $amount = $this->halalas((string) $plan->price);
-        abort_unless($amount >= 100 && $plan->duration_days >= 1 && $plan->duration_days <= 3650, 422);
+        abort_unless($amount >= FamilySubscriptionCouponService::MIN_CHARGE_HALALAS, 422, 'سعر الباقة غير مكتمل.');
 
-        return DB::transaction(function () use ($family, $userId, $plan, $amount, $mode): FamilyStorePurchase {
+        return $this->coupons->quote($couponCode, $plan, $family, $amount);
+    }
+
+    public function start(ProductiveFamily $family, int $userId, string $code, ?string $couponCode = null): FamilyStorePurchase
+    {
+        abort_unless($this->purchasingEnabled(), 503, 'شراء الباقات غير متاح حالياً.');
+        $plan = FamilyStorePlan::query()->where('code', $code)->where('is_visible', true)->firstOrFail();
+        abort_unless(in_array($code, ['silver', 'gold'], true), 422);
+        $original = $this->halalas((string) $plan->price);
+        abort_unless($original >= FamilySubscriptionCouponService::MIN_CHARGE_HALALAS
+            && $plan->duration_days >= 1 && $plan->duration_days <= 3650, 422);
+        $couponCode = FamilySubscriptionCouponService::normalize($couponCode);
+        // Validates the coupon first, so a wrong code never opens a payment attempt.
+        $preview = $this->coupons->quote($couponCode, $plan, $family, $original);
+        $free = $preview['final_halalas'] === 0;
+        if (! $free) {
+            abort_unless($this->available(), 503, 'شراء الباقات غير متاح حالياً.');
+            $this->operations->assertNewPaymentAttemptAllowed();
+        }
+        $mode = $free ? 'coupon' : $this->modes->currentMode();
+
+        $purchase = DB::transaction(function () use ($family, $userId, $plan, $original, $mode, $couponCode): FamilyStorePurchase {
             ProductiveFamily::query()->whereKey($family->id)->lockForUpdate()->firstOrFail();
+            $quote = $this->coupons->quote($couponCode, $plan, $family, $original, true);
             $previous = FamilyStorePurchase::query()->where('productive_family_id', $family->id)
                 ->whereIn('status', ['pending', 'unknown'])->latest('id')->lockForUpdate()->first();
-            if ($previous && $previous->expires_at->isFuture()) {
-                if ($previous->status === 'pending' && $previous->plan_code === $plan->code
-                    && $previous->amount_halalas === $amount && $previous->mode === $mode) {
-                    return $previous;
-                }
-                abort(409, 'توجد محاولة دفع مفتوحة. تحقق من حالتها قبل بدء باقة أخرى.');
+            if ($previous && $previous->expires_at->isFuture() && $previous->status === 'pending'
+                && $previous->plan_code === $plan->code && $previous->amount_halalas === $quote['final_halalas']
+                && $previous->mode === $mode && (string) $previous->coupon_code === $couponCode) {
+                return $previous;
             }
             if ($previous) {
+                // A newer choice replaces the open attempt. If that attempt was in fact paid,
+                // reconciliation still activates it, so the family never loses money.
                 $previous->update(['status' => 'expired']);
+                $this->coupons->release($previous);
             }
-            return FamilyStorePurchase::query()->create([
+            $purchase = FamilyStorePurchase::query()->create([
                 'productive_family_id' => $family->id,
                 'created_by' => $userId,
                 'plan_code' => $plan->code,
-                'amount_halalas' => $amount,
+                'amount_halalas' => $quote['final_halalas'],
+                'original_amount_halalas' => $quote['original_halalas'],
+                'discount_halalas' => $quote['discount_halalas'],
+                'coupon_id' => $quote['coupon']?->id,
+                'coupon_code' => $quote['coupon']?->code,
                 'duration_days' => $plan->duration_days,
                 'currency' => 'SAR',
                 'mode' => $mode,
@@ -76,7 +108,34 @@ class FamilyStorePurchaseService
                 'callback_token_hash' => hash('sha256', Str::random(64)),
                 'expires_at' => now()->addHour(),
             ]);
+            if ($quote['coupon']) {
+                $this->coupons->reserve($quote['coupon'], $purchase, $quote['discount_halalas']);
+            }
+
+            return $purchase;
         }, 3);
+
+        return $free ? $this->activateFree($purchase) : $purchase;
+    }
+
+    /** A 100% coupon activates the plan without contacting Moyasar. */
+    private function activateFree(FamilyStorePurchase $purchase): FamilyStorePurchase
+    {
+        DB::transaction(function () use ($purchase): void {
+            ProductiveFamily::query()->whereKey($purchase->productive_family_id)->lockForUpdate()->firstOrFail();
+            $locked = FamilyStorePurchase::query()->whereKey($purchase->id)->lockForUpdate()->firstOrFail();
+            if ($locked->paid_at || $locked->grant_id || $locked->amount_halalas !== 0 || $locked->mode !== 'coupon') {
+                return;
+            }
+            $grant = $this->storefront->activatePurchase($locked->productive_family_id, $locked->plan_code,
+                $locked->duration_days, 'Coupon '.$locked->coupon_code);
+            $locked->update(['status' => 'paid', 'paid_at' => now(), 'grant_id' => $grant->id]);
+            $this->coupons->redeem($locked);
+            $this->receipts->issue($locked->fresh(), 'COUPON-'.$locked->coupon_code);
+        }, 3);
+        $this->receipts->pdf($purchase->fresh());
+
+        return $purchase->fresh();
     }
 
     public function clientConfig(FamilyStorePurchase $purchase): array
@@ -178,6 +237,9 @@ class FamilyStorePurchaseService
         if (! $purchase->given_id || ! in_array($purchase->status, ['pending', 'expired', 'unknown'], true)) {
             return $purchase->fresh();
         }
+        if ($purchase->mode === 'coupon') {
+            return $purchase->amount_halalas === 0 ? $this->activateFree($purchase) : $purchase->fresh();
+        }
         $secret = $this->modes->credentials($purchase->mode)['secret_key'];
         $paymentId ??= $purchase->given_id;
         abort_unless(Str::isUuid($paymentId), 422);
@@ -189,6 +251,10 @@ class FamilyStorePurchaseService
         }
         if ($response->notFound()) {
             $purchase->update(['last_checked_at' => now()]);
+            if ($purchase->expires_at->isPast()) {
+                // An unpaid, expired attempt must not keep a limited coupon use locked.
+                $this->coupons->release($purchase);
+            }
             return $purchase->fresh();
         }
         if (! $response->successful() || ! is_array($response->json())) {
@@ -210,6 +276,7 @@ class FamilyStorePurchaseService
         if (($payment['status'] ?? '') !== 'paid') {
             if (in_array($payment['status'] ?? '', ['failed', 'canceled', 'voided'], true)) {
                 $purchase->update(['status' => 'failed']);
+                $this->coupons->release($purchase);
             } else {
                 $purchase->update(['last_checked_at' => now()]);
             }
@@ -222,22 +289,14 @@ class FamilyStorePurchaseService
             if ($locked->paid_at || $locked->grant_id) {
                 return;
             }
-            $lastGrant = FamilyStoreGrant::query()->where('productive_family_id', $locked->productive_family_id)
-                ->whereNull('revoked_at')->where('ends_at', '>', now())->orderByDesc('ends_at')->first();
-            $start = $lastGrant?->ends_at?->isFuture() ? $lastGrant->ends_at->copy() : now();
-            $grant = FamilyStoreGrant::query()->create([
-                'productive_family_id' => $locked->productive_family_id,
-                'plan_code' => $locked->plan_code,
-                'source' => 'purchase',
-                'starts_at' => $start,
-                'ends_at' => $start->copy()->addDays($locked->duration_days),
-                'reason' => 'Moyasar payment '.$payment['id'],
-            ]);
+            $grant = $this->storefront->activatePurchase($locked->productive_family_id, $locked->plan_code,
+                $locked->duration_days, 'Moyasar payment '.$payment['id']);
             $locked->update([
                 'status' => 'paid', 'paid_at' => now(),
                 'provider_payment_id' => $payment['id'], 'grant_id' => $grant->id,
             ]);
-            $this->receipts->issue($locked, $payment['id']);
+            $this->coupons->redeem($locked);
+            $this->receipts->issue($locked->fresh(), $payment['id']);
         }, 3);
         // PDF is archived before reporting success. A later retry can recover a failed render.
         $this->receipts->pdf($purchase->fresh());

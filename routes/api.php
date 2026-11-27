@@ -1262,6 +1262,8 @@ Route::prefix('v1/app')->group(function (): void {
 
     Route::get('/orders/{order}/receipt', [\App\Http\Controllers\Api\Receipts\CustomerOrderReceiptController::class, 'show'])
         ->whereNumber('order')->middleware('throttle:30,1');
+    Route::get('/orders/{order}/receipt/pdf', [\App\Http\Controllers\Api\Receipts\CustomerOrderReceiptController::class, 'pdf'])
+        ->whereNumber('order')->middleware('throttle:20,1');
 
     // ZAD_V5_UNPAID_CANCEL: authenticated guest, never an in-flight payment.
     Route::post('/orders/{order}/cancel-unpaid',

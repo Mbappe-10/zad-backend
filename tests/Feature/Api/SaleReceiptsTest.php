@@ -148,4 +148,25 @@ class SaleReceiptsTest extends TestCase
         $zip = $this->get('/api/admin/sale-receipts/zip')->assertOk()->assertHeader('Content-Type', 'application/zip');
         $this->assertStringStartsWith('PK', $zip->getContent());
     }
+
+    public function test_customer_gets_the_receipt_and_pdf_of_an_own_paid_order_only(): void
+    {
+        $customer = \App\Models\Customer::query()->create(['name' => 'عميلة', 'phone' => '0551234812', 'status' => 'active']);
+        $user = User::factory()->create();
+        AppProfile::query()->create(['user_id' => $user->id, 'customer_id' => $customer->id, 'roles' => ['customer'], 'active_mode' => 'customer']);
+        $order = $this->unpaidOrder('ORD-C1');
+        DB::table('orders')->where('id', $order->id)->update(['customer_id' => $customer->id]);
+        $order->refresh();
+
+        Sanctum::actingAs($user);
+        $this->getJson('/api/v1/app/orders/'.$order->id.'/receipt')->assertNotFound();
+
+        $order->update(['payment_status' => Order::PAYMENT_PAID]);
+        $this->getJson('/api/v1/app/orders/'.$order->id.'/receipt')->assertOk()
+            ->assertJsonPath('data.store_name', 'سوبو')->assertJsonPath('data.status', 'paid');
+        $this->get('/api/v1/app/orders/'.$order->id.'/receipt/pdf')->assertOk()->assertHeader('Content-Type', 'application/pdf');
+
+        Sanctum::actingAs(User::factory()->create());
+        $this->getJson('/api/v1/app/orders/'.$order->id.'/receipt')->assertForbidden();
+    }
 }

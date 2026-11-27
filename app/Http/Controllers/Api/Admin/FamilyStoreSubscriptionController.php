@@ -37,7 +37,7 @@ class FamilyStoreSubscriptionController extends Controller
     {
         $this->owner($request);
 
-        return response()->json(['data' => FamilyStorePlan::query()->orderBy('sort_order')->get()]);
+        return response()->json(['data' => FamilyStorePlan::query()->whereIn('code', ['free', 'silver', 'gold'])->orderBy('sort_order')->get()]);
     }
 
     public function updatePlan(Request $request, string $code): JsonResponse
@@ -382,7 +382,7 @@ class FamilyStoreSubscriptionController extends Controller
             'discount_type' => [$rule, 'in:percentage,fixed'],
             'discount_value' => [$rule, 'numeric', 'gt:0', 'max:100000'],
             'plan_codes' => ['sometimes', 'nullable', 'array'],
-            'plan_codes.*' => ['in:silver,gold'],
+            'plan_codes.*' => ['in:silver,gold,cashier_pro'],
             'max_redemptions' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'per_family_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
             'starts_at' => ['sometimes', 'nullable', 'date'],

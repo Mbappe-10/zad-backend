@@ -37,7 +37,8 @@ class FamilySubscriptionReceiptService
 
         $family = ProductiveFamily::query()->findOrFail($purchase->productive_family_id);
         $store = Store::query()->where('productive_family_id', $family->id)->first();
-        $grant = $purchase->grant_id ? \App\Models\FamilyStoreGrant::query()->findOrFail($purchase->grant_id) : null;
+        $grant = $purchase->grant_id ? \App\Models\FamilyStoreGrant::query()->findOrFail($purchase->grant_id)
+            : \App\Models\FamilyCashierGrant::query()->where('purchase_id', $purchase->id)->first();
         $number = 'ZAD-SUB-'.now('Asia/Riyadh')->format('Y').'-'.str_pad((string) $purchase->id, 8, '0', STR_PAD_LEFT);
         $settings = $this->settings();
         $snapshot = [

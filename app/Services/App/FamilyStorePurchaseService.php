@@ -49,7 +49,7 @@ class FamilyStorePurchaseService
     public function quote(ProductiveFamily $family, string $code, ?string $couponCode): array
     {
         $plan = FamilyStorePlan::query()->where('code', $code)->where('is_visible', true)->firstOrFail();
-        abort_unless(in_array($code, ['silver', 'gold'], true), 422);
+        abort_unless(in_array($code, ['silver', 'gold', CashierZadService::PLAN_CODE], true), 422);
         $amount = $this->halalas((string) $plan->price);
         abort_unless($amount >= FamilySubscriptionCouponService::MIN_CHARGE_HALALAS, 422, 'سعر الباقة غير مكتمل.');
 
@@ -60,7 +60,10 @@ class FamilyStorePurchaseService
     {
         abort_unless($this->purchasingEnabled(), 503, 'شراء الباقات غير متاح حالياً.');
         $plan = FamilyStorePlan::query()->where('code', $code)->where('is_visible', true)->firstOrFail();
-        abort_unless(in_array($code, ['silver', 'gold'], true), 422);
+        abort_unless(in_array($code, ['silver', 'gold', CashierZadService::PLAN_CODE], true), 422);
+        if ($code === CashierZadService::PLAN_CODE) {
+            abort_unless(app(CashierZadService::class)->entitlement($family)['can_buy_pro'], 403, 'كاشير زاد برو غير متاح لباقتك حالياً.');
+        }
         $original = $this->halalas((string) $plan->price);
         abort_unless($original >= FamilySubscriptionCouponService::MIN_CHARGE_HALALAS
             && $plan->duration_days >= 1 && $plan->duration_days <= 3650, 422);
@@ -77,7 +80,11 @@ class FamilyStorePurchaseService
         $purchase = DB::transaction(function () use ($family, $userId, $plan, $original, $mode, $couponCode): FamilyStorePurchase {
             ProductiveFamily::query()->whereKey($family->id)->lockForUpdate()->firstOrFail();
             $quote = $this->coupons->quote($couponCode, $plan, $family, $original, true);
+            // Store plans and Cashier Pro are separate purchases; one never cancels the other.
+            $cashier = $plan->code === CashierZadService::PLAN_CODE;
             $previous = FamilyStorePurchase::query()->where('productive_family_id', $family->id)
+                ->when($cashier, fn ($q) => $q->where('plan_code', CashierZadService::PLAN_CODE),
+                    fn ($q) => $q->where('plan_code', '!=', CashierZadService::PLAN_CODE))
                 ->whereIn('status', ['pending', 'unknown'])->latest('id')->lockForUpdate()->first();
             if ($previous && $previous->expires_at->isFuture() && $previous->status === 'pending'
                 && $previous->plan_code === $plan->code && $previous->amount_halalas === $quote['final_halalas']
@@ -127,9 +134,8 @@ class FamilyStorePurchaseService
             if ($locked->paid_at || $locked->grant_id || $locked->amount_halalas !== 0 || $locked->mode !== 'coupon') {
                 return;
             }
-            $grant = $this->storefront->activatePurchase($locked->productive_family_id, $locked->plan_code,
-                $locked->duration_days, 'Coupon '.$locked->coupon_code);
-            $locked->update(['status' => 'paid', 'paid_at' => now(), 'grant_id' => $grant->id]);
+            $grantId = $this->activate($locked, 'Coupon '.$locked->coupon_code);
+            $locked->update(['status' => 'paid', 'paid_at' => now(), 'grant_id' => $grantId]);
             $this->coupons->redeem($locked);
             $this->receipts->issue($locked->fresh(), 'COUPON-'.$locked->coupon_code);
         }, 3);
@@ -149,7 +155,7 @@ class FamilyStorePurchaseService
             'given_id' => $purchase->given_id,
             'amount_halalas' => $purchase->amount_halalas,
             'currency' => $purchase->currency,
-            'description' => 'ZAD Sync family store subscription '.$purchase->plan_code.' #'.$purchase->id,
+            'description' => ($purchase->plan_code === CashierZadService::PLAN_CODE ? 'ZAD Sync Cashier Pro #' : 'ZAD Sync family store subscription '.$purchase->plan_code.' #').$purchase->id,
             'metadata' => [
                 'family_store_purchase_id' => (string) $purchase->id,
                 'productive_family_id' => (string) $purchase->productive_family_id,
@@ -289,11 +295,10 @@ class FamilyStorePurchaseService
             if ($locked->paid_at || $locked->grant_id) {
                 return;
             }
-            $grant = $this->storefront->activatePurchase($locked->productive_family_id, $locked->plan_code,
-                $locked->duration_days, 'Moyasar payment '.$payment['id']);
+            $grantId = $this->activate($locked, 'Moyasar payment '.$payment['id']);
             $locked->update([
                 'status' => 'paid', 'paid_at' => now(),
-                'provider_payment_id' => $payment['id'], 'grant_id' => $grant->id,
+                'provider_payment_id' => $payment['id'], 'grant_id' => $grantId,
             ]);
             $this->coupons->redeem($locked);
             $this->receipts->issue($locked->fresh(), $payment['id']);
@@ -301,6 +306,20 @@ class FamilyStorePurchaseService
         // PDF is archived before reporting success. A later retry can recover a failed render.
         $this->receipts->pdf($purchase->fresh());
         return $purchase->fresh();
+    }
+
+    /** Store plans become store grants; Cashier Pro adds Pro time. Returns the store grant id or null. */
+    private function activate(FamilyStorePurchase $purchase, string $reason): ?int
+    {
+        if ($purchase->plan_code === CashierZadService::PLAN_CODE) {
+            app(CashierZadService::class)->addTime($purchase->productive_family_id, $purchase->duration_days * 86400,
+                'purchase', $reason, $purchase->id, $purchase->created_by);
+
+            return null;
+        }
+
+        return $this->storefront->activatePurchase($purchase->productive_family_id, $purchase->plan_code,
+            $purchase->duration_days, $reason)->id;
     }
 
     private function halalas(string $price): int

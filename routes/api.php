@@ -238,6 +238,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/admin/sale-receipts/zip', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'zip'])->middleware(['permission:orders.view', 'throttle:30,1']);
     Route::get('/admin/sale-receipts/{receipt}', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'show'])->whereNumber('receipt')->middleware('permission:orders.view');
     Route::get('/admin/sale-receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware('permission:orders.view');
+    Route::get('/admin/cashier-zad/settings', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'settings']);
+    Route::patch('/admin/cashier-zad/settings', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'updateSettings']);
+    Route::get('/admin/cashier-zad/subscribers', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'subscribers']);
+    Route::post('/admin/cashier-zad/grants', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'grant'])->middleware('throttle:20,1');
+    Route::post('/admin/cashier-zad/grants/{grant}/revoke', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'revoke'])->whereNumber('grant')->middleware('throttle:20,1');
     Route::get('/admin/family-store-plans', [FamilyStoreSubscriptionController::class, 'plans']);
     Route::get('/admin/family-store-purchases', [FamilyStoreSubscriptionController::class, 'purchases']);
     Route::get('/admin/family-store-purchases/lookup', [FamilyStoreSubscriptionController::class, 'lookup']);
@@ -382,6 +387,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::get('/receipts', [\App\Http\Controllers\Api\Receipts\FamilySaleReceiptController::class, 'index']);
+        Route::get('/cashier', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'status']);
+        Route::post('/cashier/launch-offer', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'claimLaunchOffer'])->middleware('throttle:5,1');
+        Route::post('/cashier/sales', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'sell'])->middleware('throttle:120,1');
+        Route::get('/cashier/display', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'display'])->middleware('throttle:90,1');
+        Route::get('/cashier/day', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'day']);
         Route::get('/receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\FamilySaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware('throttle:30,1');
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
         Route::post('/orders/{order}/schedule-decision', [FamilyOrderController::class, 'scheduleDecision']);

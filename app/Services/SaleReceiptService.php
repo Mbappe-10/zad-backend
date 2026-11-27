@@ -33,6 +33,7 @@ class SaleReceiptService
         'online' => 'أونلاين',
         'door' => 'عند الباب',
         'bazaar' => 'معرض',
+        'shop' => 'المحل',
     ];
 
     public const METHOD_LABELS = [
@@ -43,6 +44,8 @@ class SaleReceiptService
         'stcpay' => 'STC Pay',
         'sponsored' => 'ممول من زاد سينك',
         'cash' => 'كاش',
+        'network' => 'شبكة (مدى)',
+        'other' => 'أخرى',
         'transfer' => 'تحويل بنكي',
         'payment_link' => 'رابط دفع',
         'online' => 'دفع إلكتروني',
@@ -92,6 +95,47 @@ class SaleReceiptService
 
             return null;
         }
+    }
+
+    /**
+     * A direct sale recorded by the family's cashier. The money is paid to the family
+     * directly (cash, network, transfer…); Zad Sync only records it and issues the receipt.
+     *
+     * @param  array<int, array{name: string, quantity: int, unit_price: float, product_id?: int|null}>  $items
+     */
+    public function issueQuickSale(Store $store, array $items, string $method, string $channel, ?string $phone, float $discount = 0): SaleReceipt
+    {
+        $subtotal = round(array_sum(array_map(fn ($i) => $i['quantity'] * $i['unit_price'], $items)), 2);
+        $discount = min(max(0, round($discount, 2)), $subtotal);
+
+        return DB::transaction(function () use ($store, $items, $method, $channel, $phone, $subtotal, $discount): SaleReceipt {
+            $receipt = SaleReceipt::query()->create([
+                'public_token' => Str::random(40),
+                'sale_type' => SaleReceipt::TYPE_QUICK,
+                'channel' => $channel,
+                'store_id' => $store->id,
+                'productive_family_id' => $store->productive_family_id,
+                'store_name' => $store->name_ar ?: ($store->name_en ?: null),
+                'customer_phone' => $phone,
+                'payment_method' => $method,
+                'subtotal' => $subtotal,
+                'delivery_fee' => 0,
+                'discount' => $discount,
+                'total' => round($subtotal - $discount, 2),
+                'items' => array_map(fn ($i) => [
+                    'product_id' => $i['product_id'] ?? null,
+                    'name' => $i['name'],
+                    'quantity' => $i['quantity'],
+                    'unit_price' => round($i['unit_price'], 2),
+                    'total' => round($i['quantity'] * $i['unit_price'], 2),
+                ], $items),
+                'status' => 'paid',
+                'issued_at' => now(),
+            ]);
+            $receipt->update(['number' => $this->number($receipt)]);
+
+            return $receipt;
+        });
     }
 
     /** Issues receipts for paid orders that have none yet (older orders, missed events). */

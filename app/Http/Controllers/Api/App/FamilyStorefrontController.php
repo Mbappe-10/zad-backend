@@ -34,7 +34,7 @@ class FamilyStorefrontController extends Controller
             'purchase_available' => $this->purchases->available(),
             'web_purchase_available' => $this->purchases->available()
                 && app(\App\Services\App\MoyasarModeResolver::class)->currentMode() === 'live',
-            'plans' => FamilyStorePlan::query()->where('is_visible', true)->orderBy('sort_order')->get(),
+            'plans' => FamilyStorePlan::query()->whereIn('code', ['free', 'silver', 'gold'])->where('is_visible', true)->orderBy('sort_order')->get(),
         ]);
     }
 

@@ -43,11 +43,17 @@ class StoreCatalogController extends Controller
         $featuredEnabled = (int) ($entitlement['capabilities']['featured_products'] ?? 0) > 0
             && \Illuminate\Support\Facades\Schema::hasColumn('products', 'is_featured');
 
+        $stockShown = Product::hasCashierColumns()
+            && (bool) (app(\App\Services\App\CashierZadService::class)->entitlement(
+                Store::query()->with('productiveFamily')->findOrFail($storeRecord->id)->productiveFamily,
+            )['features']['inventory'] ?? false);
+
         $products = Product::query()
             ->where('store_id', $storeRecord->id)
             ->whereNull('deleted_at')
             ->where('status', 'active')
             ->when($gate->enabled('products_categories', 'hideOutOfStockProducts', true), fn ($q) => $q->where('is_available', true))
+            ->onlineVisible()
             ->orderByDesc('updated_at')
             ->get([
                 'id',
@@ -67,8 +73,9 @@ class StoreCatalogController extends Controller
                 'package_size',
                 'is_available',
                 ...($featuredEnabled ? ['is_featured'] : []),
+                ...(Product::hasCashierColumns() ? ['track_stock', 'stock_quantity'] : []),
             ])
-            ->map(function (Product $product) use ($featuredEnabled): array {
+            ->map(function (Product $product) use ($featuredEnabled, $stockShown): array {
                 $images = $this->normalizeImages($product->images);
 
                 return [
@@ -93,6 +100,8 @@ class StoreCatalogController extends Controller
                     'ingredients' => $this->decodeJson($product->ingredients),
                     'is_available' => (bool) $product->is_available,
                     'is_featured' => $featuredEnabled && (bool) $product->is_featured,
+                    // Cashier Zad stock badge: "باقي 6" or sold out.
+                    'stock_left' => $stockShown && $product->track_stock ? max(0, (int) $product->stock_quantity) : null,
                 ];
             })
             ->values();

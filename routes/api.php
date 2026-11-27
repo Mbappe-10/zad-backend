@@ -392,6 +392,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/cashier/sales', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'sell'])->middleware('throttle:120,1');
         Route::get('/cashier/display', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'display'])->middleware('throttle:90,1');
         Route::get('/cashier/day', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'day']);
+        Route::get('/cashier/inventory', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'inventory']);
+        Route::get('/cashier/inventory/export', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'exportInventory'])->middleware('throttle:10,1');
+        Route::patch('/cashier/products/{product}/stock', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'updateStock'])->whereNumber('product');
+        Route::put('/cashier/products/{product}/recipe', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'saveRecipe'])->whereNumber('product');
+        Route::post('/cashier/materials', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'saveMaterial']);
+        Route::patch('/cashier/materials/{material}', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'saveMaterial'])->whereNumber('material');
+        Route::delete('/cashier/materials/{material}', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'deleteMaterial'])->whereNumber('material');
+        Route::post('/cashier/productions', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'produce'])->middleware('throttle:60,1');
         Route::get('/receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\FamilySaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware('throttle:30,1');
         Route::post('/orders/{order}/transition', [FamilyOrderController::class, 'transition']);
         Route::post('/orders/{order}/schedule-decision', [FamilyOrderController::class, 'scheduleDecision']);

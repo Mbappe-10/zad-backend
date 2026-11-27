@@ -20,6 +20,9 @@ class CashierZadService
     public const FEATURES = [
         'quick_sale' => 'البيع السريع والإيصال',
         'daily_stock' => 'طبخة اليوم والكميات',
+        'inventory' => 'المخزون وظهور الكمية في المتجر',
+        'materials' => 'المواد الخام والتغليف',
+        'recipes' => 'وصفة المنتج والإنتاج والتكلفة',
         'day_close' => 'إقفال اليوم',
         'reports' => 'التقارير والتصدير',
         'batches' => 'دفعات الإنتاج',
@@ -30,7 +33,7 @@ class CashierZadService
         'bazaar_mode' => 'وضع المعارض',
     ];
 
-    private const DEFAULT_BASIC = ['quick_sale', 'daily_stock', 'day_close', 'reports'];
+    private const DEFAULT_BASIC = ['quick_sale', 'daily_stock', 'day_close', 'reports', 'inventory'];
 
     public function __construct(private readonly FamilyStorefrontService $storefront) {}
 
@@ -67,6 +70,8 @@ class CashierZadService
             'duration_days' => (int) ($plan?->duration_days ?? 30),
             'selling_enabled' => (bool) ($plan?->is_visible ?? false),
             'available_for' => array_values((array) ($caps['available_for'] ?? ['free', 'silver', 'gold'])),
+            // How many cashier-only products a family with the cashier may add.
+            'cashier_only_limit' => (int) ($caps['cashier_only_limit'] ?? 100),
             // Store plans that include the basic cashier (owner's choice; gold by default).
             'basic_for' => array_values((array) ($caps['basic_for'] ?? ['gold'])),
             'features' => $features,

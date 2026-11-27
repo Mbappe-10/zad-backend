@@ -76,7 +76,7 @@ class SaleReceiptService
                 return null;
             }
 
-            return DB::transaction(function () use ($order): SaleReceipt {
+            $receipt = DB::transaction(function () use ($order): SaleReceipt {
                 $receipt = SaleReceipt::query()->create($this->orderAttributes($order) + [
                     'public_token' => Str::random(40),
                     'sale_type' => SaleReceipt::TYPE_PLATFORM,
@@ -88,6 +88,9 @@ class SaleReceiptService
 
                 return $receipt;
             });
+            app(\App\Services\App\CashierInventoryService::class)->applySale($receipt);
+
+            return $receipt;
         } catch (\Illuminate\Database\UniqueConstraintViolationException) {
             return SaleReceipt::query()->where('order_id', $order->id)->first();
         } catch (\Throwable $e) {
@@ -108,7 +111,7 @@ class SaleReceiptService
         $subtotal = round(array_sum(array_map(fn ($i) => $i['quantity'] * $i['unit_price'], $items)), 2);
         $discount = min(max(0, round($discount, 2)), $subtotal);
 
-        return DB::transaction(function () use ($store, $items, $method, $channel, $phone, $subtotal, $discount): SaleReceipt {
+        $receipt = DB::transaction(function () use ($store, $items, $method, $channel, $phone, $subtotal, $discount): SaleReceipt {
             $receipt = SaleReceipt::query()->create([
                 'public_token' => Str::random(40),
                 'sale_type' => SaleReceipt::TYPE_QUICK,
@@ -136,6 +139,9 @@ class SaleReceiptService
 
             return $receipt;
         });
+        app(\App\Services\App\CashierInventoryService::class)->applySale($receipt);
+
+        return $receipt;
     }
 
     /** Issues receipts for paid orders that have none yet (older orders, missed events). */

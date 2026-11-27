@@ -75,7 +75,7 @@ class FamilyStorefrontController extends Controller
             'ends_at' => $entitlement['ends_at'] ?? null,
             'server_time' => now()->toISOString(),
             'capabilities' => $capabilities,
-            'products' => ['count' => (clone $products)->count(), 'limit' => $limit],
+            'products' => ['count' => (clone $products)->onlineVisible()->count(), 'limit' => $limit],
             'featured' => [
                 'count' => \Illuminate\Support\Facades\Schema::hasColumn('products', 'is_featured') ? (clone $products)->where('is_featured', true)->count() : 0,
                 'limit' => is_numeric($capabilities['featured_products'] ?? null) ? (int) $capabilities['featured_products'] : 0,

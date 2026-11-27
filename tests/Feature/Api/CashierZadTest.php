@@ -205,4 +205,45 @@ class CashierZadTest extends TestCase
         $this->getJson('/api/v1/app/family/cashier')->assertJsonPath('data.tier', 'none')->assertJsonPath('data.trial_started', null);
         $this->assertSame(1, FamilyCashierGrant::query()->where('source', 'trial')->count());
     }
+
+    public function test_vat_is_optional_and_only_for_a_store_with_a_vat_number(): void
+    {
+        $this->gold();
+        // No VAT number: the switch is off and a VAT sale is refused.
+        $this->getJson('/api/v1/app/family/cashier')->assertJsonPath('data.tax.enabled', false);
+        $this->sale(['vat' => true])->assertStatus(422);
+
+        // Invalid numbers and a number without the trade name are refused.
+        $this->putJson('/api/v1/app/family/cashier/tax', ['trade_name' => 'مؤسسة سوبو', 'vat_number' => '123'])->assertStatus(422);
+        $this->putJson('/api/v1/app/family/cashier/tax', ['vat_number' => '300987654300003'])->assertStatus(422);
+
+        // Saved from the store details page, it shows in the cashier dashboard (one record).
+        $this->patchJson('/api/v1/app/productive-family/storefront', ['tax' => ['trade_name' => 'مؤسسة سوبو', 'vat_number' => '300987654300003']])
+            ->assertOk()->assertJsonPath('tax.enabled', true);
+        $this->getJson('/api/v1/app/family/cashier/tax')->assertJsonPath('data.vat_number', '300987654300003')
+            ->assertJsonPath('data.trade_name', 'مؤسسة سوبو');
+
+        // Without the switch the sale stays a normal receipt.
+        $this->sale()->assertCreated()->assertJsonPath('data.total', 50)->assertJsonPath('data.tax', null);
+
+        // With the switch: +15% and a tax invoice for the business customer.
+        $receipt = $this->sale(['vat' => true, 'discount' => 10, 'customer_name' => 'بقالة النخيل', 'customer_vat_number' => '310123456700003'])
+            ->assertCreated()->assertJsonPath('data.total', 46)->assertJsonPath('data.tax.vat', 6)
+            ->assertJsonPath('data.tax.net', 40)->assertJsonPath('data.tax.title', 'فاتورة ضريبية')
+            ->assertJsonPath('data.customer_name', 'بقالة النخيل')->assertJsonPath('data.tax.seller_vat_number', '300987654300003')
+            ->json('data');
+        $tlv = base64_decode($receipt['tax']['qr']);
+        $this->assertStringContainsString('300987654300003', $tlv);
+        $this->assertStringContainsString('46.00', $tlv);
+        $this->assertStringContainsString('6.00', $tlv);
+        $this->assertSame(1, ord($tlv[0]));
+        $this->get(parse_url($receipt['url'], PHP_URL_PATH))->assertOk()->assertSee('فاتورة ضريبية')->assertSee('310123456700003');
+        $this->sale(['customer_vat_number' => '12'])->assertStatus(422);
+
+        // Removing the number from the cashier dashboard switches VAT off everywhere.
+        $this->putJson('/api/v1/app/family/cashier/tax', ['trade_name' => null, 'vat_number' => null])->assertOk()
+            ->assertJsonPath('data.enabled', false);
+        $this->getJson('/api/v1/app/productive-family/storefront')->assertJsonPath('tax.enabled', false);
+        $this->sale(['vat' => true])->assertStatus(422);
+    }
 }

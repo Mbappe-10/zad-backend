@@ -391,6 +391,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/cashier/screens/claim', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'claim'])->middleware('throttle:20,1');
         Route::patch('/cashier/screens/{device}', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'update'])->whereNumber('device');
         Route::delete('/cashier/screens/{device}', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'destroy'])->whereNumber('device');
+        Route::get('/cashier/tax', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'tax']);
+        Route::put('/cashier/tax', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'saveTax'])->middleware('throttle:20,1');
         Route::get('/cashier/menu', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'menu']);
         Route::put('/cashier/menu', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'saveMenu'])->middleware('throttle:30,1');
         Route::get('/cashier/staff', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'index']);

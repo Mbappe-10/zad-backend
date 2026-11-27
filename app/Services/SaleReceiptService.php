@@ -106,12 +106,32 @@ class SaleReceiptService
      *
      * @param  array<int, array{name: string, quantity: int, unit_price: float, product_id?: int|null}>  $items
      */
-    public function issueQuickSale(Store $store, array $items, string $method, string $channel, ?string $phone, float $discount = 0, array $actor = []): SaleReceipt
+    public function issueQuickSale(Store $store, array $items, string $method, string $channel, ?string $phone, float $discount = 0, array $actor = [], array $invoice = []): SaleReceipt
     {
         $subtotal = round(array_sum(array_map(fn ($i) => $i['quantity'] * $i['unit_price'], $items)), 2);
         $discount = min(max(0, round($discount, 2)), $subtotal);
+        $net = round($subtotal - $discount, 2);
+        $tax = app(\App\Services\App\StoreTaxService::class);
+        $extra = [];
+        $vat = 0.0;
+        if ($tax->ready()) {
+            $extra = [
+                'customer_name' => ($n = trim((string) ($invoice['customer_name'] ?? ''))) !== '' ? $n : null,
+                'customer_vat_number' => $invoice['customer_vat_number'] ?? null,
+            ];
+            if (! empty($invoice['vat'])) {
+                abort_unless($store->vat_number, 422, 'أضيفي الرقم الضريبي في بيانات المتجر أول.');
+                $vat = $tax->vatFor($net);
+                $extra += [
+                    'seller_trade_name' => $store->tax_trade_name,
+                    'seller_vat_number' => $store->vat_number,
+                    'vat_rate' => \App\Services\App\StoreTaxService::RATE,
+                    'vat_amount' => $vat,
+                ];
+            }
+        }
 
-        $receipt = DB::transaction(function () use ($store, $items, $method, $channel, $phone, $subtotal, $discount, $actor): SaleReceipt {
+        $receipt = DB::transaction(function () use ($store, $items, $method, $channel, $phone, $subtotal, $discount, $actor, $net, $vat, $extra): SaleReceipt {
             $receipt = SaleReceipt::query()->create([
                 'public_token' => Str::random(40),
                 'sale_type' => SaleReceipt::TYPE_QUICK,
@@ -124,7 +144,7 @@ class SaleReceiptService
                 'subtotal' => $subtotal,
                 'delivery_fee' => 0,
                 'discount' => $discount,
-                'total' => round($subtotal - $discount, 2),
+                'total' => round($net + $vat, 2),
                 'items' => array_map(fn ($i) => [
                     'product_id' => $i['product_id'] ?? null,
                     'name' => $i['name'],
@@ -134,7 +154,7 @@ class SaleReceiptService
                 ], $items),
                 'status' => 'paid',
                 'issued_at' => now(),
-            ] + array_intersect_key($actor, array_flip(array_filter(['cashier_staff_id', 'cashier_shift_id', 'staff_name',
+            ] + $extra + array_intersect_key($actor, array_flip(array_filter(['cashier_staff_id', 'cashier_shift_id', 'staff_name',
                 \Illuminate\Support\Facades\Schema::hasColumn('sale_receipts', 'cashier_device_id') ? 'cashier_device_id' : null]))));
             $receipt->update(['number' => $this->number($receipt)]);
 
@@ -228,7 +248,31 @@ class SaleReceiptService
             'opened_at' => $receipt->opened_at?->toIso8601String(),
             'url' => $this->publicUrl($receipt),
             'staff_name' => $receipt->sale_type === SaleReceipt::TYPE_PLATFORM ? null : ($receipt->staff_name ?? null),
+            'customer_name' => $receipt->customer_name ?? null,
+            'customer_vat_number' => $receipt->customer_vat_number ?? null,
+            'tax' => $this->taxPayload($receipt),
         ] + ($admin ? ['public_token' => $receipt->public_token] : []);
+    }
+
+    /** VAT block of a tax invoice, or null for a normal (non-tax) receipt. */
+    public function taxPayload(SaleReceipt $receipt): ?array
+    {
+        if (empty($receipt->seller_vat_number)) {
+            return null;
+        }
+        $vat = (float) $receipt->vat_amount;
+
+        return [
+            'title' => $receipt->customer_vat_number ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسطة',
+            'title_en' => $receipt->customer_vat_number ? 'Tax Invoice' : 'Simplified Tax Invoice',
+            'rate' => (float) $receipt->vat_rate,
+            'net' => round((float) $receipt->total - $vat, 2),
+            'vat' => $vat,
+            'total' => (float) $receipt->total,
+            'seller_trade_name' => $receipt->seller_trade_name,
+            'seller_vat_number' => $receipt->seller_vat_number,
+            'qr' => app(\App\Services\App\StoreTaxService::class)->zatcaQr($receipt),
+        ];
     }
 
     public function pdf(SaleReceipt $receipt): string
@@ -239,7 +283,7 @@ class SaleReceiptService
             'autoScriptToLang' => true, 'autoLangToFont' => true,
             'margin_left' => 14, 'margin_right' => 14, 'margin_top' => 12, 'margin_bottom' => 12]);
         $pdf->SetDirectionality('rtl');
-        $pdf->SetTitle('إيصال بيع '.$receipt->number);
+        $pdf->SetTitle(($receipt->seller_vat_number ? 'فاتورة ضريبية ' : 'إيصال بيع ').$receipt->number);
         $images = [];
         $logo = public_path('app/assets/assets/contracts/zad_logo.png');
         if (File::isFile($logo)) {

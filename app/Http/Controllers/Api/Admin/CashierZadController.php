@@ -40,6 +40,8 @@ class CashierZadController extends Controller
             'selling_enabled' => ['sometimes', 'boolean'],
             'available_for' => ['sometimes', 'array'],
             'available_for.*' => ['in:free,silver,gold'],
+            'basic_for' => ['sometimes', 'array'],
+            'basic_for.*' => ['in:free,silver,gold'],
             'features' => ['sometimes', 'array'],
             'features.*.basic' => ['sometimes', 'boolean'],
             'features.*.pro' => ['sometimes', 'boolean'],
@@ -60,6 +62,9 @@ class CashierZadController extends Controller
             }
             if (array_key_exists('available_for', $data)) {
                 $caps['available_for'] = array_values(array_unique($data['available_for']));
+            }
+            if (array_key_exists('basic_for', $data)) {
+                $caps['basic_for'] = array_values(array_unique($data['basic_for']));
             }
             if (isset($data['launch_offer'])) {
                 $caps['launch_offer'] = array_replace((array) ($caps['launch_offer'] ?? []), $data['launch_offer']);
@@ -89,7 +94,8 @@ class CashierZadController extends Controller
     {
         $this->owner($request);
         $grants = FamilyCashierGrant::query()->whereNull('revoked_at')->where('ends_at', '>', now())->get()->groupBy('productive_family_id');
-        $gold = FamilyStoreGrant::query()->where('plan_code', 'gold')->whereNull('revoked_at')
+        $basicFor = array_values(array_diff($this->cashier->settings()['basic_for'], ['free']));
+        $gold = FamilyStoreGrant::query()->whereIn('plan_code', $basicFor ?: ['__none__'])->whereNull('revoked_at')
             ->where('starts_at', '<=', now())->where('ends_at', '>', now())->pluck('productive_family_id')->unique();
         $ids = $grants->keys()->merge($gold)->unique()->values();
         $families = ProductiveFamily::query()->whereIn('id', $ids)->get(['id', 'owner_name'])->keyBy('id');
@@ -107,10 +113,10 @@ class CashierZadController extends Controller
                 'family_id' => $id,
                 'family_name' => $families[$id]->owner_name ?? null,
                 'store_name' => $stores[$id]->name_ar ?? null,
-                'store_plan' => $gold->contains($id) ? 'gold' : app(\App\Services\App\FamilyStorefrontService::class)
+                'store_plan' => app(\App\Services\App\FamilyStorefrontService::class)
                     ->catalogEntitlement(ProductiveFamily::query()->find($id))['plan'] ?? 'free',
                 'tier' => $active->isNotEmpty() ? 'pro' : 'basic',
-                'source' => $current?->source ?? ($active->first()?->source ?? 'gold'),
+                'source' => $current?->source ?? ($active->first()?->source ?? 'plan'),
                 'ends_at' => $active->first()?->ends_at?->toISOString(),
                 'grants' => $active->map(fn ($g) => ['id' => $g->id, 'source' => $g->source, 'starts_at' => $g->starts_at->toISOString(),
                     'ends_at' => $g->ends_at->toISOString(), 'reason' => $g->reason])->values(),

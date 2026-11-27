@@ -119,6 +119,13 @@ class CashierZadTest extends TestCase
 
         $this->travel(4)->minutes();
         $this->getJson('/api/v1/app/family/cashier/display')->assertJsonPath('data', null);
+
+        // The owner moves the basic cashier to silver only: gold loses it.
+        Sanctum::actingAs($this->owner());
+        $this->patchJson('/api/admin/cashier-zad/settings', ['basic_for' => ['silver']])->assertOk()
+            ->assertJsonPath('data.basic_for', ['silver']);
+        Sanctum::actingAs($this->member);
+        $this->getJson('/api/v1/app/family/cashier')->assertJsonPath('data.tier', 'none');
     }
 
     public function test_free_family_buys_pro_with_a_full_coupon_and_owner_edits_price_and_features(): void

@@ -67,6 +67,8 @@ class CashierZadService
             'duration_days' => (int) ($plan?->duration_days ?? 30),
             'selling_enabled' => (bool) ($plan?->is_visible ?? false),
             'available_for' => array_values((array) ($caps['available_for'] ?? ['free', 'silver', 'gold'])),
+            // Store plans that include the basic cashier (owner's choice; gold by default).
+            'basic_for' => array_values((array) ($caps['basic_for'] ?? ['gold'])),
             'features' => $features,
             'launch_offer' => [
                 'enabled' => (bool) ($offer['enabled'] ?? false),
@@ -93,7 +95,7 @@ class CashierZadService
         $settings = $this->settings();
         $storePlan = $family ? ($this->storefront->catalogEntitlement($family)['plan'] ?? 'free') : 'free';
         $pro = $family ? $this->activeProGrant($family->id) : null;
-        $tier = $pro ? 'pro' : ($storePlan === 'gold' ? 'basic' : 'none');
+        $tier = $pro ? 'pro' : (in_array($storePlan, $settings['basic_for'], true) ? 'basic' : 'none');
         $features = [];
         foreach ($settings['features'] as $key => $row) {
             $features[$key] = $tier !== 'none' && (bool) $row[$tier];
@@ -104,7 +106,7 @@ class CashierZadService
         return [
             'tier' => $tier,
             'store_plan' => $storePlan,
-            'source' => $pro?->source ?? ($tier === 'basic' ? 'gold' : null),
+            'source' => $pro?->source ?? ($tier === 'basic' ? $storePlan : null),
             'pro_ends_at' => $lastEnd && $pro ? Carbon::parse($lastEnd)->toISOString() : null,
             'features' => $features,
             'can_buy_pro' => $settings['selling_enabled'] && in_array($storePlan, $settings['available_for'], true),

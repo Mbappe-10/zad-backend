@@ -102,6 +102,7 @@ class FamilyStoreSubscriptionController extends Controller
                 'id', 'productive_family_id', 'plan_code', 'amount_halalas',
                 'currency', 'status', 'given_id', 'provider_payment_id',
                 'receipt_number', 'receipt_hash', 'created_at', 'paid_at',
+                'mode', 'discount_halalas', 'coupon_code',
             ])]);
     }
 

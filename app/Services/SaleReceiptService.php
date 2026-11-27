@@ -106,12 +106,12 @@ class SaleReceiptService
      *
      * @param  array<int, array{name: string, quantity: int, unit_price: float, product_id?: int|null}>  $items
      */
-    public function issueQuickSale(Store $store, array $items, string $method, string $channel, ?string $phone, float $discount = 0): SaleReceipt
+    public function issueQuickSale(Store $store, array $items, string $method, string $channel, ?string $phone, float $discount = 0, array $actor = []): SaleReceipt
     {
         $subtotal = round(array_sum(array_map(fn ($i) => $i['quantity'] * $i['unit_price'], $items)), 2);
         $discount = min(max(0, round($discount, 2)), $subtotal);
 
-        $receipt = DB::transaction(function () use ($store, $items, $method, $channel, $phone, $subtotal, $discount): SaleReceipt {
+        $receipt = DB::transaction(function () use ($store, $items, $method, $channel, $phone, $subtotal, $discount, $actor): SaleReceipt {
             $receipt = SaleReceipt::query()->create([
                 'public_token' => Str::random(40),
                 'sale_type' => SaleReceipt::TYPE_QUICK,
@@ -134,7 +134,7 @@ class SaleReceiptService
                 ], $items),
                 'status' => 'paid',
                 'issued_at' => now(),
-            ]);
+            ] + array_intersect_key($actor, array_flip(['cashier_staff_id', 'cashier_shift_id', 'staff_name'])));
             $receipt->update(['number' => $this->number($receipt)]);
 
             return $receipt;
@@ -226,6 +226,7 @@ class SaleReceiptService
             'issued_at' => $receipt->issued_at?->toIso8601String(),
             'opened_at' => $receipt->opened_at?->toIso8601String(),
             'url' => $this->publicUrl($receipt),
+            'staff_name' => $receipt->sale_type === SaleReceipt::TYPE_PLATFORM ? null : ($receipt->staff_name ?? null),
         ] + ($admin ? ['public_token' => $receipt->public_token] : []);
     }
 

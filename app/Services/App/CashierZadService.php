@@ -29,7 +29,7 @@ class CashierZadService
         'batch_costing' => 'تكلفة الدفعة وربحها',
         'bulk_orders' => 'طلبات الكميات والعربون',
         'credit_book' => 'دفتر الآجل',
-        'assistants' => 'المساعدات والصلاحيات',
+        'assistants' => 'الموظفين والصلاحيات والورديات',
         'bazaar_mode' => 'وضع المعارض',
     ];
 
@@ -72,6 +72,9 @@ class CashierZadService
             'available_for' => array_values((array) ($caps['available_for'] ?? ['free', 'silver', 'gold'])),
             // How many cashier-only products a family with the cashier may add.
             'cashier_only_limit' => (int) ($caps['cashier_only_limit'] ?? 100),
+            // Employees and screens (menu, kitchen, customer) a Pro store may add.
+            'staff_limit' => (int) ($caps['staff_limit'] ?? 7),
+            'screens_limit' => (int) ($caps['screens_limit'] ?? 6),
             // Store plans that include the basic cashier (owner's choice; gold by default).
             'basic_for' => array_values((array) ($caps['basic_for'] ?? ['gold'])),
             'features' => $features,

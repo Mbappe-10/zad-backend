@@ -29,6 +29,7 @@
         @if($r['order_number'])<div class="row"><span class="muted">رقم الطلب</span><b dir="ltr">{{ $r['order_number'] }}</b></div>@endif
         <div class="row"><span class="muted">التاريخ</span><b>{{ $issued?->format('Y/m/d — h:i A') }}</b></div>
         <div class="row"><span class="muted">نوع البيع</span><b>{{ $r['sale_type_label'] }} — {{ $r['channel_label'] }}</b></div>
+        @if(!empty($r['staff_name']))<div class="row"><span class="muted">الكاشير</span><b>{{ $r['staff_name'] }}</b></div>@endif
         <div style="border-top:1px dashed #E6E9EE;margin:10px 0"></div>
         @foreach($r['items'] as $item)
             <div class="row"><span>{{ $item['quantity'] }} × {{ $item['name'] }}</span><b>{{ $money($item['total']) }} ر.س</b></div>

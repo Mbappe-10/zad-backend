@@ -44,6 +44,9 @@
         <td><span class="label">قناة البيع</span><br><span class="value">{{ $r['channel_label'] }}</span></td>
         <td><span class="label">طريقة الدفع</span><br><span class="value">{{ $r['payment_method_label'] }}</span></td>
     </tr>
+    @if(!empty($r['staff_name']))
+    <tr><td colspan="3"><span class="label">الكاشير</span><br><span class="value">{{ $r['staff_name'] }}</span></td></tr>
+    @endif
 </table>
 
 <table width="100%" style="margin-top:12px" cellspacing="6"><tr>

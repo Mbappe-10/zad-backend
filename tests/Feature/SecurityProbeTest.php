@@ -56,7 +56,7 @@ class SecurityProbeTest extends TestCase
         $app = $staff->createToken('zad-mobile-app')->plainTextToken;
         $this->withToken($app)->getJson('/api/finance/summary')->assertForbidden();
         $this->app['auth']->forgetGuards();
-        $this->withToken($app)->postJson('/api/finance/wallets/1/credit', ['amount' => 1000, 'type' => 'x', 'description' => 'x'])->assertForbidden();
+        $this->withToken($app)->putJson('/api/finance/settlements/settings', [])->assertForbidden();
         $this->app['auth']->forgetGuards();
         $this->assertNotSame(403, $this->withToken($dash)->getJson('/api/finance/summary')->getStatusCode());
     }

@@ -59,6 +59,8 @@ class FamilyStorePurchaseService
     public function start(ProductiveFamily $family, int $userId, string $code, ?string $couponCode = null): FamilyStorePurchase
     {
         abort_unless($this->purchasingEnabled(), 503, 'شراء الباقات غير متاح حالياً.');
+        abort_if($code === CashierZadService::PLAN_CODE && ! FamilyStorePlan::query()->where('code', $code)->where('is_visible', true)->exists(),
+            403, 'الاشتراك في كاشير زاد برو غير متاح حالياً.');
         $plan = FamilyStorePlan::query()->where('code', $code)->where('is_visible', true)->firstOrFail();
         abort_unless(in_array($code, ['silver', 'gold', CashierZadService::PLAN_CODE], true), 422);
         if ($code === CashierZadService::PLAN_CODE) {

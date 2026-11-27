@@ -58,7 +58,8 @@ return new class extends Migration {
                     'launch_offer' => ['enabled' => false, 'plan' => 'gold', 'days' => 90, 'until' => null],
                 ]),
                 'sort_order' => 90,
-                'is_visible' => true,
+                // Selling starts when the owner switches it on from the dashboard.
+                'is_visible' => false,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

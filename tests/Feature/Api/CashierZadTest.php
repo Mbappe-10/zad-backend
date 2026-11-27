@@ -82,11 +82,19 @@ class CashierZadTest extends TestCase
         ], $extra));
     }
 
+    private function sellingOn(): void
+    {
+        \App\Models\FamilyStorePlan::query()->where('code', 'cashier_pro')->update(['is_visible' => true]);
+    }
+
     public function test_pro_is_priced_at_19_by_default_and_free_family_has_no_cashier_yet(): void
     {
         $this->getJson('/api/v1/app/family/cashier')->assertOk()
             ->assertJsonPath('data.tier', 'none')->assertJsonPath('data.price', '19.00')
-            ->assertJsonPath('data.can_buy_pro', true)->assertJsonPath('data.features.quick_sale', false);
+            ->assertJsonPath('data.can_buy_pro', false)->assertJsonPath('data.features.quick_sale', false);
+        $this->postJson('/api/v1/app/productive-family/storefront/purchases', ['plan' => 'cashier_pro'])->assertForbidden();
+        $this->sellingOn();
+        $this->getJson('/api/v1/app/family/cashier')->assertJsonPath('data.can_buy_pro', true);
         $this->sale()->assertForbidden();
         // Store plans page never lists Cashier Pro.
         $plans = collect($this->getJson('/api/v1/app/productive-family/storefront/plans')->json('plans'))->pluck('code');
@@ -116,6 +124,7 @@ class CashierZadTest extends TestCase
     public function test_free_family_buys_pro_with_a_full_coupon_and_owner_edits_price_and_features(): void
     {
         Http::fake();
+        $this->sellingOn();
         \App\Models\FamilySubscriptionCoupon::query()->create([
             'code' => 'CASHFREE', 'discount_type' => 'percentage', 'discount_value' => 100,
             'per_family_limit' => 1, 'is_active' => true, 'plan_codes' => ['cashier_pro'],

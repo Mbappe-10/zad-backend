@@ -38,6 +38,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        \App\Models\Order::observe(\App\Observers\OrderReceiptObserver::class);
+
         Storage::extend('cloudinary', function ($app, array $config): LaravelFilesystemAdapter {
             $cloudinaryUrl = trim((string) ($config['cloudinary_url'] ?? ''));
 

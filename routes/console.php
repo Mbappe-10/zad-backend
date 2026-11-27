@@ -132,3 +132,5 @@ Artisan::command('zad:db-diagnose', function (): void {
         $this->line('ZAD-DIAG failed: '.$e->getMessage());
     }
 })->purpose('Print database diagnostics at startup');
+
+Schedule::command('sale-receipts:sync --limit=300')->everyTenMinutes()->withoutOverlapping();

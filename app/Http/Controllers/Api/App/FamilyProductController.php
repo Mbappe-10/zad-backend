@@ -43,8 +43,37 @@ class FamilyProductController extends Controller
                 'limit' => $limit = $this->productLimit($store),
                 'unlimited' => $limit === 0,
                 'plan' => app(\App\Services\App\FamilyStorefrontService::class)->catalogEntitlement($store->productiveFamily)['plan'],
+                'featured_limit' => $this->featuredLimit($store),
+                'featured_count' => $products->where('is_featured', true)->count(),
             ],
         ]);
+    }
+
+    /** Gold dishes shown first to customers, up to the plan's featured_products. */
+    public function featured(Request $request, Product $product): JsonResponse
+    {
+        $this->ensureOwns($request, $product);
+        $data = $request->validate(['is_featured' => ['required', 'boolean']]);
+        $store = $this->familyStore($request);
+        $limit = $this->featuredLimit($store);
+        abort_if($data['is_featured'] && $limit === 0, 403, 'المنتجات المميزة متاحة في الباقة الذهبية.');
+        if ($data['is_featured'] && ! $product->is_featured) {
+            $count = Product::query()->where('store_id', $store->id)->where('is_featured', true)->count();
+            abort_if($count >= $limit, 422, "تقدرين تميّزين {$limit} منتجات بحد أقصى. ألغي تمييز منتج أولاً.");
+        }
+        $product->forceFill(['is_featured' => (bool) $data['is_featured']])->save();
+
+        return response()->json([
+            'message' => $product->is_featured ? 'صار المنتج مميزاً ويظهر أولاً لعملائك.' : 'تم إلغاء تمييز المنتج.',
+            'data' => $this->payload($product->fresh()),
+        ]);
+    }
+
+    private function featuredLimit(\App\Models\Store $store): int
+    {
+        $capabilities = app(\App\Services\App\FamilyStorefrontService::class)->catalogEntitlement($store->productiveFamily)['capabilities'] ?? [];
+
+        return is_numeric($capabilities['featured_products'] ?? null) ? max(0, (int) $capabilities['featured_products']) : 0;
     }
 
     public function store(Request $request): JsonResponse
@@ -300,6 +329,7 @@ class FamilyProductController extends Controller
             'package_size' => $product->package_size ?? 'small',
             'status' => $product->status,
             'is_available' => (bool) $product->is_available,
+            'is_featured' => (bool) ($product->is_featured ?? false),
             'images' => $images,
             'image_url' => is_string($firstImage)
                 && $firstImage !== ''

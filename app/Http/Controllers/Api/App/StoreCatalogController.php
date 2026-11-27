@@ -37,6 +37,12 @@ class StoreCatalogController extends Controller
             Store::query()->with('productiveFamily')->findOrFail($storeRecord->id),
         );
 
+        $entitlement = app(FamilyStorefrontService::class)->catalogEntitlement(
+            Store::query()->with('productiveFamily')->findOrFail($storeRecord->id)->productiveFamily,
+        );
+        $featuredEnabled = (int) ($entitlement['capabilities']['featured_products'] ?? 0) > 0
+            && \Illuminate\Support\Facades\Schema::hasColumn('products', 'is_featured');
+
         $products = Product::query()
             ->where('store_id', $storeRecord->id)
             ->whereNull('deleted_at')
@@ -60,8 +66,9 @@ class StoreCatalogController extends Controller
                 'ingredients',
                 'package_size',
                 'is_available',
+                ...($featuredEnabled ? ['is_featured'] : []),
             ])
-            ->map(function (Product $product): array {
+            ->map(function (Product $product) use ($featuredEnabled): array {
                 $images = $this->normalizeImages($product->images);
 
                 return [
@@ -85,6 +92,7 @@ class StoreCatalogController extends Controller
                     'variants' => $this->decodeJson($product->variants),
                     'ingredients' => $this->decodeJson($product->ingredients),
                     'is_available' => (bool) $product->is_available,
+                    'is_featured' => $featuredEnabled && (bool) $product->is_featured,
                 ];
             })
             ->values();
@@ -102,6 +110,7 @@ class StoreCatalogController extends Controller
                 'logo_url' => $this->publicUrl($storeRecord->logo_path),
                 'cover_url' => $storefront['design']['banner_url'],
                 'plan' => $storefront['plan'],
+                'featured_enabled' => $featuredEnabled,
                 'design' => $storefront['design'],
                 'rating' => (float) $storeRecord->rating,
                 'rating_count' => (int) $storeRecord->rating_count,

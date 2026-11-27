@@ -22,6 +22,10 @@ final class SaleReceiptFilters
                 $query->where($column, $f[$key]);
             }
         }
+        $staff = trim((string) ($f['staff'] ?? ''));
+        if ($staff !== '') {
+            $query->where('staff_name', 'like', '%'.$staff.'%');
+        }
         $q = trim((string) ($f['q'] ?? ''));
         if ($q !== '') {
             $digits = preg_replace('/\D+/', '', $q);

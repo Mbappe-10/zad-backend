@@ -25,6 +25,7 @@ class FamilyCashierController extends Controller
     public function __construct(
         private readonly CashierZadService $cashier,
         private readonly SaleReceiptService $receipts,
+        private readonly \App\Services\App\CashierStaffService $staffService,
     ) {}
 
     public function status(Request $request): JsonResponse
@@ -39,6 +40,9 @@ class FamilyCashierController extends Controller
             'plan_name' => $settings['name'],
             'description' => $settings['description'],
             'today' => $this->dayTotals($store, now(self::TZ)),
+            'me' => CashierStaffController::me($this->ctx($request)),
+            'shift' => ($shift = $this->staffService->openShift($this->ctx($request))) ? $this->staffService->shiftPayload($shift) : null,
+            'staff_enabled' => $this->staffService->ready() && $this->staffService->enabled($store),
         ]]);
     }
 
@@ -46,6 +50,7 @@ class FamilyCashierController extends Controller
     public function claimLaunchOffer(Request $request): JsonResponse
     {
         $store = $this->store($request);
+        abort_unless($this->ctx($request)->isOwner(), 403, 'هذه للمالكة فقط.');
         $result = DB::transaction(function () use ($store): array {
             $family = \App\Models\ProductiveFamily::query()->whereKey($store->productive_family_id)->lockForUpdate()->firstOrFail();
             $plan = app(\App\Services\App\FamilyStorefrontService::class)->catalogEntitlement($family)['plan'] ?? 'free';
@@ -63,6 +68,8 @@ class FamilyCashierController extends Controller
     {
         $store = $this->store($request);
         $this->requireFeature($store, 'quick_sale');
+        $ctx = $this->ctx($request);
+        abort_unless($ctx->can('sell'), 403, 'ما عندك صلاحية البيع.');
         $data = $request->validate([
             'items' => ['required', 'array', 'min:1', 'max:60'],
             'items.*.product_id' => ['nullable', 'integer'],
@@ -101,10 +108,51 @@ class FamilyCashierController extends Controller
                 'unit_price' => $product ? (float) $product->price : (float) $i['unit_price'],
             ];
         })->all();
+        $discount = (float) ($data['discount'] ?? 0);
+        if ($discount > 0 && ! $ctx->isOwner()) {
+            abort_unless($ctx->can('discount'), 403, 'ما عندك صلاحية الخصم.');
+            $subtotal = array_sum(array_map(fn ($i) => $i['quantity'] * $i['unit_price'], $items));
+            $max = (int) ($ctx->staff?->max_discount_percent ?? 0);
+            abort_if($max > 0 && $subtotal > 0 && $discount > $subtotal * $max / 100 + 0.001, 422, "أقصى خصم لك {$max}٪.");
+        }
+        $shift = $this->staffService->openShift($ctx);
+        abort_if($shift === null && ! $ctx->isOwner(), 422, 'افتحي الوردية أول.');
         $receipt = $this->receipts->issueQuickSale($store, $items, $data['payment_method'], $data['channel'],
-            $data['customer_phone'] ?? null, (float) ($data['discount'] ?? 0));
+            $data['customer_phone'] ?? null, $discount, $ctx->staff ? [
+                'cashier_staff_id' => $ctx->staff->id,
+                'cashier_shift_id' => $shift?->id,
+                'staff_name' => $ctx->staff->name,
+            ] : []);
 
         return response()->json(['message' => 'تم حفظ البيع وإصدار الإيصال.', 'data' => $this->receipts->payload($receipt)], 201);
+    }
+
+    /** The store's products for the cashier, for whoever is using it (owner or employee). */
+    public function products(Request $request): JsonResponse
+    {
+        $store = $this->store($request);
+        $this->requireFeature($store, 'quick_sale');
+        $products = Product::query()->where('store_id', $store->id)->whereNull('deleted_at')
+            ->where('status', '!=', 'archived')->latest()->get();
+
+        return response()->json(['data' => $products->map(function (Product $p): array {
+            $first = is_array($p->images) ? ($p->images[0] ?? null) : null;
+
+            return [
+                'id' => $p->id,
+                'name_ar' => $p->name_ar,
+                'price' => (float) $p->price,
+                'status' => $p->status,
+                'is_available' => (bool) $p->is_available,
+                'cashier_only' => (bool) ($p->cashier_only ?? false),
+                'track_stock' => (bool) ($p->track_stock ?? false),
+                'stock_quantity' => $p->track_stock ? (int) $p->stock_quantity : null,
+                'images' => is_array($p->images) ? $p->images : [],
+                'image_url' => is_string($first) && $first !== ''
+                    ? (filter_var($first, FILTER_VALIDATE_URL) !== false ? $first : \Illuminate\Support\Facades\Storage::disk('public')->url(ltrim($first, '/')))
+                    : null,
+            ];
+        })->values()]);
     }
 
     /** The newest direct sale for the customer-facing screen (QR of the receipt). */
@@ -129,6 +177,7 @@ class FamilyCashierController extends Controller
     {
         $store = $this->store($request);
         $this->requireFeature($store, 'day_close');
+        abort_unless($this->ctx($request)->can('reports'), 403, 'ما عندك صلاحية التقارير.');
         $date = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']])['date'] ?? null;
         $day = $date ? Carbon::parse($date, self::TZ) : now(self::TZ);
 
@@ -140,7 +189,15 @@ class FamilyCashierController extends Controller
         $store = $this->store($request);
         $this->requireFeature($store, 'inventory');
 
-        return response()->json(['data' => app(\App\Services\App\CashierInventoryService::class)->snapshot($store) + [
+        $ctx = $this->ctx($request);
+        abort_unless($ctx->can('inventory') || $ctx->can('sell'), 403, 'ما عندك صلاحية المخزون.');
+        $snapshot = app(\App\Services\App\CashierInventoryService::class)->snapshot($store);
+        if (! $ctx->can('reports')) {
+            $snapshot['products'] = array_map(fn ($p) => array_diff_key($p, array_flip(['unit_cost', 'profit', 'recipe'])), (array) $snapshot['products']);
+            $snapshot['materials'] = array_map(fn ($m) => array_diff_key($m, array_flip(['unit_cost', 'value'])), (array) $snapshot['materials']);
+        }
+
+        return response()->json(['data' => $snapshot + [
             'features' => $this->cashier->entitlement($store->productiveFamily)['features'],
         ]]);
     }
@@ -376,19 +433,23 @@ class FamilyCashierController extends Controller
         ];
     }
 
+    private function ctx(Request $request): \App\Services\App\CashierContext
+    {
+        return $this->staffService->resolve($request);
+    }
+
     private function requireFeature(Store $store, string $feature): void
     {
+        $request = request();
+        if (in_array($request->route()?->getActionMethod(), ['updateStock', 'saveRecipe', 'saveMaterial', 'deleteMaterial', 'produce', 'exportInventory'], true)) {
+            abort_unless($this->ctx($request)->can('inventory'), 403, 'ما عندك صلاحية المخزون.');
+        }
         $features = $this->cashier->entitlement($store->productiveFamily)['features'];
         abort_unless(! empty($features[$feature]), 403, 'هذه الميزة تتطلب كاشير زاد (الباقة الذهبية أو كاشير برو).');
     }
 
     private function store(Request $request): Store
     {
-        $profile = AppProfile::query()->where('user_id', $request->user()->id)->first();
-        abort_unless($profile?->productive_family_id !== null, 403, 'هذا الحساب غير مرتبط بأسرة منتجة.');
-        $store = Store::query()->with('productiveFamily')->where('productive_family_id', $profile->productive_family_id)->first();
-        abort_unless($store !== null, 404, 'لم يتم العثور على متجر الأسرة.');
-
-        return $store;
+        return $this->ctx($request)->store;
     }
 }

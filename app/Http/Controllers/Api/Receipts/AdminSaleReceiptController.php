@@ -111,7 +111,7 @@ class AdminSaleReceiptController extends Controller
         };
     }
 
-    private const HEADERS = ['رقم الإيصال', 'رقم الطلب', 'التاريخ', 'الأسرة', 'نوع البيع', 'القناة', 'الدفع', 'العميل', 'الأصناف', 'الخصم', 'الإجمالي', 'الحالة'];
+    private const HEADERS = ['رقم الإيصال', 'رقم الطلب', 'التاريخ', 'الأسرة', 'نوع البيع', 'القناة', 'الدفع', 'العميل', 'الأصناف', 'الخصم', 'الإجمالي', 'الحالة', 'الكاشير'];
 
     private function row(SaleReceipt $r): array
     {
@@ -122,6 +122,7 @@ class AdminSaleReceiptController extends Controller
             $p['store_name'] ?? '', $p['sale_type_label'], $p['channel_label'], $p['payment_method_label'], $p['customer'] ?? '',
             collect($p['items'])->map(fn ($i) => $i['quantity'].'× '.$i['name'])->implode('، '),
             $p['discount'], $p['total'], $p['status_label'],
+            $r->sale_type === SaleReceipt::TYPE_PLATFORM ? '' : ($r->staff_name ?: 'المالكة'),
         ];
     }
 
@@ -135,9 +136,9 @@ class AdminSaleReceiptController extends Controller
         $last = count($rows) + 2;
         $sheet->setCellValue('A'.$last, 'الإجمالي ('.$totals['count'].' إيصال)');
         $sheet->setCellValue('K'.$last, $totals['total']);
-        $sheet->getStyle('A1:L1')->getFont()->setBold(true);
-        $sheet->getStyle('A'.$last.':L'.$last)->getFont()->setBold(true);
-        foreach (range('A', 'L') as $col) {
+        $sheet->getStyle('A1:M1')->getFont()->setBold(true);
+        $sheet->getStyle('A'.$last.':M'.$last)->getFont()->setBold(true);
+        foreach (range('A', 'M') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
         ob_start();
@@ -230,6 +231,7 @@ class AdminSaleReceiptController extends Controller
             'sale_type' => ['nullable', 'in:platform,quick,cashier'],
             'payment_method' => ['nullable', 'string', 'max:40'],
             'status' => ['nullable', 'in:paid,refunded,cancelled'],
+            'staff' => ['nullable', 'string', 'max:60'],
             'per_page' => ['nullable', 'integer', 'between:10,200'],
         ]);
     }

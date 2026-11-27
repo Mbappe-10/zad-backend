@@ -387,6 +387,18 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
         Route::get('/orders/{order}', [FamilyOrderController::class, 'show']);
         Route::get('/receipts', [\App\Http\Controllers\Api\Receipts\FamilySaleReceiptController::class, 'index']);
+        Route::get('/cashier/staff', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'index']);
+        Route::post('/cashier/staff', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'store'])->middleware('throttle:20,1');
+        Route::patch('/cashier/staff/{member}', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'update'])->whereNumber('member')->middleware('throttle:30,1');
+        Route::delete('/cashier/staff/{member}', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'destroy'])->whereNumber('member');
+        Route::post('/cashier/staff/{member}/invite', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'invite'])->whereNumber('member')->middleware('throttle:20,1');
+        Route::post('/cashier/devices', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'linkDevice'])->middleware('throttle:10,1');
+        Route::delete('/cashier/devices/{device}', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'unlinkDevice'])->whereNumber('device');
+        Route::get('/cashier/staff-sales', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'sales'])->middleware('throttle:30,1');
+        Route::get('/cashier/products', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'products']);
+        Route::get('/cashier/shift', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'currentShift']);
+        Route::post('/cashier/shift/open', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'openShift'])->middleware('throttle:20,1');
+        Route::post('/cashier/shift/close', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'closeShift'])->middleware('throttle:20,1');
         Route::get('/cashier', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'status']);
         Route::post('/cashier/launch-offer', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'claimLaunchOffer'])->middleware('throttle:5,1');
         Route::post('/cashier/sales', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'sell'])->middleware('throttle:120,1');
@@ -1514,3 +1526,47 @@ foreach (\Illuminate\Support\Facades\Route::getRoutes() as $zadRoute) {
     // Refresh cached controller and middleware metadata.
     $zadRoute->flushController();
 }
+
+
+/*
+ * Cashier Zad Pro for employees: the same cashier, opened either from a linked shop
+ * device (X-Cashier-Device + X-Cashier-Staff after the PIN) or from the employee's own
+ * Zad account after she joined with an invite code. Permissions are checked per action.
+ */
+$zadCashierShared = function (): void {
+    $c = \App\Http\Controllers\Api\App\FamilyCashierController::class;
+    Route::get('/', [$c, 'status']);
+    Route::get('/products', [$c, 'products']);
+    Route::post('/sales', [$c, 'sell'])->middleware('throttle:120,1');
+    Route::get('/display', [$c, 'display'])->middleware('throttle:90,1');
+    Route::get('/day', [$c, 'day']);
+    Route::get('/inventory', [$c, 'inventory']);
+    Route::get('/inventory/export', [$c, 'exportInventory'])->middleware('throttle:10,1');
+    Route::patch('/products/{product}/stock', [$c, 'updateStock'])->whereNumber('product');
+    Route::put('/products/{product}/recipe', [$c, 'saveRecipe'])->whereNumber('product');
+    Route::post('/materials', [$c, 'saveMaterial']);
+    Route::patch('/materials/{material}', [$c, 'saveMaterial'])->whereNumber('material');
+    Route::delete('/materials/{material}', [$c, 'deleteMaterial'])->whereNumber('material');
+    Route::post('/productions', [$c, 'produce'])->middleware('throttle:60,1');
+    Route::get('/shift', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'currentShift']);
+    Route::post('/shift/open', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'openShift'])->middleware('throttle:20,1');
+    Route::post('/shift/close', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'closeShift'])->middleware('throttle:20,1');
+};
+
+Route::prefix('v1/cashier-device')->middleware('throttle:300,1')->group(function () use ($zadCashierShared): void {
+    $d = \App\Http\Controllers\Api\App\CashierDeviceController::class;
+    Route::get('/me', [$d, 'me']);
+    Route::post('/join', [$d, 'join'])->middleware('throttle:10,1');
+    Route::post('/unlock', [$d, 'unlock'])->middleware('throttle:20,1');
+    Route::post('/lock', [$d, 'lock']);
+    Route::prefix('cashier')->group($zadCashierShared);
+});
+
+Route::middleware(['auth:sanctum', 'throttle:api'])->prefix('v1/app/staff')->group(function () use ($zadCashierShared): void {
+    $m = \App\Http\Controllers\Api\App\StaffMembershipController::class;
+    Route::get('/memberships', [$m, 'index']);
+    Route::post('/join', [$m, 'join'])->middleware('throttle:10,1');
+    Route::delete('/memberships/{membership}', [$m, 'leave'])->whereNumber('membership');
+    Route::prefix('{membership}/cashier')->whereNumber('membership')
+        ->middleware(\App\Http\Middleware\ResolveCashierMembership::class)->group($zadCashierShared);
+});

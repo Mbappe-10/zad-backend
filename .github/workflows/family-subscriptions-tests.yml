@@ -25,6 +25,6 @@ jobs:
           extensions: mbstring, pdo_sqlite, gd, zip, intl, bcmath
           coverage: none
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - run: cp .env.example .env && php artisan key:generate
+      - run: touch database/database.sqlite && cp .env.example .env && php artisan key:generate
       - name: Family store plans, coupons and receipts
         run: php artisan test tests/Feature/Api/FamilyStoreSubscriptionsTest.php tests/Feature/Api/FamilySubscriptionCouponsTest.php

@@ -23,7 +23,7 @@ class CashierScreenService
 {
     public const KINDS = ['menu', 'customer'];
 
-    public const THEMES = ['navy', 'light', 'night', 'rose'];
+    public const THEMES = ['navy', 'light', 'night', 'rose', 'white_orange', 'white_black', 'white_gold'];
 
     public const LAYOUTS = ['grid', 'list', 'hero'];
 

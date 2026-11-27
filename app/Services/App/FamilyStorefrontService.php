@@ -114,7 +114,21 @@ class FamilyStorefrontService
         return $grants->count();
     }
 
-    private function pricePerSecond(?FamilyStorePlan $plan): float
+    /**
+     * How many products the family's current plan allows. 0 means unlimited.
+     * Falls back to the platform-wide limit when a plan does not define one.
+     */
+    public function productLimit(Store $store, int $platformLimit): int
+    {
+        $capabilities = $this->catalogEntitlement($store->productiveFamily)['capabilities'] ?? [];
+        if (array_key_exists('max_products', $capabilities) && is_numeric($capabilities['max_products'])) {
+            return max(0, (int) $capabilities['max_products']);
+        }
+
+        return max(1, $platformLimit);
+    }
+
+        private function pricePerSecond(?FamilyStorePlan $plan): float
     {
         if (! $plan || (int) $plan->duration_days < 1) {
             return 0.0;

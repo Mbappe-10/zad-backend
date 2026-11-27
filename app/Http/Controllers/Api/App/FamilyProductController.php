@@ -39,7 +39,10 @@ class FamilyProductController extends Controller
             'data' => $products,
             'meta' => [
                 'count' => $products->count(),
-                'limit' => max(1, (int) app(\App\Services\App\PlatformOperationGate::class)->number('products_categories', 'maximumProductsPerStore', self::PRODUCT_LIMIT)),
+                // 0 = unlimited. The family's plan decides; the platform limit is the fallback.
+                'limit' => $limit = $this->productLimit($store),
+                'unlimited' => $limit === 0,
+                'plan' => app(\App\Services\App\FamilyStorefrontService::class)->catalogEntitlement($store->productiveFamily)['plan'],
             ],
         ]);
     }
@@ -62,11 +65,11 @@ class FamilyProductController extends Controller
 
                 $gate = app(\App\Services\App\PlatformOperationGate::class);
                 abort_unless($gate->enabled('products_categories', 'productsEnabled', true), 423, 'إضافة المنتجات متوقفة مؤقتًا من مركز التحكم.');
-                $maxProducts = max(1, (int) $gate->number('products_categories', 'maximumProductsPerStore', self::PRODUCT_LIMIT));
-                if ($productsCount >= $maxProducts) {
+                $maxProducts = $this->productLimit($store);
+                if ($maxProducts > 0 && $productsCount >= $maxProducts) {
                     throw ValidationException::withMessages([
                         'product' => [
-                            "الحد الأقصى للمتجر هو {$maxProducts} منتج.",
+                            "وصلتِ للحد الأقصى في باقتك ({$maxProducts} منتجات). رقّي باقتك من «إدارة المتجر ← الباقات» لإضافة منتجات أكثر.",
                         ],
                     ]);
                 }
@@ -225,7 +228,15 @@ class FamilyProductController extends Controller
         ]);
     }
 
-    private function familyStore(
+    private function productLimit(Store $store): int
+    {
+        $platform = (int) app(\App\Services\App\PlatformOperationGate::class)
+            ->number('products_categories', 'maximumProductsPerStore', self::PRODUCT_LIMIT);
+
+        return app(\App\Services\App\FamilyStorefrontService::class)->productLimit($store->loadMissing('productiveFamily'), $platform);
+    }
+
+        private function familyStore(
         Request $request,
     ): Store {
         $profile = AppProfile::query()

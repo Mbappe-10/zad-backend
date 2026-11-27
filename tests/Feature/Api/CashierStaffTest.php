@@ -187,6 +187,7 @@ class CashierStaffTest extends TestCase
         $this->withHeaders($as)->getJson('/api/v1/cashier-device/cashier')->assertStatus(423);
 
         // The owner can unlink the device from her phone.
+        $this->flushHeaders();
         Sanctum::actingAs($this->owner);
         $deviceId = $this->getJson('/api/v1/app/family/cashier/staff')->json('data.devices.0.id');
         $this->deleteJson('/api/v1/app/family/cashier/devices/'.$deviceId)->assertOk();

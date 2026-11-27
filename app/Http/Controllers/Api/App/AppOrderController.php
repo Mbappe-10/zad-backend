@@ -165,6 +165,7 @@ class AppOrderController extends Controller
             ->whereNull('deleted_at')
             ->where('status', 'active')
             ->where('is_available', true)
+            ->onlineVisible()
             ->get()
             ->keyBy('id');
 
@@ -172,6 +173,18 @@ class AppOrderController extends Controller
             throw ValidationException::withMessages([
                 'items' => ['بعض المنتجات غير متاحة أو ليست من المتجر المحدد.'],
             ]);
+        }
+
+        // Cashier Zad stock: a tracked product cannot be ordered beyond what is left.
+        foreach ($data['items'] as $item) {
+            $stocked = $products[(int) $item['product_id']] ?? null;
+            if ($stocked && $stocked->track_stock && (int) $item['quantity'] > (int) $stocked->stock_quantity) {
+                throw ValidationException::withMessages([
+                    'items' => [(int) $stocked->stock_quantity > 0
+                        ? 'باقي '.(int) $stocked->stock_quantity.' فقط من '.$stocked->name_ar.'.'
+                        : 'نفذت كمية '.$stocked->name_ar.'.'],
+                ]);
+            }
         }
 
         $sizes = [

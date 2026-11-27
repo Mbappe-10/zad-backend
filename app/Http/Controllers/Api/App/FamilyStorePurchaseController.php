@@ -24,7 +24,7 @@ class FamilyStorePurchaseController extends Controller
     {
         $family = $this->family($request);
         $data = $request->validate([
-            'plan' => ['required', 'in:silver,gold'],
+            'plan' => ['required', 'in:silver,gold,cashier_pro'],
             'coupon' => ['sometimes', 'nullable', 'string', 'max:40'],
         ]);
         $purchase = $this->purchases->start($family, $request->user()->id, $data['plan'], $data['coupon'] ?? null);
@@ -35,7 +35,10 @@ class FamilyStorePurchaseController extends Controller
     public function latest(Request $request): JsonResponse
     {
         $family = $this->family($request);
-        $purchase = FamilyStorePurchase::query()->where('productive_family_id', $family->id)->latest('id')->first();
+        $cashier = $request->query('kind') === 'cashier';
+        $purchase = FamilyStorePurchase::query()->where('productive_family_id', $family->id)
+            ->when($cashier, fn ($q) => $q->where('plan_code', 'cashier_pro'), fn ($q) => $q->where('plan_code', '!=', 'cashier_pro'))
+            ->latest('id')->first();
 
         return response()->json([
             'data' => $purchase ? $this->summary($purchase) : null,

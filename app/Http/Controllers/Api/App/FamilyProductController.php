@@ -38,7 +38,9 @@ class FamilyProductController extends Controller
         return response()->json([
             'data' => $products,
             'meta' => [
-                'count' => $products->count(),
+                // Online products count toward the plan; cashier-only ones do not.
+                'count' => $products->where('cashier_only', false)->count(),
+                'cashier_only_count' => $products->where('cashier_only', true)->count(),
                 // 0 = unlimited. The family's plan decides; the platform limit is the fallback.
                 'limit' => $limit = $this->productLimit($store),
                 'unlimited' => $limit === 0,
@@ -80,17 +82,28 @@ class FamilyProductController extends Controller
     {
         $store = $this->familyStore($request);
         $data = $this->validatedProduct($request);
+        $cashierOnly = $request->boolean('cashier_only') && Product::hasCashierColumns();
+        if ($cashierOnly) {
+            $features = app(\App\Services\App\CashierZadService::class)->entitlement($store->productiveFamily)['features'];
+            abort_unless(! empty($features['inventory']), 403, 'منتجات الكاشير فقط متاحة مع كاشير زاد.');
+        }
 
         $product = DB::transaction(
-            function () use ($store, $data): Product {
+            function () use ($store, $data, $cashierOnly): Product {
                 DB::table('stores')
                     ->where('id', $store->id)
                     ->lockForUpdate()
                     ->first();
 
+                // The plan limit counts products shown online; cashier-only products have their own limit.
                 $productsCount = Product::query()
                     ->where('store_id', $store->id)
+                    ->onlineVisible()
                     ->count();
+                if ($cashierOnly) {
+                    app(\App\Http\Controllers\Api\App\FamilyCashierController::class)->checkCatalogLimits($store, true);
+                    $productsCount = 0;
+                }
 
                 $gate = app(\App\Services\App\PlatformOperationGate::class);
                 abort_unless($gate->enabled('products_categories', 'productsEnabled', true), 423, 'إضافة المنتجات متوقفة مؤقتًا من مركز التحكم.');
@@ -106,12 +119,17 @@ class FamilyProductController extends Controller
                 $status = $gate->enabled('products_categories', 'productApprovalRequired', false) ? 'pending' : 'active';
                 $prepMinutes = $data['preparation_minutes'] ?? (int) $gate->number('stores', 'defaultPreparationMinutes', 30);
 
-                return Product::query()->create([
+                $product = Product::query()->create([
                     ...$data,
                     'preparation_minutes' => $prepMinutes,
                     'store_id' => $store->id,
                     'status' => $status,
                 ]);
+                if ($cashierOnly) {
+                    $product->forceFill(['cashier_only' => true])->save();
+                }
+
+                return $product;
             },
         );
 
@@ -330,6 +348,9 @@ class FamilyProductController extends Controller
             'status' => $product->status,
             'is_available' => (bool) $product->is_available,
             'is_featured' => (bool) ($product->is_featured ?? false),
+            'cashier_only' => (bool) ($product->cashier_only ?? false),
+            'track_stock' => (bool) ($product->track_stock ?? false),
+            'stock_quantity' => $product->track_stock ? (int) $product->stock_quantity : null,
             'images' => $images,
             'image_url' => is_string($firstImage)
                 && $firstImage !== ''

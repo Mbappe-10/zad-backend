@@ -44,11 +44,28 @@ class Product extends Model
             'price' => 'decimal:2',
             'compare_at_price' => 'decimal:2',
             'is_available' => 'boolean',
+            'cashier_only' => 'boolean',
+            'track_stock' => 'boolean',
+            'stock_quantity' => 'integer',
+            'stock_auto_closed' => 'boolean',
             'preparation_minutes' => 'integer',
             'images' => 'array',
             'variants' => 'array',
             'ingredients' => 'array',
         ];
+    }
+
+    private static ?bool $hasCashierColumns = null;
+
+    public static function hasCashierColumns(): bool
+    {
+        return self::$hasCashierColumns ??= \Illuminate\Support\Facades\Schema::hasColumn('products', 'cashier_only');
+    }
+
+    /** Products customers can see and order online (cashier-only products stay in the family's cashier). */
+    public function scopeOnlineVisible(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return self::hasCashierColumns() ? $query->where($query->qualifyColumn('cashier_only'), false) : $query;
     }
 
     public static function preparationModes(): array

@@ -32,6 +32,7 @@ class CategoryCatalogController extends Controller
         $page = Product::query()->where('category_id', $category->id)
             ->where('status', 'active')->when(app(\App\Services\App\PlatformOperationGate::class)->enabled('products_categories', 'hideOutOfStockProducts', true), fn ($q) => $q->where('is_available', true))
             ->whereIn('store_id', Store::query()->select('id')->where('status', 'active')->where('is_open', true))
+            ->onlineVisible()
             ->orderByDesc('updated_at')->orderByDesc('id')
             ->paginate(min(50, max(1, (int) $request->input('per_page', 20))));
         $stores = Store::query()->whereIn('id', $page->getCollection()->pluck('store_id'))->get()->keyBy('id');

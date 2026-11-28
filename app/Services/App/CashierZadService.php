@@ -32,13 +32,14 @@ class CashierZadService
         'assistants' => 'الموظفين والصلاحيات والورديات',
         'menu_screens' => 'المنيو على الشاشات وإيصال الدفع عليها',
         'owner_dashboard' => 'لوحة المالك التفاعلية والمؤشرات',
+        'receipt_style' => 'شكل الفاتورة: الفاتورة الطولية وشعار المتجر',
         'bazaar_mode' => 'وضع المعارض',
     ];
 
     private const DEFAULT_BASIC = ['quick_sale', 'daily_stock', 'day_close', 'reports'];
 
     /** Stock (quantities, materials, recipes, batches) belongs to Pro only; normal stores stay simple. */
-    public const PRO_ONLY = ['inventory', 'materials', 'recipes', 'batches', 'batch_costing', 'owner_dashboard'];
+    public const PRO_ONLY = ['inventory', 'materials', 'recipes', 'batches', 'batch_costing', 'owner_dashboard', 'receipt_style'];
 
     public function __construct(private readonly FamilyStorefrontService $storefront) {}
 

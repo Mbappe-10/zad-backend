@@ -414,6 +414,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::get('/cashier', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'status']);
         Route::post('/cashier/launch-offer', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'claimLaunchOffer'])->middleware('throttle:5,1');
         Route::get('/cashier/owner-dashboard', \App\Http\Controllers\Api\App\OwnerDashboardController::class)->middleware('throttle:60,1');
+        Route::get('/cashier/receipt-style', [\App\Http\Controllers\Api\App\ReceiptStyleController::class, 'show']);
+        Route::put('/cashier/receipt-style', [\App\Http\Controllers\Api\App\ReceiptStyleController::class, 'save'])->middleware('throttle:30,1');
         Route::get('/cashier/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'index']);
         Route::post('/cashier/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'store'])->middleware('throttle:60,1');
         Route::get('/cashier/batches/live', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'live'])->middleware('throttle:240,1');

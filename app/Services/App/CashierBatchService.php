@@ -56,9 +56,12 @@ class CashierBatchService
             'photos_enabled' => (bool) ($data['photos_enabled'] ?? $current['photos_enabled']),
             'monthly_goal' => array_key_exists('monthly_goal', $data) ? ($data['monthly_goal'] === null ? null : (float) $data['monthly_goal']) : $current['monthly_goal'],
         ];
+        // Keep other sections (e.g. the receipt style) saved in the same row.
+        $raw = DB::table('cashier_store_settings')->where('store_id', $store->id)->value('settings');
+        $settings = array_replace(is_string($raw) ? (json_decode($raw, true) ?: []) : [], $settings);
         DB::table('cashier_store_settings')->updateOrInsert(
             ['store_id' => $store->id],
-            ['settings' => json_encode($settings), 'updated_at' => now(), 'created_at' => now()],
+            ['settings' => json_encode($settings, JSON_UNESCAPED_UNICODE), 'updated_at' => now(), 'created_at' => now()],
         );
 
         return $this->settings($store);

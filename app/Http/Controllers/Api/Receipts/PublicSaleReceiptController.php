@@ -19,6 +19,16 @@ class PublicSaleReceiptController extends Controller
             $receipt->forceFill(['opened_at' => now()])->save();
         }
 
+        $thermal = app(\App\Services\App\ReceiptStyleService::class)->thermalFor($receipt);
+        if ($thermal) {
+            return response()->view('receipts.thermal', [
+                'r' => $this->receipts->payload($receipt),
+                't' => $thermal,
+                'pdfUrl' => url('/r/'.$token.'/pdf'),
+                'whatsapp' => $this->receipts->whatsappUrl($receipt),
+            ])->header('X-Robots-Tag', 'noindex');
+        }
+
         return response()->view('receipts.public', [
             'r' => $this->receipts->payload($receipt),
             'pdfUrl' => url('/r/'.$token.'/pdf'),

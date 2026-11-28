@@ -25,7 +25,10 @@ class CashierScreenService
 
     public const THEMES = ['navy', 'white_orange', 'white_black', 'white_gold', 'night', 'white_navy', 'blue_orange', 'light', 'rose', 'forest'];
 
-    public const LAYOUTS = ['grid', 'list', 'hero', 'compact', 'board'];
+    public const LAYOUTS = ['grid', 'list', 'hero', 'compact', 'board', 'showcase'];
+
+    /** Looks of the interactive showcase (one product at a time). */
+    public const SHOWCASE_STYLES = ['bubbles', 'orbit', 'panel', 'spotlight', 'cards', 'polaroid'];
 
     private const PAIR_TTL = 600;
 
@@ -144,6 +147,14 @@ class CashierScreenService
             'category_ids' => [],
             'hidden_product_ids' => [],
             'ticker' => '',
+            // full = the whole product photo is shown; fill = the photo fills its frame (may crop).
+            'image_fit' => 'full',
+            'showcase_style' => 'bubbles',
+            'showcase_seconds' => 5,
+            // Ordered product ids for the showcase (empty = featured first, then all).
+            'showcase_product_ids' => [],
+            // Product id => short badge («جديدنا!», «الأكثر طلباً»...).
+            'showcase_badges' => [],
         ];
     }
 
@@ -171,6 +182,13 @@ class CashierScreenService
     public function feed(Store $store, ?CashierDevice $device = null): array
     {
         $menu = $this->menu($store);
+        // A screen may have its own look (one on the showcase, another on the grid).
+        foreach (['layout', 'showcase_style'] as $k) {
+            $own = $device?->settings[$k] ?? null;
+            if (is_string($own) && $own !== '') {
+                $menu[$k] = $own;
+            }
+        }
         $hidden = array_map('intval', (array) $menu['hidden_product_ids']);
         $products = Product::query()->where('store_id', $store->id)->whereNull('deleted_at')
             ->where('status', 'active')->where('is_available', true)
@@ -202,6 +220,7 @@ class CashierScreenService
             ],
             'menu' => $menu,
             'categories' => $categories,
+            'showcase' => $this->showcase($menu, $items),
             'offer_product' => $menu['offer_product_id'] ? $items->firstWhere('id', (int) $menu['offer_product_id']) : null,
             'hero_product' => $menu['hero_product_id'] ? $items->firstWhere('id', (int) $menu['hero_product_id']) : ($items->first() ?: null),
             // Always shown: customers can order online later and Zad Sync delivers to their door.
@@ -244,6 +263,20 @@ class CashierScreenService
         ];
     }
 
+    /** @param \Illuminate\Support\Collection<int, array> $items */
+    private function showcase(array $menu, $items): array
+    {
+        $ids = array_map('intval', (array) $menu['showcase_product_ids']);
+        $badges = (array) $menu['showcase_badges'];
+        $chosen = $ids
+            ? collect($ids)->map(fn ($id) => $items->firstWhere('id', $id))->filter()
+            : $items->sortByDesc(fn ($p) => $p['is_featured'] ? 1 : 0)->take(8);
+
+        return $chosen->reject(fn ($p) => $p['sold_out'])->map(fn ($p) => $p + [
+            'badge' => (string) ($badges[(string) $p['id']] ?? $badges[$p['id']] ?? ''),
+        ])->values()->all();
+    }
+
     public function productPayload(Product $p): array
     {
         $first = is_array($p->images) ? ($p->images[0] ?? null) : null;
@@ -279,7 +312,7 @@ class CashierScreenService
             'id' => $d->id,
             'kind' => $d->kind,
             'name' => $d->name,
-            'settings' => array_replace(['show_receipts' => true, 'receipt_devices' => []], (array) ($d->settings ?? [])),
+            'settings' => array_replace(['show_receipts' => true, 'receipt_devices' => [], 'layout' => null, 'showcase_style' => null], (array) ($d->settings ?? [])),
             'online' => $d->last_seen_at !== null && $d->last_seen_at->gt(now()->subMinutes(2)),
             'last_seen_at' => $d->last_seen_at?->toISOString(),
         ];

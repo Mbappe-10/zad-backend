@@ -279,9 +279,13 @@ class SaleReceiptService
     {
         $temp = storage_path('app/private/sale-receipt-mpdf');
         File::ensureDirectoryExists($temp);
-        $pdf = new Mpdf(['mode' => 'utf-8', 'format' => 'A4', 'tempDir' => $temp,
-            'autoScriptToLang' => true, 'autoLangToFont' => true,
-            'margin_left' => 14, 'margin_right' => 14, 'margin_top' => 12, 'margin_bottom' => 12]);
+        $thermal = app(\App\Services\App\ReceiptStyleService::class)->thermalFor($receipt);
+        // The long receipt prints on an 80 mm roll; its height grows with the number of items.
+        $format = $thermal ? [80, 150 + 11 * count($receipt->items ?? []) + ($receipt->seller_vat_number ? 45 : 0) + ($thermal['hide_zad_branding'] ? 0 : 30)] : 'A4';
+        $margins = $thermal ? ['margin_left' => 4, 'margin_right' => 4, 'margin_top' => 4, 'margin_bottom' => 4]
+            : ['margin_left' => 14, 'margin_right' => 14, 'margin_top' => 12, 'margin_bottom' => 12];
+        $pdf = new Mpdf(['mode' => 'utf-8', 'format' => $format, 'tempDir' => $temp,
+            'autoScriptToLang' => true, 'autoLangToFont' => true] + $margins);
         $pdf->SetDirectionality('rtl');
         $pdf->SetTitle(($receipt->seller_vat_number ? 'فاتورة ضريبية ' : 'إيصال بيع ').$receipt->number);
         $images = [];
@@ -294,6 +298,16 @@ class SaleReceiptService
         if ($storeLogo !== null) {
             $pdf->imageVars['store'] = $storeLogo;
             $images['store'] = 'var:store';
+        }
+        if ($thermal) {
+            $pdf->WriteHTML(view('receipts.thermal-pdf', [
+                'r' => $this->payload($receipt),
+                't' => $thermal,
+                'images' => $images,
+                'qr' => class_exists(\Mpdf\QrCode\QrCode::class),
+            ])->render());
+
+            return $pdf->Output('', 'S');
         }
         $pdf->WriteHTML(view('receipts.sale', [
             'r' => $this->payload($receipt),

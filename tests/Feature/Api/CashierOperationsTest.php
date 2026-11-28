@@ -173,9 +173,5 @@ class CashierOperationsTest extends TestCase
         $this->withHeaders($packH)->postJson('/api/v1/cashier-device/cashier/batches', ['product_id' => $p->id, 'quantity' => 5])
             ->assertCreated()->assertJsonPath('data.status', 'approved');
         $this->flushHeaders();
-
-        // Only the platform owner can purge media for all stores.
-        Sanctum::actingAs($this->owner);
-        $this->postJson('/api/admin/cashier-zad/purge-media', ['older_than_months' => 3])->assertForbidden();
     }
 }

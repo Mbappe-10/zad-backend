@@ -98,12 +98,20 @@ class CashierScreensTest extends TestCase
             ->assertJsonPath('data.menu.theme', 'white_navy');
         $this->putJson('/api/v1/app/family/cashier/menu', ['theme' => 'night', 'layout' => 'list'])->assertOk();
         $this->putJson('/api/v1/app/family/cashier/menu', ['accent' => 'red'])->assertStatus(422);
+        $this->putJson('/api/v1/app/family/cashier/menu', ['showcase_style' => 'confetti'])->assertStatus(422);
+        $this->putJson('/api/v1/app/family/cashier/menu', [
+            'showcase_style' => 'orbit', 'showcase_seconds' => 4, 'image_fit' => 'full',
+            'showcase_product_ids' => [$b->id, $a->id], 'showcase_badges' => [(string) $a->id => 'جديدنا!'],
+        ])->assertOk()->assertJsonPath('data.menu.showcase_style', 'orbit')
+            // Sold-out products never show in the showcase.
+            ->assertJsonCount(1, 'data.showcase')->assertJsonPath('data.showcase.0.badge', 'جديدنا!');
 
         $this->app['auth']->forgetGuards();
         $screen = ['X-Zad-Screen' => $token];
         $feed = $this->withHeaders($screen)->getJson('/api/v1/screens/feed')->assertOk()->json('data');
         $this->assertSame('night', $feed['menu']['theme']);
         $this->assertSame('list', $feed['menu']['layout']);
+        $this->assertSame('full', $feed['menu']['image_fit']);
         $names = collect($feed['categories'])->flatMap(fn ($c) => collect($c['products'])->pluck('name'))->all();
         $this->assertEqualsCanonicalizing(['حبحبوه', 'كركديه'], $names);
         $this->assertTrue(collect($feed['categories'][0]['products'])->firstWhere('name', 'كركديه')['sold_out']);

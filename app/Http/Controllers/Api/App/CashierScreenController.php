@@ -91,9 +91,11 @@ class CashierScreenController extends Controller
             'show_receipts' => ['sometimes', 'boolean'],
             'receipt_devices' => ['sometimes', 'array'],
             'receipt_devices.*' => ['integer'],
+            'layout' => ['sometimes', 'nullable', Rule::in(CashierScreenService::LAYOUTS)],
+            'showcase_style' => ['sometimes', 'nullable', Rule::in(CashierScreenService::SHOWCASE_STYLES)],
         ]);
         $settings = array_replace(['show_receipts' => true, 'receipt_devices' => []], (array) ($device->settings ?? []));
-        foreach (['show_receipts', 'receipt_devices'] as $k) {
+        foreach (['show_receipts', 'receipt_devices', 'layout', 'showcase_style'] as $k) {
             if (array_key_exists($k, $data)) {
                 $settings[$k] = $data[$k];
             }
@@ -125,6 +127,7 @@ class CashierScreenController extends Controller
             'preview' => $this->screens->feed($store),
             'themes' => CashierScreenService::THEMES,
             'layouts' => CashierScreenService::LAYOUTS,
+            'showcase_styles' => CashierScreenService::SHOWCASE_STYLES,
         ]]);
     }
 
@@ -154,6 +157,13 @@ class CashierScreenController extends Controller
             'hidden_product_ids' => ['sometimes', 'array'],
             'hidden_product_ids.*' => ['integer'],
             'ticker' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'showcase_style' => ['sometimes', Rule::in(CashierScreenService::SHOWCASE_STYLES)],
+            'image_fit' => ['sometimes', Rule::in(['full', 'fill'])],
+            'showcase_seconds' => ['sometimes', 'integer', 'between:3,15'],
+            'showcase_product_ids' => ['sometimes', 'array', 'max:30'],
+            'showcase_product_ids.*' => ['integer'],
+            'showcase_badges' => ['sometimes', 'array', 'max:30'],
+            'showcase_badges.*' => ['nullable', 'string', 'max:24'],
         ]);
         foreach (['tagline', 'offer_title', 'offer_text', 'offer_price', 'ticker'] as $k) {
             if (array_key_exists($k, $data) && $data[$k] === null) {

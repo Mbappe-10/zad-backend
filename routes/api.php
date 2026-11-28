@@ -1587,3 +1587,28 @@ Route::prefix('v1/screens')->group(function (): void {
     Route::get('/feed', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'feed'])->middleware('throttle:60,1');
     Route::get('/receipt', [\App\Http\Controllers\Api\App\CashierScreenController::class, 'receipt'])->middleware('throttle:90,1');
 });
+
+// ZAD SECURITY: dashboard-only APIs. Every authenticated route outside the app
+// (api/v1/...) needs a dashboard sign-in; app tokens get 403. Must stay last.
+$zadDashboardSelfService = [
+    'api/me',
+    'api/auth/logout',
+    'api/auth/logout-all',
+    'api/profile',
+    'api/profile/password',
+    'api/profile/photo',
+    'api/profile/photo/content',
+    'api/system/dictionaries',
+    'api/digital-employee-order-tasks',
+];
+foreach (\Illuminate\Support\Facades\Route::getRoutes() as $route) {
+    $uri = $route->uri();
+    if (! str_starts_with($uri, 'api/') || str_starts_with($uri, 'api/v1/') || in_array($uri, $zadDashboardSelfService, true)) {
+        continue;
+    }
+    // Read the route's own list: gatherMiddleware() would cache it before we add ours.
+    if (! in_array('auth:sanctum', (array) $route->middleware(), true)) {
+        continue;
+    }
+    $route->middleware(\App\Http\Middleware\EnsureDashboardToken::class);
+}

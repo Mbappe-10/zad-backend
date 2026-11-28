@@ -179,7 +179,10 @@ class CashierOperationsTest extends TestCase
     {
         $p = $this->juice(); // cost 0.2 kg × 4 = 0.8 per bottle
         $this->getJson('/api/v1/app/family/cashier/owner-dashboard')->assertForbidden();
-        $this->pro();
+        FamilyCashierGrant::query()->create([
+            'productive_family_id' => $this->family->id, 'source' => 'owner_grant',
+            'starts_at' => now()->subDays(10), 'ends_at' => now()->addDays(30),
+        ]);
         $sell = fn (int $qty, ?string $phone = null) => $this->postJson('/api/v1/app/family/cashier/sales', array_filter([
             'items' => [['product_id' => $p->id, 'quantity' => $qty]], 'payment_method' => 'cash', 'channel' => 'shop', 'customer_phone' => $phone,
         ]))->assertCreated();

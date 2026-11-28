@@ -47,8 +47,26 @@ class FamilyCashierController extends Controller
             'me' => CashierStaffController::me($this->ctx($request)),
             'shift' => ($shift = $this->staffService->openShift($this->ctx($request))) ? $this->staffService->shiftPayload($shift) : null,
             'staff_enabled' => $this->staffService->ready() && $this->staffService->enabled($store),
+            'tax' => app(\App\Services\App\StoreTaxService::class)->payload($store),
             'trial_started' => $trialStarted ? ['days' => $this->cashier->settings()['trial_days'], 'ends_at' => $trialStarted->ends_at->toISOString()] : null,
         ]]);
+    }
+
+    /** The store's VAT details, the same record as in the store details page. */
+    public function tax(Request $request): JsonResponse
+    {
+        return response()->json(['data' => app(\App\Services\App\StoreTaxService::class)->payload($this->store($request))]);
+    }
+
+    public function saveTax(Request $request): JsonResponse
+    {
+        abort_unless($this->ctx($request)->isOwner(), 403, 'هذه للمالكة فقط.');
+        $tax = app(\App\Services\App\StoreTaxService::class);
+        $data = $request->validate($tax->rules(), ['vat_number.regex' => 'الرقم الضريبي ١٥ رقم، يبدأ بـ 3 وينتهي بـ 3.']);
+        $store = $this->store($request);
+        $tax->save($store, $data['trade_name'] ?? null, $data['vat_number'] ?? null);
+
+        return response()->json(['message' => 'تم حفظ البيانات الضريبية.', 'data' => $tax->payload($store->refresh())]);
     }
 
     /** One launch offer per family, when the owner switched it on for its plan. */
@@ -85,7 +103,10 @@ class FamilyCashierController extends Controller
             'channel' => ['required', 'in:door,shop,bazaar'],
             'customer_phone' => ['nullable', 'string', 'regex:/^\+?[0-9\s-]{9,15}$/'],
             'discount' => ['nullable', 'numeric', 'min:0', 'max:100000'],
-        ]);
+            'vat' => ['sometimes', 'boolean'],
+            'customer_name' => ['nullable', 'string', 'max:120'],
+            'customer_vat_number' => ['nullable', 'string', 'regex:'.\App\Services\App\StoreTaxService::NUMBER_REGEX],
+        ], ['customer_vat_number.regex' => 'رقم العميل الضريبي ١٥ رقم، يبدأ بـ 3 وينتهي بـ 3.']);
         $ids = collect($data['items'])->pluck('product_id')->filter()->unique()->values();
         $products = Product::query()->where('store_id', $store->id)->whereIn('id', $ids)->get()->keyBy('id');
         abort_unless($products->count() === $ids->count(), 422, 'منتج غير موجود في متجرك.');
@@ -128,7 +149,11 @@ class FamilyCashierController extends Controller
                 'cashier_shift_id' => $shift?->id,
                 'staff_name' => $ctx->staff->name,
                 'cashier_device_id' => $ctx->device?->id,
-            ] : []);
+            ] : [], [
+                'vat' => (bool) ($data['vat'] ?? false),
+                'customer_name' => $data['customer_name'] ?? null,
+                'customer_vat_number' => $data['customer_vat_number'] ?? null,
+            ]);
 
         return response()->json(['message' => 'تم حفظ البيع وإصدار الإيصال.', 'data' => $this->receipts->payload($receipt)], 201);
     }

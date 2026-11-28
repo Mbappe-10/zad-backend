@@ -1,6 +1,7 @@
 @php
     $issued = $r['issued_at'] ? \Carbon\Carbon::parse($r['issued_at'])->timezone('Asia/Riyadh') : null;
     $money = fn ($v) => number_format((float) $v, 2);
+    $tax = $r['tax'] ?? null;
 @endphp
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -20,11 +21,17 @@
 </head>
 <body><div class="wrap">
     <div style="display:flex;align-items:center;gap:10px">
-        <b style="font-size:20px;flex:1">إيصال بيع — زاد سينك</b>
+        <b style="font-size:20px;flex:1">{{ $tax ? $tax['title'] : 'إيصال بيع' }} — زاد سينك</b>
         <span class="tag" style="{{ $r['status'] === 'paid' ? 'color:#1BAA4B;background:#E8F8ED' : 'color:#D32F2F;background:#FDECEC' }}">{{ $r['status_label'] }}</span>
     </div>
     <div class="card">
         <div class="row"><span class="muted">المتجر</span><b>{{ $r['store_name'] ?: 'متجر الأسرة' }}</b></div>
+        @if($tax)
+            @if($tax['seller_trade_name'])<div class="row"><span class="muted">الاسم التجاري</span><b>{{ $tax['seller_trade_name'] }}</b></div>@endif
+            <div class="row"><span class="muted">الرقم الضريبي للمتجر</span><b dir="ltr">{{ $tax['seller_vat_number'] }}</b></div>
+        @endif
+        @if(!empty($r['customer_name']))<div class="row"><span class="muted">العميل</span><b>{{ $r['customer_name'] }}</b></div>@endif
+        @if(!empty($r['customer_vat_number']))<div class="row"><span class="muted">الرقم الضريبي للعميل</span><b dir="ltr">{{ $r['customer_vat_number'] }}</b></div>@endif
         <div class="row"><span class="muted">رقم الإيصال</span><b dir="ltr">{{ $r['number'] }}</b></div>
         @if($r['order_number'])<div class="row"><span class="muted">رقم الطلب</span><b dir="ltr">{{ $r['order_number'] }}</b></div>@endif
         <div class="row"><span class="muted">التاريخ</span><b>{{ $issued?->format('Y/m/d — h:i A') }}</b></div>
@@ -36,8 +43,18 @@
         @endforeach
         <div style="border-top:1px dashed #E6E9EE;margin:10px 0"></div>
         @if($r['discount'] > 0)<div class="row"><span class="muted">الخصم</span><b>{{ $money($r['discount']) }} ر.س</b></div>@endif
-        <div class="row" style="font-size:18px"><b>الإجمالي ({{ $r['payment_method_label'] }})</b><b>{{ $money($r['total']) }} ر.س</b></div>
-        <div class="muted" style="font-size:12px;margin-top:6px">إيصال بيع غير ضريبي</div>
+        @if($tax)
+            <div class="row"><span class="muted">المجموع قبل الضريبة</span><b>{{ $money($tax['net']) }} ر.س</b></div>
+            <div class="row"><span class="muted">ضريبة القيمة المضافة {{ (int) $tax['rate'] }}٪</span><b>{{ $money($tax['vat']) }} ر.س</b></div>
+        @endif
+        <div class="row" style="font-size:18px"><b>{{ $tax ? 'الإجمالي شامل الضريبة' : 'الإجمالي' }} ({{ $r['payment_method_label'] }})</b><b>{{ $money($r['total']) }} ر.س</b></div>
+        @php $qrSvg = $tax ? app(\App\Services\App\StoreTaxService::class)->qrSvg($tax['qr']) : null; @endphp
+        @if($qrSvg)
+            <div style="display:flex;justify-content:center;margin-top:12px">{!! $qrSvg !!}</div>
+            <div class="muted" style="font-size:12px;text-align:center">رمز الفاتورة بصيغة هيئة الزكاة والضريبة والجمارك</div>
+        @else
+            <div class="muted" style="font-size:12px;margin-top:6px">إيصال بيع غير ضريبي</div>
+        @endif
     </div>
     <a class="btn" style="background:#fff;border:1px solid #E6E9EE;color:#102B4E" href="{{ $pdfUrl }}">تحميل PDF</a>
     @if($whatsapp)

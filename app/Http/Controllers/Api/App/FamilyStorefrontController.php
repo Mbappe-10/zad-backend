@@ -48,6 +48,7 @@ class FamilyStorefrontController extends Controller
             'store' => $this->storefront->publicStore($store),
             'draft_design' => $store->storefront_design ?? [],
             'logo_changes_used' => $store->family_logo_changes,
+            'tax' => app(\App\Services\App\StoreTaxService::class)->payload($store),
             'products' => Product::query()->where('store_id', $store->id)->where('status', 'active')
                 ->get(['id', 'name_ar', 'description_ar', 'price', 'images', 'is_available'])
                 ->map(fn (Product $product): array => [
@@ -93,7 +94,9 @@ class FamilyStorefrontController extends Controller
             'accent_color' => ['sometimes', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'font' => ['sometimes', 'string', 'in:system,cairo,tajawal,zad'],
             'product_card' => ['sometimes', 'string', 'in:standard,compact,editorial'],
-        ]);
+            'tax' => ['sometimes', 'array'],
+            ...app(\App\Services\App\StoreTaxService::class)->rules('tax.'),
+        ], ['tax.vat_number.regex' => 'الرقم الضريبي ١٥ رقم، يبدأ بـ 3 وينتهي بـ 3.']);
 
         DB::transaction(function () use ($store, $data): void {
             $store = Store::query()->whereKey($store->id)->lockForUpdate()->firstOrFail();
@@ -117,6 +120,9 @@ class FamilyStorefrontController extends Controller
                 $store->family_name_changed_at = now();
             }
             $store->save();
+            if (array_key_exists('tax', $data)) {
+                app(\App\Services\App\StoreTaxService::class)->save($store, $data['tax']['trade_name'] ?? null, $data['tax']['vat_number'] ?? null);
+            }
         });
 
         return $this->show($request);

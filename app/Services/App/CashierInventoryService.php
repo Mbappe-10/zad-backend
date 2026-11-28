@@ -85,6 +85,7 @@ class CashierInventoryService
                     $this->moveProduct((int) $item['product_id'], -abs((int) ($item['quantity'] ?? 0)), $reason, $receipt->number);
                 }
             }
+            app(CashierSupplyService::class)->onSale($receipt);
         } catch (\Throwable $e) {
             Log::warning('cashier stock not updated for receipt', ['receipt' => $receipt->id, 'error' => $e->getMessage()]);
         }
@@ -168,6 +169,8 @@ class CashierInventoryService
                 'quantity' => $m->quantity, 'unit_cost' => $m->unit_cost, 'low_alert' => $m->low_alert,
                 'value' => round($m->quantity * $m->unit_cost, 2),
                 'low' => $m->low_alert !== null && $m->quantity <= $m->low_alert,
+                'supplier_id' => $m->supplier_id ?? null,
+                'reorder_quantity' => isset($m->reorder_quantity) ? (float) $m->reorder_quantity : null,
             ])->values()->all(),
         ];
     }

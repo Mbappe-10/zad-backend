@@ -151,3 +151,31 @@ Artisan::command('zad:zatca-submit', function (): void {
     }
 })->purpose('Send pending ZATCA e-invoices');
 Schedule::command('zad:zatca-submit')->everyMinute()->withoutOverlapping(10);
+
+// Cashier Zad Pro supply: every morning, draft purchase orders for materials at their
+// alert level, refill transfers for branches under their par level, and remind owners
+// about supplier invoices that are due.
+Artisan::command('zad:cashier-supply-daily', function (): void {
+    $supply = app(\App\Services\App\CashierSupplyService::class);
+    if (! $supply->ready()) {
+        return;
+    }
+    $inventory = app(\App\Services\App\CashierInventoryService::class);
+    $storeIds = DB::table('cashier_materials')->whereNotNull('low_alert')->distinct()->pluck('store_id')
+        ->merge(DB::table('cashier_branches')->where('is_main', false)->distinct()->pluck('store_id'))
+        ->merge(DB::table('cashier_purchases')->where('status', 'received')->whereColumn('paid', '<', 'total')->distinct()->pluck('store_id'))
+        ->unique();
+    foreach ($storeIds as $id) {
+        $store = \App\Models\Store::query()->find($id);
+        if (! $store || ! $inventory->active($store)) {
+            continue;
+        }
+        try {
+            $supply->runDaily($store);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('cashier supply daily failed', ['store' => $id, 'error' => $e->getMessage()]);
+        }
+    }
+})->purpose('Draft reorders and branch refills, remind about due supplier invoices');
+
+Schedule::command('zad:cashier-supply-daily')->dailyAt('06:10')->timezone('Asia/Riyadh')->withoutOverlapping(30);

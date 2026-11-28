@@ -397,6 +397,7 @@ class FamilyCashierController extends Controller
         $product = Product::query()->where('store_id', $store->id)->findOrFail($data['product_id']);
         $production = app(\App\Services\App\CashierInventoryService::class)->produce($store, $product, $data['quantity'], $request->user()->id);
         $short = collect($production->materials)->where('short', true)->pluck('name');
+        app(\App\Services\App\CashierSupplyService::class)->afterMaterialsUsed($store);
 
         return response()->json([
             'message' => $short->isEmpty() ? 'تم تسجيل الإنتاج.' : 'تم تسجيل الإنتاج، وبعض المواد ما كانت كافية: '.$short->implode('، '),

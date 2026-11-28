@@ -430,6 +430,7 @@ class ZatcaService
         if (! $this->ready()) {
             return 0;
         }
+        $this->signMissing();
         $docs = ZatcaDocument::query()->where('status', 'pending')
             ->where(fn ($q) => $q->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))
             ->orderBy('egs_unit_id')->orderBy('icv')->limit($limit)->get();
@@ -438,6 +439,31 @@ class ZatcaService
         }
 
         return $docs->count();
+    }
+
+    /** VAT sales of linked stores that were not signed at sale time (e.g. a transient error). */
+    public function signMissing(int $limit = 50): int
+    {
+        $count = 0;
+        foreach (ZatcaEgsUnit::query()->where('status', 'active')->whereNotNull('onboarded_at')->get() as $unit) {
+            $receipts = SaleReceipt::query()->where('store_id', $unit->store_id)->whereNotNull('seller_vat_number')
+                ->where('sale_type', '!=', SaleReceipt::TYPE_PLATFORM)->where('created_at', '>=', $unit->onboarded_at)
+                ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('zatca_documents')
+                    ->whereColumn('zatca_documents.sale_receipt_id', 'sale_receipts.id')->where('zatca_documents.kind', 'invoice'))
+                ->orderBy('id')->limit($limit)->get();
+            foreach ($receipts as $receipt) {
+                try {
+                    $this->issueForReceipt($receipt);
+                    $count++;
+                } catch (\Throwable $e) {
+                    Log::error('ZATCA late signing failed', ['receipt' => $receipt->id, 'error' => $e->getMessage()]);
+                    $unit->forceFill(['last_error' => 'تعذر توقيع فاتورة '.$receipt->number])->save();
+                    break;
+                }
+            }
+        }
+
+        return $count;
     }
 
     /** Phase-2 QR of the receipt's invoice, when it was signed. */

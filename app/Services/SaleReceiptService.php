@@ -175,7 +175,13 @@ class SaleReceiptService
         app(\App\Services\App\CashierInventoryService::class)->applySale($receipt);
 
         if ($linked && $receipt->seller_vat_number) {
-            $doc = $zatca->issueForReceipt($receipt);
+            try {
+                $doc = $zatca->issueForReceipt($receipt);
+            } catch (\Throwable $e) {
+                // The sale stands; the scheduler signs it later in order (see ZatcaService::submitPending).
+                \Illuminate\Support\Facades\Log::error('ZATCA signing failed', ['receipt' => $receipt->id, 'error' => $e->getMessage()]);
+                $doc = null;
+            }
             if ($doc && $doc->invoice_type === 'standard') {
                 // B2B: ZATCA must clear it before the customer gets it.
                 $zatca->submit($doc);

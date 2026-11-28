@@ -48,6 +48,7 @@ class FamilyCashierController extends Controller
             'shift' => ($shift = $this->staffService->openShift($this->ctx($request))) ? $this->staffService->shiftPayload($shift) : null,
             'staff_enabled' => $this->staffService->ready() && $this->staffService->enabled($store),
             'tax' => app(\App\Services\App\StoreTaxService::class)->payload($store),
+            'zatca_active' => app(\App\Services\App\ZatcaService::class)->activeUnit($store) !== null,
             'trial_started' => $trialStarted ? ['days' => $this->cashier->settings()['trial_days'], 'ends_at' => $trialStarted->ends_at->toISOString()] : null,
         ]]);
     }

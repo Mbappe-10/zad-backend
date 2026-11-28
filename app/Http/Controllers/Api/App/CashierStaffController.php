@@ -312,7 +312,8 @@ class CashierStaffController extends Controller
             'owner' => $ctx->isOwner(),
             'permissions' => $ctx->isOwner() ? array_keys(CashierStaffService::PERMISSIONS) : ($ctx->staff?->permissions ?? []),
             'max_discount_percent' => $ctx->isOwner() ? 100 : (int) ($ctx->staff?->max_discount_percent ?? 0),
-            'device' => $ctx->device ? ['id' => $ctx->device->id, 'name' => $ctx->device->name] : null,
+            'device' => $ctx->device ? ['id' => $ctx->device->id, 'name' => $ctx->device->name,
+                'station' => \App\Services\App\DeviceLinkService::stationOf($ctx->device)] : null,
         ];
     }
 
@@ -343,6 +344,7 @@ class CashierStaffController extends Controller
             'active' => ['sometimes', 'boolean'],
             'rating' => ['sometimes', 'nullable', 'integer', 'between:1,5'],
             'rating_note' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'approval_required' => ['sometimes', 'boolean'],
         ]);
     }
 

@@ -18,6 +18,7 @@ class CashierStaff extends Model
         return [
             'permissions' => 'array',
             'active' => 'boolean',
+            'approval_required' => 'boolean',
             'removed_at' => 'datetime',
             'last_seen_at' => 'datetime',
         ];

@@ -134,3 +134,11 @@ Artisan::command('zad:db-diagnose', function (): void {
 })->purpose('Print database diagnostics at startup');
 
 Schedule::command('sale-receipts:sync --limit=300')->everyTenMinutes()->withoutOverlapping();
+
+Artisan::command('zad:cashier-purge-media', function (): void {
+    $days = app(\App\Services\App\CashierZadService::class)->settings()['media_retention_days'];
+    $count = app(\App\Services\App\CashierBatchService::class)->purgePhotos($days);
+    $this->info("Deleted {$count} packaging photos older than {$days} days.");
+})->purpose('Delete Cashier Zad packaging photos after the retention period');
+
+Schedule::command('zad:cashier-purge-media')->dailyAt('03:30')->withoutOverlapping();

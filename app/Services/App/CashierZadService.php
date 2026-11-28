@@ -34,7 +34,10 @@ class CashierZadService
         'bazaar_mode' => 'وضع المعارض',
     ];
 
-    private const DEFAULT_BASIC = ['quick_sale', 'daily_stock', 'day_close', 'reports', 'inventory'];
+    private const DEFAULT_BASIC = ['quick_sale', 'daily_stock', 'day_close', 'reports'];
+
+    /** Stock (quantities, materials, recipes, batches) belongs to Pro only; normal stores stay simple. */
+    public const PRO_ONLY = ['inventory', 'materials', 'recipes', 'batches', 'batch_costing'];
 
     public function __construct(private readonly FamilyStorefrontService $storefront) {}
 
@@ -58,7 +61,7 @@ class CashierZadService
             $row = $caps['features'][$key] ?? [];
             $features[$key] = [
                 'label' => $label,
-                'basic' => (bool) ($row['basic'] ?? in_array($key, self::DEFAULT_BASIC, true)),
+                'basic' => ! in_array($key, self::PRO_ONLY, true) && (bool) ($row['basic'] ?? in_array($key, self::DEFAULT_BASIC, true)),
                 'pro' => (bool) ($row['pro'] ?? true),
             ];
         }
@@ -83,6 +86,8 @@ class CashierZadService
             'trial_enabled' => (bool) ($caps['trial_enabled'] ?? true),
             'trial_days' => (int) ($caps['trial_days'] ?? 3),
             // Optional "was" price shown struck through next to the real price.
+            // Packaging photos are deleted on a schedule after this many days.
+            'media_retention_days' => (int) ($caps['media_retention_days'] ?? 30),
             'compare_at_price' => isset($caps['compare_at_price']) && $caps['compare_at_price'] !== null ? (string) $caps['compare_at_price'] : null,
             'launch_offer' => [
                 'enabled' => (bool) ($offer['enabled'] ?? false),

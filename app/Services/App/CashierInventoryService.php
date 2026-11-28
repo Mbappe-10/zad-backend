@@ -24,6 +24,18 @@ class CashierInventoryService
         return Product::hasCashierColumns() && Schema::hasTable('cashier_stock_moves');
     }
 
+    /**
+     * Is stock live for this store? Only with Cashier Pro. Without it quantities are
+     * kept but frozen: nothing is blocked or taken, and products are just on/off.
+     */
+    public function active(?Store $store): bool
+    {
+        if (! $store || ! $this->ready()) {
+            return false;
+        }
+        return (bool) (app(CashierZadService::class)->entitlement($store->productiveFamily)['features']['inventory'] ?? false);
+    }
+
     /** Stock change for a tracked product; never below zero. Returns the new balance or null when not tracked. */
     public function moveProduct(int $productId, int $change, string $reason, ?string $reference = null): ?int
     {
@@ -60,7 +72,7 @@ class CashierInventoryService
     /** Every paid sale takes its items out of stock, once per receipt. */
     public function applySale(SaleReceipt $receipt): void
     {
-        if (! $this->ready()) {
+        if (! $this->ready() || ! $this->active(Store::query()->find($receipt->store_id))) {
             return;
         }
         try {

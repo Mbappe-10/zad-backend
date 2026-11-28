@@ -90,4 +90,44 @@ class ZatcaSandboxTest extends TestCase
         $this->assertSame('cleared', $std->status);
         $this->assertSame(3, (int) $unit->refresh()->icv);
     }
+
+    /** The same journey through the app's own endpoints: profile → OTP → sales → return → scheduler. */
+    public function test_full_cashier_journey_through_the_api_against_the_real_sandbox(): void
+    {
+        $plan = \App\Models\FamilyStorePlan::query()->where('code', 'cashier_pro')->first();
+        $plan?->update(['capabilities' => array_replace((array) $plan->capabilities, ['trial_enabled' => false])]);
+        $family = ProductiveFamily::query()->create(['code' => 'PF-ZJ', 'owner_name' => 'اختبار', 'phone' => '0551110001', 'status' => 'approved']);
+        $store = Store::query()->create(['productive_family_id' => $family->id, 'name_ar' => 'سوبو', 'slug' => 'zj-store', 'status' => 'active', 'is_open' => true]);
+        $owner = \App\Models\User::factory()->create();
+        \App\Models\AppProfile::query()->create(['user_id' => $owner->id, 'productive_family_id' => $family->id, 'roles' => ['productive_family'], 'active_mode' => 'productive_family']);
+        \App\Models\FamilyStoreGrant::query()->create(['productive_family_id' => $family->id, 'plan_code' => 'gold', 'source' => 'owner_grant', 'starts_at' => now()->subMinute(), 'ends_at' => now()->addDays(30)]);
+        \App\Models\FamilyCashierGrant::query()->create(['productive_family_id' => $family->id, 'source' => 'owner_grant', 'starts_at' => now()->subMinute(), 'ends_at' => now()->addDays(30)]);
+        $juice = \App\Models\Product::query()->forceCreate(['store_id' => $store->id, 'name_ar' => 'حبحبوه', 'price' => 25, 'status' => 'active', 'is_available' => true, 'preparation_minutes' => 10, 'package_size' => 'small']);
+        \Laravel\Sanctum\Sanctum::actingAs($owner);
+        $base = '/api/v1/app/family/cashier';
+
+        $this->putJson($base.'/tax', ['trade_name' => 'مؤسسة سوبو', 'vat_number' => '399999999900003'])->assertOk();
+        $this->putJson($base.'/zatca/profile', ['seller_name' => 'مؤسسة سوبو التجارية', 'id_type' => 'CRN', 'id_number' => '1010010000',
+            'street' => 'الكورنيش', 'building_number' => '2322', 'district' => 'الشاطئ', 'city' => 'جدة', 'postal_code' => '23412'])->assertOk();
+        $this->postJson($base.'/zatca/onboard', ['otp' => '123345'])->assertOk()->assertJsonPath('data.active', true);
+
+        $sale = $this->postJson($base.'/sales', ['items' => [['product_id' => $juice->id, 'quantity' => 3]], 'payment_method' => 'network',
+            'channel' => 'shop', 'discount' => 5])->assertCreated()->json('data');
+        $this->assertEquals(80.5, $sale['total']);
+        $b2b = $this->postJson($base.'/sales', ['items' => [['product_id' => $juice->id, 'quantity' => 2]], 'payment_method' => 'transfer', 'channel' => 'shop',
+            'customer_name' => 'شركة الريان', 'customer_vat_number' => '399999999800003', 'customer_street' => 'صلاح الدين', 'customer_building' => '1111',
+            'customer_district' => 'المروج', 'customer_city' => 'الرياض', 'customer_postal' => '12222'])->assertCreated()->json('data');
+        fwrite(STDERR, "\napi b2b: {$b2b['zatca_status']}\n");
+        $this->assertSame('cleared', $b2b['zatca_status']);
+        $this->postJson($base.'/receipts/'.$sale['id'].'/returns', ['lines' => [['line' => 0, 'quantity' => 1]], 'reason' => 'خطأ في الطلب', 'refund_method' => 'network'])
+            ->assertCreated()->assertJsonPath('data.is_credit_note', true);
+        $this->postJson($base.'/receipts/'.$b2b['id'].'/returns', ['lines' => [['line' => 0, 'quantity' => 2]], 'reason' => 'إلغاء البيعة', 'refund_method' => 'transfer'])
+            ->assertCreated()->assertJsonPath('data.zatca_status', 'cleared');
+
+        $this->artisan('zad:zatca-submit')->assertSuccessful();
+        $statuses = \App\Models\ZatcaDocument::query()->orderBy('icv')->get(['number', 'kind', 'invoice_type', 'status', 'warnings', 'errors']);
+        fwrite(STDERR, json_encode($statuses, JSON_UNESCAPED_UNICODE)."\n");
+        $this->assertSame(['reported', 'cleared', 'reported', 'cleared'], $statuses->pluck('status')->all());
+        $this->get('/r/'.SaleReceipt::query()->whereKey($sale['id'])->value('public_token'))->assertOk();
+    }
 }

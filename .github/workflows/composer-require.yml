@@ -1,8 +1,5 @@
-name: Composer require
+name: Composer require (lock update)
 
-# Adds the packages listed in .github/composer-require.txt and commits
-# composer.json/composer.lock back to the branch. Used when the development
-# environment cannot reach Packagist. Delete the list file afterwards.
 on:
   push:
     paths:
@@ -19,17 +16,12 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: mbstring, gd, zip
-      - name: Require listed packages
-        run: |
-          packages=$(grep -v '^\s*#' .github/composer-require.txt | xargs)
-          [ -n "$packages" ] || exit 0
-          composer require $packages --no-interaction --no-install --no-scripts
-      - name: Commit lock file
-        run: |
+          extensions: mbstring, pdo_sqlite, gd, zip, intl, bcmath
+          coverage: none
+      - run: composer require $(cat .github/composer-require.txt) --no-interaction --no-progress -W
+      - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add composer.json composer.lock
-          git diff --cached --quiet && exit 0
-          git commit -m "deps: add $(grep -v '^\s*#' .github/composer-require.txt | xargs)"
+          git commit -m "chore: composer require $(cat .github/composer-require.txt)" || echo "nothing to commit"
           git push

@@ -38,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        \Laravel\Sanctum\Sanctum::usePersonalAccessTokenModel(\App\Models\PersonalAccessToken::class);
         \App\Models\Order::observe(\App\Observers\OrderReceiptObserver::class);
 
         Storage::extend('cloudinary', function ($app, array $config): LaravelFilesystemAdapter {

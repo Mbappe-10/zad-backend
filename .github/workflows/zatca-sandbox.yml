@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/Services/App/ZatcaService.php'
       - 'app/Services/App/SaleReturnService.php'
+      - 'app/Services/SaleReceiptService.php'
       - 'tests/Feature/Api/ZatcaSandboxTest.php'
       - 'composer.lock'
       - '.github/workflows/zatca-sandbox.yml'

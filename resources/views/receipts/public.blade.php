@@ -48,6 +48,7 @@
             <div class="row"><span class="muted">ضريبة القيمة المضافة {{ (int) $tax['rate'] }}٪</span><b>{{ $money($tax['vat']) }} ر.س</b></div>
         @endif
         <div class="row" style="font-size:18px"><b>{{ $tax ? 'الإجمالي شامل الضريبة' : 'الإجمالي' }} ({{ $r['payment_method_label'] }})</b><b>{{ $money($r['total']) }} ر.س</b></div>
+        @if(($r['returned_total'] ?? 0) > 0)<div class="row" style="color:#D32F2F"><span>مرتجع (إشعار دائن)</span><b>-{{ $money($r['returned_total']) }} ر.س</b></div>@endif
         @php $qrSvg = $tax ? app(\App\Services\App\StoreTaxService::class)->qrSvg($tax['qr']) : null; @endphp
         @if($qrSvg)
             <div style="display:flex;justify-content:center;margin-top:12px">{!! $qrSvg !!}</div>

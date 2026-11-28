@@ -90,6 +90,7 @@
     @endif
     <div class="hr2"></div>
     <div class="row tot"><span>{{ $tax ? 'الإجمالي شامل الضريبة' : 'الإجمالي' }}</span><span class="n">{{ $money($r['total']) }} ر.س</span></div>
+    @if(($r['returned_total'] ?? 0) > 0)<div class="row" style="color:#D32F2F"><span>مرتجع (إشعار دائن)</span><b class="n">-{{ $money($r['returned_total']) }}</b></div>@endif
     <div class="row"><span>طريقة الدفع</span><b>{{ $r['payment_method_label'] }}</b></div>
     <div class="row"><span>عدد المنتجات</span><b>{{ $count }}</b></div>
     @if($r['status'] !== 'paid')<div class="row"><span>الحالة</span><b style="color:#D32F2F">{{ $r['status_label'] }}</b></div>@endif

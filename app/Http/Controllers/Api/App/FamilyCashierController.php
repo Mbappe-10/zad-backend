@@ -106,7 +106,23 @@ class FamilyCashierController extends Controller
             'vat' => ['sometimes', 'boolean'],
             'customer_name' => ['nullable', 'string', 'max:120'],
             'customer_vat_number' => ['nullable', 'string', 'regex:'.\App\Services\App\StoreTaxService::NUMBER_REGEX],
-        ], ['customer_vat_number.regex' => 'رقم العميل الضريبي ١٥ رقم، يبدأ بـ 3 وينتهي بـ 3.']);
+            'customer_street' => ['nullable', 'string', 'max:100'],
+            'customer_building' => ['nullable', 'digits:4'],
+            'customer_district' => ['nullable', 'string', 'max:80'],
+            'customer_city' => ['nullable', 'string', 'max:60'],
+            'customer_postal' => ['nullable', 'digits:5'],
+        ], [
+            'customer_vat_number.regex' => 'رقم العميل الضريبي ١٥ رقم، يبدأ بـ 3 وينتهي بـ 3.',
+            'customer_building.digits' => 'رقم مبنى العميل ٤ أرقام.',
+            'customer_postal.digits' => 'الرمز البريدي للعميل ٥ أرقام.',
+        ]);
+        if (! empty($data['customer_vat_number']) && app(\App\Services\App\ZatcaService::class)->activeUnit($store)) {
+            // A B2B (standard) e-invoice needs the buyer's national address.
+            foreach (['customer_name' => 'اسم المؤسسة', 'customer_street' => 'الشارع', 'customer_building' => 'رقم المبنى',
+                'customer_district' => 'الحي', 'customer_city' => 'المدينة', 'customer_postal' => 'الرمز البريدي'] as $k => $label) {
+                abort_if(blank($data[$k] ?? null), 422, 'للفاتورة الضريبية لمنشأة: اكتب '.$label.' للعميل.');
+            }
+        }
         $ids = collect($data['items'])->pluck('product_id')->filter()->unique()->values();
         $products = Product::query()->where('store_id', $store->id)->whereIn('id', $ids)->get()->keyBy('id');
         abort_unless($products->count() === $ids->count(), 422, 'منتج غير موجود في متجرك.');
@@ -154,6 +170,11 @@ class FamilyCashierController extends Controller
                 'vat' => (bool) ($data['vat'] ?? false),
                 'customer_name' => $data['customer_name'] ?? null,
                 'customer_vat_number' => $data['customer_vat_number'] ?? null,
+                'customer_street' => $data['customer_street'] ?? null,
+                'customer_building' => $data['customer_building'] ?? null,
+                'customer_district' => $data['customer_district'] ?? null,
+                'customer_city' => $data['customer_city'] ?? null,
+                'customer_postal' => $data['customer_postal'] ?? null,
             ]);
 
         return response()->json(['message' => 'تم حفظ البيع وإصدار الإيصال.', 'data' => $this->receipts->payload($receipt)], 201);
@@ -457,8 +478,22 @@ class FamilyCashierController extends Controller
             ];
         }
 
+        // Returns made that day come off the day's direct sales, by how the money went back.
+        $returns = \Illuminate\Support\Facades\Schema::hasTable('sale_returns')
+            ? \App\Models\SaleReturn::query()->where('store_id', $store->id)
+                ->whereBetween('issued_at', [$day->copy()->startOfDay()->utc(), $day->copy()->endOfDay()->utc()])
+                ->get(['refund_method', 'total'])
+            : collect();
+        foreach ($methods as &$m) {
+            $m['total'] = round($m['total'] - (float) $returns->where('refund_method', $m['method'])->sum('total'), 2);
+        }
+        unset($m);
+        $returnsTotal = round((float) $returns->sum('total'), 2);
+
         return [
-            'direct_total' => round((float) $direct->sum('total'), 2),
+            'direct_total' => round((float) $direct->sum('total') - $returnsTotal, 2),
+            'returns_total' => $returnsTotal,
+            'returns_count' => $returns->count(),
             'direct_count' => $direct->count(),
             'online_total' => round((float) $receipts->where('sale_type', SaleReceipt::TYPE_PLATFORM)->sum('total'), 2),
             'online_count' => $receipts->where('sale_type', SaleReceipt::TYPE_PLATFORM)->count(),

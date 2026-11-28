@@ -114,11 +114,23 @@ class SaleReceiptService
         $tax = app(\App\Services\App\StoreTaxService::class);
         $extra = [];
         $vat = 0.0;
+        $zatca = app(\App\Services\App\ZatcaService::class);
+        $linked = $zatca->activeUnit($store) !== null;
+        if ($linked) {
+            // Linked to Fatoora: every sale is a VAT e-invoice.
+            $invoice['vat'] = true;
+        }
         if ($tax->ready()) {
             $extra = [
                 'customer_name' => ($n = trim((string) ($invoice['customer_name'] ?? ''))) !== '' ? $n : null,
                 'customer_vat_number' => $invoice['customer_vat_number'] ?? null,
             ];
+            if (\Illuminate\Support\Facades\Schema::hasColumn('sale_receipts', 'customer_street')) {
+                foreach (['street', 'building', 'district', 'city', 'postal'] as $k) {
+                    $v = trim((string) ($invoice['customer_'.$k] ?? ''));
+                    $extra['customer_'.$k] = $v !== '' ? $v : null;
+                }
+            }
             if (! empty($invoice['vat'])) {
                 abort_unless($store->vat_number, 422, 'أضيفي الرقم الضريبي في بيانات المتجر أول.');
                 $vat = $tax->vatFor($net);
@@ -161,6 +173,17 @@ class SaleReceiptService
             return $receipt;
         });
         app(\App\Services\App\CashierInventoryService::class)->applySale($receipt);
+
+        if ($linked && $receipt->seller_vat_number) {
+            $doc = $zatca->issueForReceipt($receipt);
+            if ($doc && $doc->invoice_type === 'standard') {
+                // B2B: ZATCA must clear it before the customer gets it.
+                $zatca->submit($doc);
+            } elseif ($doc) {
+                // B2C: report right after the response; the scheduler retries anything left.
+                app()->terminating(fn () => $zatca->submit($doc->fresh() ?? $doc));
+            }
+        }
 
         return $receipt;
     }
@@ -251,6 +274,8 @@ class SaleReceiptService
             'customer_name' => $receipt->customer_name ?? null,
             'customer_vat_number' => $receipt->customer_vat_number ?? null,
             'tax' => $this->taxPayload($receipt),
+            'returned_total' => (float) ($receipt->returned_total ?? 0),
+            'zatca_status' => app(\App\Services\App\ZatcaService::class)->documentFor($receipt)?->status,
         ] + ($admin ? ['public_token' => $receipt->public_token] : []);
     }
 

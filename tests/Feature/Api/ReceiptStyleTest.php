@@ -88,6 +88,7 @@ class ReceiptStyleTest extends TestCase
         $this->sell();
         $receipt = $this->sell();
         $html = $this->get('/r/'.$receipt->public_token)->assertOk()->getContent();
+        fwrite(STDERR, "\nHTMLDUMP1:".base64_encode($html)."\n");
         $this->assertStringContainsString('Order# 2', $html);
         $this->assertStringContainsString('جدة — الكورنيش الشمالي', $html);
         $this->assertStringContainsString('Habhab Juice', $html);
@@ -105,6 +106,7 @@ class ReceiptStyleTest extends TestCase
         $this->putJson('/api/v1/app/family/cashier/receipt-style', ['style' => 'thermal', 'hide_zad_branding' => true])
             ->assertOk()->assertJsonPath('data.hide_zad_branding', true);
         $html = $this->get('/r/'.$this->sell()->public_token)->assertOk()->getContent();
+        fwrite(STDERR, "\nHTMLDUMP2:".base64_encode($html)."\n");
         $this->assertStringContainsString('Order# 1', $html);
         $this->assertStringNotContainsString('بواسطة كاشير زاد سينك برو', $html);
         $this->assertStringNotContainsString('zad-receipt-logo', $html);

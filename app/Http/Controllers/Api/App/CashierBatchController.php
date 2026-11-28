@@ -124,7 +124,10 @@ class CashierBatchController extends Controller
     {
         $ctx = $this->ctx($request);
         abort_unless($ctx->isOwner(), 403, 'هذه للمالك فقط.');
-        $data = $request->validate(['photos_enabled' => ['sometimes', 'boolean']]);
+        $data = $request->validate([
+            'photos_enabled' => ['sometimes', 'boolean'],
+            'monthly_goal' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100000000'],
+        ]);
 
         return response()->json(['data' => $this->batches->saveSettings($ctx->store, $data)]);
     }

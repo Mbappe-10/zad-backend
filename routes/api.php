@@ -401,6 +401,8 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::delete('/cashier/staff/{member}', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'destroy'])->whereNumber('member');
         Route::post('/cashier/staff/{member}/invite', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'invite'])->whereNumber('member')->middleware('throttle:20,1');
         Route::post('/cashier/devices', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'linkDevice'])->middleware('throttle:10,1');
+        Route::post('/cashier/link-codes', [\App\Http\Controllers\Api\App\DeviceLinkController::class, 'create'])->middleware('throttle:20,1');
+        Route::get('/cashier/link-codes/{code}', [\App\Http\Controllers\Api\App\DeviceLinkController::class, 'status'])->middleware('throttle:120,1');
         Route::delete('/cashier/devices/{device}', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'unlinkDevice'])->whereNumber('device');
         Route::get('/cashier/product-sales', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'productSales'])->middleware('throttle:30,1');
         Route::get('/cashier/staff-sales', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'sales'])->middleware('throttle:30,1');
@@ -1579,6 +1581,9 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->prefix('v1/app/staff')->gro
     Route::prefix('{membership}/cashier')->whereNumber('membership')
         ->middleware(\App\Http\Middleware\ResolveCashierMembership::class)->group($zadCashierShared);
 });
+
+/* «ربط جهاز»: a device scans the owner's one-time code from حسابي (no login). */
+Route::post('v1/devices/link', [\App\Http\Controllers\Api\App\DeviceLinkController::class, 'link'])->middleware('throttle:10,1');
 
 /* Menu screens (TV / iPad): pairing code, menu feed and the receipt QR after payment. */
 Route::prefix('v1/screens')->group(function (): void {

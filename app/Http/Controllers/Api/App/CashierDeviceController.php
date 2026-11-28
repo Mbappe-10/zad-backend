@@ -27,7 +27,12 @@ class CashierDeviceController extends Controller
 
         return response()->json(['data' => [
             'store' => ['id' => $store->id, 'name' => $store->name_ar, 'logo_url' => $store->logo_url ?? null],
-            'device' => ['id' => $ctx->device->id, 'name' => $ctx->device->name],
+            'device' => [
+                'id' => $ctx->device->id,
+                'name' => $ctx->device->name,
+                'station' => $station = \App\Services\App\DeviceLinkService::stationOf($ctx->device),
+                'station_label' => \App\Services\App\DeviceLinkService::STATIONS[$station] ?? 'كاشير',
+            ],
             'enabled' => $enabled,
             'personal' => $ctx->device->personal_staff_id !== null,
             'people' => $this->staff->members($store)->filter(fn ($s) => $s->active && ($enabled || $s->isOwner()))

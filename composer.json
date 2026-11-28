@@ -17,7 +17,8 @@
     "league/flysystem-aws-s3-v3": "^3.35",
     "mpdf/mpdf": "~8.2",
     "mpdf/qrcode": "^1.2",
-    "phpoffice/phpspreadsheet": "~5.0"
+    "phpoffice/phpspreadsheet": "~5.0",
+    "saleh7/php-zatca-xml": "^2.4"
   },
   "require-dev": {
     "fakerphp/faker": "^1.23",

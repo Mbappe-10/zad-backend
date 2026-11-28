@@ -130,7 +130,7 @@ $settings = AppSetting::query()
             ->whereNotNull('stores.name_ar')
             ->where('stores.name_ar', '<>', '')
             ->orderByDesc('products.updated_at')
-            ->limit(20)
+            ->limit(40)
             ->get([
                 'products.id',
                 'products.store_id',
@@ -289,6 +289,16 @@ $settings = AppSetting::query()
                 }
             }
             unset($entry);
+            // Home ordering: gold stores' products first, then silver, then free.
+            // Inside each tier the order rotates every 10 minutes, so every store gets its turn on top.
+            $window = (int) floor(time() / 600);
+            $rank = ['gold' => 0, 'silver' => 1];
+            foreach ($payload['featured_products'] as &$entry) {
+                $entry['tier'] = in_array($entry['store']['plan'] ?? null, ['gold', 'silver'], true) ? $entry['store']['plan'] : 'free';
+            }
+            unset($entry);
+            usort($payload['featured_products'], fn ($a, $b) => [($rank[$a['tier']] ?? 2), crc32($a['id'].':'.$window)]
+                <=> [($rank[$b['tier']] ?? 2), crc32($b['id'].':'.$window)]);
         }
 
         return response()->json($payload);

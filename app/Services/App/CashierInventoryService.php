@@ -85,6 +85,7 @@ class CashierInventoryService
                     $this->moveProduct((int) $item['product_id'], -abs((int) ($item['quantity'] ?? 0)), $reason, $receipt->number);
                 }
             }
+            app(CashierSupplyService::class)->onSale($receipt);
         } catch (\Throwable $e) {
             Log::warning('cashier stock not updated for receipt', ['receipt' => $receipt->id, 'error' => $e->getMessage()]);
         }

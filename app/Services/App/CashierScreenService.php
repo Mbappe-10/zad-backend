@@ -56,13 +56,14 @@ class CashierScreenService
         return ['code' => $code, 'poll' => $poll, 'expires_in' => self::PAIR_TTL];
     }
 
-    public function claim(Store $store, string $code, string $kind, string $name, ?int $userId): CashierDevice
+    /**
+     * A new menu/customer screen for the store, inside the screens limit.
+     *
+     * @return array{0: CashierDevice, 1: string}
+     */
+    public function createScreen(Store $store, string $kind, string $name, ?int $userId): array
     {
-        $code = preg_replace('/\D/', '', $code);
-        $poll = Cache::get('screen_pair_code:'.$code);
-        abort_unless(is_string($poll), 422, 'الكود غير صحيح أو انتهى. حدّثي الشاشة وجرّبي مرة ثانية.');
-
-        return DB::transaction(function () use ($store, $code, $poll, $kind, $name, $userId): CashierDevice {
+        return DB::transaction(function () use ($store, $kind, $name, $userId): array {
             Store::query()->whereKey($store->id)->lockForUpdate()->first();
             $limit = $this->cashier->settings()['screens_limit'];
             $count = CashierDevice::query()->where('store_id', $store->id)->whereIn('kind', self::KINDS)->whereNull('revoked_at')->count();
@@ -76,6 +77,19 @@ class CashierScreenService
                 'settings' => ['show_receipts' => true, 'receipt_devices' => []],
                 'created_by_user_id' => $userId,
             ]);
+
+            return [$device, $token];
+        });
+    }
+
+    public function claim(Store $store, string $code, string $kind, string $name, ?int $userId): CashierDevice
+    {
+        $code = preg_replace('/\D/', '', $code);
+        $poll = Cache::get('screen_pair_code:'.$code);
+        abort_unless(is_string($poll), 422, 'الكود غير صحيح أو انتهى. حدّثي الشاشة وجرّبي مرة ثانية.');
+
+        return DB::transaction(function () use ($store, $code, $poll, $kind, $name, $userId): CashierDevice {
+            [$device, $token] = $this->createScreen($store, $kind, $name, $userId);
             Cache::put('screen_pair_poll:'.$poll, ['code' => $code, 'token' => $token], self::PAIR_TTL);
             Cache::forget('screen_pair_code:'.$code);
 

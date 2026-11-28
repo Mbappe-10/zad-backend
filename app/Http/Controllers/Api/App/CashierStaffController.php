@@ -322,6 +322,8 @@ class CashierStaffController extends Controller
             'id' => $d->id,
             'kind' => $d->kind,
             'name' => $d->name,
+            'station' => $station = \App\Services\App\DeviceLinkService::stationOf($d),
+            'station_label' => \App\Services\App\DeviceLinkService::STATIONS[$station] ?? 'كاشير',
             'last_seen_at' => $d->last_seen_at?->toISOString(),
             'unlocked_by' => $d->staff_id ? CashierStaff::query()->whereKey($d->staff_id)->value('name') : null,
         ];

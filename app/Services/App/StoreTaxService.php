@@ -54,6 +54,8 @@ class StoreTaxService
         $number = preg_replace('/\s+/', '', (string) $number) ?: null;
         abort_if($number !== null && ! preg_match(self::NUMBER_REGEX, $number), 422, 'الرقم الضريبي ١٥ رقم، يبدأ بـ 3 وينتهي بـ 3.');
         abort_if($number !== null && $tradeName === null, 422, 'اكتبي الاسم التجاري مع الرقم الضريبي.');
+        $unit = app(ZatcaService::class)->activeUnit($store);
+        abort_if($unit && $number !== $unit->vat_number, 422, 'متجرك مربوط بمنصة فاتورة بهذا الرقم الضريبي، ما ينفع تغيّره أو تحذفه.');
         $store->forceFill(['tax_trade_name' => $tradeName, 'vat_number' => $number])->save();
     }
 
@@ -80,6 +82,11 @@ class StoreTaxService
     {
         if (! $receipt->seller_vat_number) {
             return null;
+        }
+        // Linked to Fatoora: the signed invoice carries the phase-2 QR (with hash and signature).
+        $phase2 = $receipt->id ? app(ZatcaService::class)->qrFor($receipt) : null;
+        if ($phase2) {
+            return $phase2;
         }
         $fields = [
             1 => (string) ($receipt->seller_trade_name ?: $receipt->store_name),

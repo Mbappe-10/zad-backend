@@ -142,3 +142,12 @@ Artisan::command('zad:cashier-purge-media', function (): void {
 })->purpose('Delete Cashier Zad packaging photos after the retention period');
 
 Schedule::command('zad:cashier-purge-media')->dailyAt('03:30')->withoutOverlapping();
+
+// ZATCA phase 2: report simplified invoices / credit notes and retry anything still pending (24-hour window).
+Artisan::command('zad:zatca-submit', function (): void {
+    $sent = app(\App\Services\App\ZatcaService::class)->submitPending(200);
+    if ($sent > 0) {
+        $this->info("ZATCA documents processed: {$sent}");
+    }
+})->purpose('Send pending ZATCA e-invoices');
+Schedule::command('zad:zatca-submit')->everyMinute()->withoutOverlapping(10);

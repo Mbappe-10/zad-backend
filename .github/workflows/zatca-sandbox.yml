@@ -1,0 +1,30 @@
+name: ZATCA sandbox (live)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/Services/App/ZatcaService.php'
+      - 'app/Services/App/SaleReturnService.php'
+      - 'app/Services/SaleReceiptService.php'
+      - 'tests/Feature/Api/ZatcaSandboxTest.php'
+      - 'composer.lock'
+      - '.github/workflows/zatca-sandbox.yml'
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, gd, zip, intl, bcmath, openssl
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: touch database/database.sqlite && cp .env.example .env && php artisan key:generate
+      - name: Onboard + report + credit note + clearance against ZATCA developer portal
+        env:
+          ZATCA_LIVE: '1'
+        run: php artisan test tests/Feature/Api/ZatcaSandboxTest.php

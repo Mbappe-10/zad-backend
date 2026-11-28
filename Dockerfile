@@ -30,7 +30,20 @@ RUN apt-get update && apt-get install -y \
         xmlreader \
         xmlwriter \
         gd \
+        opcache \
     && rm -rf /var/lib/apt/lists/*
+
+# ZAD_SPEED: compile PHP once and keep it in memory (the code only changes on deploy).
+RUN printf '%s\n' \
+    'opcache.enable=1' \
+    'opcache.enable_cli=1' \
+    'opcache.memory_consumption=192' \
+    'opcache.interned_strings_buffer=16' \
+    'opcache.max_accelerated_files=30000' \
+    'opcache.validate_timestamps=0' \
+    'realpath_cache_size=4096K' \
+    'realpath_cache_ttl=600' \
+    > /usr/local/etc/php/conf.d/zad-opcache.ini
 
 # ZAD_WEBP_CHECK
 RUN php -r "if (!function_exists('imagewebp')) { fwrite(STDERR, 'ERROR: imagewebp missing\n'); exit(1); } echo 'PASS: imagewebp enabled\n';"
@@ -40,8 +53,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-# Keep polling requests from blocking checkout or media uploads.
-ENV PHP_CLI_SERVER_WORKERS=2
+# Requests served at the same time (menu screens, cashiers and stations poll);
+# 2 made every click wait behind the polls.
+ENV PHP_CLI_SERVER_WORKERS=8
 
 COPY composer.json composer.lock ./
 

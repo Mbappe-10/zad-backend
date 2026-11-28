@@ -103,6 +103,8 @@ return [
             // send plain queries, so schema changes never break live traffic.
             'options' => extension_loaded('pdo_pgsql') ? [
                 PDO::ATTR_EMULATE_PREPARES => (bool) env('DB_EMULATE_PREPARES', true),
+                // Reuse the connection between requests: no new TLS handshake to Neon per click.
+                PDO::ATTR_PERSISTENT => (bool) env('DB_PERSISTENT', true),
             ] : [],
         ],
 

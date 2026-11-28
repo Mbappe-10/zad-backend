@@ -424,13 +424,21 @@ class CashierStaffService
             ];
         }
         $cash = round((float) $receipts->where('payment_method', 'cash')->sum('total'), 2);
+        $returns = \Illuminate\Support\Facades\Schema::hasColumn('sale_returns', 'cashier_shift_id')
+            ? \App\Models\SaleReturn::query()->where('cashier_shift_id', $shift->id)->get(['refund_method', 'total'])
+            : collect();
+        $cashReturns = round((float) $returns->where('refund_method', 'cash')->sum('total'), 2);
 
         return [
             'sales_count' => $receipts->count(),
             'sales_total' => round((float) $receipts->sum('total'), 2),
             'discounts' => round((float) $receipts->sum('discount'), 2),
             'cash_sales' => $cash,
-            'expected_cash' => round((float) $shift->opening_cash + $cash, 2),
+            'returns_count' => $returns->count(),
+            'returns_total' => round((float) $returns->sum('total'), 2),
+            'cash_returns' => $cashReturns,
+            // Cash given back during the shift leaves the drawer.
+            'expected_cash' => round((float) $shift->opening_cash + $cash - $cashReturns, 2),
             'methods' => $methods,
         ];
     }

@@ -261,7 +261,8 @@ class CashierSupplyService
             ? CashierBranch::query()->where('store_id', $store->id)->findOrFail($data['branch_id'])
             : null;
 
-        $purchase = DB::transaction(function () use ($store, $data, $by, $auto, $supplier, $branch): CashierPurchase {
+        // One transaction: if receiving or the payment fails, nothing is kept.
+        return DB::transaction(function () use ($store, $data, $by, $auto, $supplier, $branch): CashierPurchase {
             Store::query()->whereKey($store->id)->lockForUpdate()->first();
             $count = CashierPurchase::query()->where('store_id', $store->id)->count();
             $purchase = CashierPurchase::query()->create([
@@ -271,19 +272,15 @@ class CashierSupplyService
                 'due_date' => $data['due_date'] ?? null, 'note' => $data['note'] ?? null, 'created_by' => $by,
             ]);
             $this->fillItems($store, $purchase, $data['items'], (string) ($data['vat_mode'] ?? 'none'));
-
-            return $purchase;
-        });
-
-        if (! empty($data['receive'])) {
-            $purchase = $this->receive($store, $purchase);
-            if (! empty($data['paid_now']) && $data['paid_now'] > 0) {
-                $this->pay($store, $supplier, (float) $data['paid_now'], (string) ($data['method'] ?? 'cash'), null, $by, $purchase);
-                $purchase->refresh();
+            if (! empty($data['receive'])) {
+                $purchase = $this->receive($store, $purchase);
+                if (! empty($data['paid_now']) && $data['paid_now'] > 0) {
+                    $this->pay($store, $supplier, (float) $data['paid_now'], (string) ($data['method'] ?? 'cash'), null, $by, $purchase);
+                }
             }
-        }
 
-        return $purchase->fresh('items');
+            return $purchase->fresh('items');
+        });
     }
 
     public function updateDraft(Store $store, CashierPurchase $purchase, array $data): CashierPurchase
@@ -466,18 +463,18 @@ class CashierSupplyService
             $rows[] = ['key' => $key, 'name' => $this->itemName($store, $key), 'unit' => $this->itemUnit($store, $key), 'quantity' => $qty];
         }
 
-        $transfer = DB::transaction(function () use ($store, $from, $to, $rows, $note, $by, $auto): CashierTransfer {
+        // One transaction: a transfer that cannot be carried out leaves nothing behind.
+        return DB::transaction(function () use ($store, $from, $to, $rows, $note, $by, $auto, $complete): CashierTransfer {
             Store::query()->whereKey($store->id)->lockForUpdate()->first();
             $count = CashierTransfer::query()->where('store_id', $store->id)->count();
-
-            return CashierTransfer::query()->create([
+            $transfer = CashierTransfer::query()->create([
                 'store_id' => $store->id, 'number' => 'TR-'.str_pad((string) ($count + 1), 4, '0', STR_PAD_LEFT),
                 'from_branch_id' => $from->id, 'to_branch_id' => $to->id, 'status' => 'draft', 'auto' => $auto,
                 'items' => $rows, 'note' => $note, 'created_by' => $by,
             ]);
-        });
 
-        return $complete ? $this->completeTransfer($store, $transfer) : $transfer;
+            return $complete ? $this->completeTransfer($store, $transfer) : $transfer;
+        });
     }
 
     /** Move the goods: checks the source still has them, then shifts quantities. Totals do not change. */

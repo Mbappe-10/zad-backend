@@ -82,7 +82,7 @@ class CashierSupplyTest extends TestCase
             ['material_id' => $cups->id, 'quantity' => 100, 'unit_cost' => 0.4],
             ['product_id' => $water->id, 'quantity' => 24, 'unit_cost' => 1],
         ]])->assertCreated()->assertJsonPath('data.status', 'draft')
-            ->assertJsonPath('data.subtotal', 64.0)->assertJsonPath('data.vat', 9.6)->assertJsonPath('data.total', 73.6)->json('data');
+            ->assertJsonPath('data.subtotal', 64)->assertJsonPath('data.vat', 9.6)->assertJsonPath('data.total', 73.6)->json('data');
         $this->assertEqualsWithDelta(100, $cups->fresh()->quantity, 0.001);
 
         $received = $this->postJson(self::API."/purchases/{$po['id']}/receive")->assertOk()
@@ -97,7 +97,7 @@ class CashierSupplyTest extends TestCase
         // A second invoice, received and partly paid on the spot.
         $this->postJson(self::API.'/purchases', ['supplier_id' => $supplier, 'receive' => true, 'paid_now' => 10, 'method' => 'cash',
             'items' => [['material_id' => $cups->id, 'quantity' => 50, 'unit_cost' => 0.4]]])
-            ->assertCreated()->assertJsonPath('data.payment_status', 'partial')->assertJsonPath('data.remaining', 10.0);
+            ->assertCreated()->assertJsonPath('data.payment_status', 'partial')->assertJsonPath('data.remaining', 10);
 
         // Paying the supplier settles the oldest invoice first; more than owed is refused.
         $this->postJson(self::API."/suppliers/{$supplier}/payments", ['amount' => 100, 'method' => 'transfer'])->assertStatus(422);
@@ -134,6 +134,7 @@ class CashierSupplyTest extends TestCase
 
         $this->postJson(self::API.'/transfers', ['from_branch_id' => $main, 'to_branch_id' => $stall,
             'items' => [['key' => $key, 'quantity' => 60]]])->assertStatus(422);
+        $this->assertSame(0, CashierTransfer::query()->count()); // a refused transfer leaves nothing behind
         $this->postJson(self::API.'/transfers', ['from_branch_id' => $main, 'to_branch_id' => $stall,
             'items' => [['key' => $key, 'quantity' => 12]]])->assertCreated()->assertJsonPath('data.status', 'done');
         $stallItems = collect($this->getJson(self::API."/branches/{$stall}/stock")->assertOk()->json('data.items'))->keyBy('key');

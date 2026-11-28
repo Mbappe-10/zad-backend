@@ -23,6 +23,8 @@ class SaleReceipt extends Model
             'delivery_fee' => 'decimal:2',
             'discount' => 'decimal:2',
             'total' => 'decimal:2',
+            'vat_rate' => 'decimal:2',
+            'vat_amount' => 'decimal:2',
             'issued_at' => 'datetime',
             'opened_at' => 'datetime',
         ];

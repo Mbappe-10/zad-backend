@@ -42,6 +42,9 @@ class CashierZadController extends Controller
             'available_for.*' => ['in:free,silver,gold'],
             'cashier_only_limit' => ['sometimes', 'integer', 'between:0,10000'],
             'staff_limit' => ['sometimes', 'integer', 'between:0,100'],
+            'trial_enabled' => ['sometimes', 'boolean'],
+            'trial_days' => ['sometimes', 'integer', 'between:0,60'],
+            'compare_at_price' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100000'],
             'screens_limit' => ['sometimes', 'integer', 'between:0,50'],
             'basic_for' => ['sometimes', 'array'],
             'basic_for.*' => ['in:free,silver,gold'],
@@ -69,7 +72,7 @@ class CashierZadController extends Controller
             if (array_key_exists('cashier_only_limit', $data)) {
                 $caps['cashier_only_limit'] = $data['cashier_only_limit'];
             }
-            foreach (['staff_limit', 'screens_limit'] as $key) {
+            foreach (['staff_limit', 'screens_limit', 'trial_enabled', 'trial_days', 'compare_at_price'] as $key) {
                 if (array_key_exists($key, $data)) {
                     $caps[$key] = $data[$key];
                 }

@@ -187,7 +187,7 @@ class CashierStaffService
 
     public function update(CashierStaff $staff, array $data): CashierStaff
     {
-        $fill = array_intersect_key($data, array_flip(['name', 'active', 'max_discount_percent']));
+        $fill = array_intersect_key($data, array_flip(['name', 'active', 'max_discount_percent', 'rating', 'rating_note']));
         if (! $staff->isOwner() && isset($data['role'])) {
             $fill['role'] = $data['role'];
         }
@@ -516,6 +516,8 @@ class CashierStaffService
             'linked_account' => $s->user_id !== null,
             'active' => (bool) $s->active,
             'last_seen_at' => $s->last_seen_at?->toISOString(),
+            'rating' => $s->rating ?? null,
+            'rating_note' => $s->rating_note ?? null,
             'invite' => $invite ? ['code' => $invite->code, 'expires_at' => $invite->expires_at->toISOString()] : null,
         ];
     }

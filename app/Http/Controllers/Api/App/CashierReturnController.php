@@ -67,13 +67,27 @@ class CashierReturnController extends Controller
             'refund_method' => ['required', 'in:'.implode(',', SaleReturnService::REFUND_METHODS)],
             'restock' => ['sometimes', 'boolean'],
         ], ['reason.required' => 'اكتب سبب المرتجع.']);
+        $shift = $this->staff->openShift($ctx);
+        abort_if($shift === null && ! $ctx->isOwner(), 422, 'افتح الوردية أول.');
         $return = $this->returns->create($receipt, $data['lines'], $data['reason'], $data['refund_method'], (bool) ($data['restock'] ?? false),
-            $ctx->staff ? ['cashier_staff_id' => $ctx->staff->id, 'staff_name' => $ctx->staff->name] : []);
+            $ctx->staff ? ['cashier_staff_id' => $ctx->staff->id, 'staff_name' => $ctx->staff->name,
+                'cashier_shift_id' => $shift?->id, 'cashier_device_id' => $ctx->device?->id] : []);
 
         return response()->json([
             'message' => (float) $return->vat_amount > 0 ? 'تم المرتجع وإصدار إشعار دائن.' : 'تم تسجيل المرتجع.',
             'data' => $this->returns->payload($return),
         ], 201);
+    }
+
+    /** Owner (or reports permission): returns by employee, so any shortage is traced to who gave money back. */
+    public function report(Request $request): JsonResponse
+    {
+        $ctx = $this->staff->resolve($request);
+        abort_unless($this->returns->ready(), 503, 'الخدمة غير جاهزة حالياً.');
+        abort_unless($ctx->can('reports'), 403, 'سجل المرتجعات لصاحب المتجر أو من عنده صلاحية التقارير.');
+        $days = (int) ($request->validate(['days' => ['nullable', 'integer', 'min:1', 'max:365']])['days'] ?? 30);
+
+        return response()->json(['data' => $this->returns->report($ctx->store->id, $days)]);
     }
 
     private function ctx(Request $request): \App\Services\App\CashierContext

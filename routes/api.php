@@ -419,6 +419,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/cashier/zatca/onboard', [\App\Http\Controllers\Api\App\ZatcaController::class, 'onboard'])->middleware('throttle:6,1');
         Route::post('/cashier/zatca/retry', [\App\Http\Controllers\Api\App\ZatcaController::class, 'retry'])->middleware('throttle:10,1');
         Route::get('/cashier/recent-sales', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'recent'])->middleware('throttle:60,1');
+        Route::get('/cashier/returns-report', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'report'])->middleware('throttle:30,1');
         Route::get('/cashier/receipts/{receipt}/returnable', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'returnable'])->whereNumber('receipt');
         Route::post('/cashier/receipts/{receipt}/returns', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'store'])->whereNumber('receipt')->middleware('throttle:30,1');
         Route::get('/cashier/receipt-style', [\App\Http\Controllers\Api\App\ReceiptStyleController::class, 'show']);
@@ -1578,6 +1579,7 @@ $zadCashierShared = function (): void {
     Route::put('/operations-settings', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'saveSettings']);
     Route::post('/sales', [$c, 'sell'])->middleware('throttle:120,1');
     Route::get('/recent-sales', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'recent'])->middleware('throttle:60,1');
+    Route::get('/returns-report', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'report'])->middleware('throttle:30,1');
     Route::get('/receipts/{receipt}/returnable', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'returnable'])->whereNumber('receipt');
     Route::post('/receipts/{receipt}/returns', [\App\Http\Controllers\Api\App\CashierReturnController::class, 'store'])->whereNumber('receipt')->middleware('throttle:30,1');
     Route::get('/display', [$c, 'display'])->middleware('throttle:90,1');

@@ -97,6 +97,10 @@ class SaleReturnService
                 'restocked' => $restock,
                 'cashier_staff_id' => $actor['cashier_staff_id'] ?? null,
                 'staff_name' => $actor['staff_name'] ?? null,
+            ] + (Schema::hasColumn('sale_returns', 'cashier_shift_id') ? [
+                'cashier_shift_id' => $actor['cashier_shift_id'] ?? null,
+                'cashier_device_id' => $actor['cashier_device_id'] ?? null,
+            ] : []) + [
                 'issued_at' => now(),
             ]);
             $return->update(['number' => 'ZS-CN-'.str_pad((string) $return->id, 6, '0', STR_PAD_LEFT)]);
@@ -132,6 +136,7 @@ class SaleReturnService
             'id' => $return->id,
             'number' => $return->number,
             'receipt_id' => $return->sale_receipt_id,
+            'receipt_number' => $return->receipt?->number,
             'items' => $return->items,
             'subtotal' => (float) $return->subtotal,
             'discount' => (float) $return->discount,
@@ -146,6 +151,31 @@ class SaleReturnService
             'is_credit_note' => (float) $return->vat_amount > 0,
             'zatca_status' => $doc?->status,
             'url' => rtrim((string) config('app.url'), '/').'/c/'.$return->public_token,
+        ];
+    }
+
+    /**
+     * The owner's returns log: who gave money back, how much and how, over the last days.
+     * Cash returns of an employee also come off the cash she must hand over at shift close.
+     */
+    public function report(int $storeId, int $days = 30): array
+    {
+        $rows = SaleReturn::query()->with('receipt:id,number')->where('store_id', $storeId)
+            ->where('issued_at', '>=', now()->subDays($days))->latest('id')->get();
+        $byStaff = $rows->groupBy(fn (SaleReturn $r) => $r->staff_name ?: 'المالك')->map(fn ($g, $name) => [
+            'staff_name' => $name,
+            'count' => $g->count(),
+            'total' => round((float) $g->sum('total'), 2),
+            'cash' => round((float) $g->where('refund_method', 'cash')->sum('total'), 2),
+        ])->sortByDesc('total')->values();
+
+        return [
+            'days' => $days,
+            'count' => $rows->count(),
+            'total' => round((float) $rows->sum('total'), 2),
+            'cash' => round((float) $rows->where('refund_method', 'cash')->sum('total'), 2),
+            'by_staff' => $byStaff,
+            'recent' => $rows->take(60)->map(fn (SaleReturn $r) => $this->payload($r))->values(),
         ];
     }
 

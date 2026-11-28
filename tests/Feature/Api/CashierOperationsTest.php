@@ -174,4 +174,36 @@ class CashierOperationsTest extends TestCase
             ->assertCreated()->assertJsonPath('data.status', 'approved');
         $this->flushHeaders();
     }
+
+    public function test_owner_dashboard_compares_with_last_week_and_shows_profit_goal_and_alerts(): void
+    {
+        $p = $this->juice(); // cost 0.2 kg × 4 = 0.8 per bottle
+        $this->getJson('/api/v1/app/family/cashier/owner-dashboard')->assertForbidden();
+        $this->pro();
+        $sell = fn (int $qty, ?string $phone = null) => $this->postJson('/api/v1/app/family/cashier/sales', array_filter([
+            'items' => [['product_id' => $p->id, 'quantity' => $qty]], 'payment_method' => 'cash', 'channel' => 'shop', 'customer_phone' => $phone,
+        ]))->assertCreated();
+
+        $this->travelTo(now('Asia/Riyadh')->setTime(14, 0)->subWeek());
+        $sell(2, '0551234567');
+        $this->travelBack();
+        $this->travelTo(now('Asia/Riyadh')->setTime(14, 30));
+        $sell(4, '0551234567');
+        $this->putJson('/api/v1/app/family/cashier/operations-settings', ['monthly_goal' => 1000])->assertOk();
+        CashierMaterial::query()->where('name', 'بطيخ')->update(['low_alert' => 20]);
+
+        $d = $this->getJson('/api/v1/app/family/cashier/owner-dashboard')->assertOk()->json('data');
+        $this->assertEquals(100, $d['today']['total']);
+        $this->assertEquals(50, $d['today']['last_week_total']);
+        $this->assertSame(100, $d['today']['vs_last_week_pct']);
+        $this->assertEqualsWithDelta(96.8, $d['today']['profit'], 0.01);
+        $this->assertSame(100, $d['today']['profit_coverage_pct']);
+        $this->assertSame('حبحبوه', $d['top_products'][0]['name']);
+        $this->assertSame(1, $d['returning']['returning']);
+        $this->assertEquals(1000, $d['month']['goal']);
+        $this->assertNotEmpty($d['insights']);
+        $this->assertSame('materials', $d['alerts'][0]['kind']);
+        $this->assertCount(24, $d['hours']['by_hour']);
+        $this->travelBack();
+    }
 }

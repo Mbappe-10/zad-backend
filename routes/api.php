@@ -413,6 +413,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/cashier/shift/close', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'closeShift'])->middleware('throttle:20,1');
         Route::get('/cashier', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'status']);
         Route::post('/cashier/launch-offer', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'claimLaunchOffer'])->middleware('throttle:5,1');
+        Route::get('/cashier/owner-dashboard', \App\Http\Controllers\Api\App\OwnerDashboardController::class)->middleware('throttle:60,1');
         Route::get('/cashier/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'index']);
         Route::post('/cashier/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'store'])->middleware('throttle:60,1');
         Route::get('/cashier/batches/live', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'live'])->middleware('throttle:240,1');
@@ -1557,6 +1558,7 @@ $zadCashierShared = function (): void {
     $c = \App\Http\Controllers\Api\App\FamilyCashierController::class;
     Route::get('/', [$c, 'status']);
     Route::get('/products', [$c, 'products']);
+    Route::get('/owner-dashboard', \App\Http\Controllers\Api\App\OwnerDashboardController::class)->middleware('throttle:60,1');
     Route::get('/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'index']);
     Route::post('/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'store'])->middleware('throttle:60,1');
     Route::get('/batches/live', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'live'])->middleware('throttle:240,1');

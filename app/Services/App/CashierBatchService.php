@@ -34,12 +34,13 @@ class CashierBatchService
 
     public function settings(Store $store): array
     {
-        $row = Schema::hasTable('cashier_store_settings')
+        $row = $this->ready() && Schema::hasTable('cashier_store_settings')
             ? DB::table('cashier_store_settings')->where('store_id', $store->id)->value('settings') : null;
         $saved = is_string($row) ? (json_decode($row, true) ?: []) : [];
 
         return [
             'photos_enabled' => (bool) ($saved['photos_enabled'] ?? false),
+            'monthly_goal' => isset($saved['monthly_goal']) ? (float) $saved['monthly_goal'] : null,
             'photos_this_month' => $this->ready() ? CashierBatch::query()->where('store_id', $store->id)
                 ->whereNotNull('photo_path')->where('created_at', '>=', now()->startOfMonth())->count() : 0,
             'photo_monthly_limit' => self::PHOTO_MONTHLY_LIMIT,
@@ -51,7 +52,10 @@ class CashierBatchService
     public function saveSettings(Store $store, array $data): array
     {
         $current = $this->settings($store);
-        $settings = ['photos_enabled' => (bool) ($data['photos_enabled'] ?? $current['photos_enabled'])];
+        $settings = [
+            'photos_enabled' => (bool) ($data['photos_enabled'] ?? $current['photos_enabled']),
+            'monthly_goal' => array_key_exists('monthly_goal', $data) ? ($data['monthly_goal'] === null ? null : (float) $data['monthly_goal']) : $current['monthly_goal'],
+        ];
         DB::table('cashier_store_settings')->updateOrInsert(
             ['store_id' => $store->id],
             ['settings' => json_encode($settings), 'updated_at' => now(), 'created_at' => now()],

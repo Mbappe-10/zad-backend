@@ -58,6 +58,13 @@ class CashierInventoryTest extends TestCase
     public function test_tracked_stock_shows_to_customers_and_every_paid_sale_takes_from_it(): void
     {
         $p = $this->product('حبحبوه', 25);
+        // A normal (gold) store has no quantities: products are just on or off.
+        $this->patchJson("/api/v1/app/family/cashier/products/{$p->id}/stock", ['stock_quantity' => 6])->assertForbidden();
+        // Items not in the store need Pro.
+        $this->postJson('/api/v1/app/family/cashier/sales', ['items' => [['name' => 'ثلج', 'unit_price' => 2, 'quantity' => 1]], 'payment_method' => 'cash', 'channel' => 'shop'])
+            ->assertStatus(422);
+        $grant = FamilyCashierGrant::query()->create(['productive_family_id' => $this->family->id, 'source' => 'owner_grant',
+            'starts_at' => now()->subMinute(), 'ends_at' => now()->addDays(5)]);
         $this->patchJson("/api/v1/app/family/cashier/products/{$p->id}/stock", ['stock_quantity' => 6])
             ->assertOk()->assertJsonPath('data.stock', 6)->assertJsonPath('data.track_stock', true);
         $catalog = $this->getJson("/api/v1/app/stores/{$this->store->id}/products")->assertOk()->json('products');
@@ -68,9 +75,6 @@ class CashierInventoryTest extends TestCase
         $this->assertSame(4, $p->fresh()->stock_quantity);
         $this->postJson('/api/v1/app/family/cashier/sales', ['items' => [['product_id' => $p->id, 'quantity' => 5]], 'payment_method' => 'cash', 'channel' => 'shop'])
             ->assertStatus(422)->assertJsonPath('message', 'باقي 4 فقط من حبحبوه.');
-        // Items not in the store need Pro.
-        $this->postJson('/api/v1/app/family/cashier/sales', ['items' => [['name' => 'ثلج', 'unit_price' => 2, 'quantity' => 1]], 'payment_method' => 'cash', 'channel' => 'shop'])
-            ->assertStatus(422);
 
         // A paid online order takes its items too, once.
         $orderId = DB::table('orders')->insertGetId([
@@ -83,6 +87,14 @@ class CashierInventoryTest extends TestCase
         $order->update(['payment_status' => Order::PAYMENT_PAID]);
         $order->update(['status' => 'preparing']);
         $this->assertSame(1, $p->fresh()->stock_quantity);
+
+        // Pro ended: the quantity is kept but frozen; nothing is blocked or taken.
+        $grant->update(['ends_at' => now()->subMinute()]);
+        $this->assertNull(collect($this->getJson("/api/v1/app/stores/{$this->store->id}/products")->json('products'))->firstWhere('id', $p->id)['stock_left']);
+        $this->postJson('/api/v1/app/family/cashier/sales', ['items' => [['product_id' => $p->id, 'quantity' => 5]], 'payment_method' => 'cash', 'channel' => 'shop'])
+            ->assertCreated();
+        $this->assertSame(1, $p->fresh()->stock_quantity);
+        $this->assertTrue((bool) $p->fresh()->track_stock);
     }
 
     public function test_cashier_only_products_are_hidden_online_and_outside_the_plan_limit(): void

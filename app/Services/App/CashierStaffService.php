@@ -32,13 +32,14 @@ class CashierStaffService
         'packaging' => 'تجهيز الطلبات والتغليف',
         'inventory' => 'متابعة المخزون والكميات',
         'reports' => 'الأرباح والتقارير',
+        'approve' => 'اعتماد دفعات التغليف',
     ];
 
     public const ROLES = [
         'cashier' => ['label' => 'كاشير', 'permissions' => ['sell']],
         'packaging' => ['label' => 'تغليف', 'permissions' => ['packaging']],
         'inventory' => ['label' => 'متابعة مخزون', 'permissions' => ['inventory']],
-        'supervisor' => ['label' => 'مشرفة', 'permissions' => ['sell', 'discount', 'refund', 'packaging', 'inventory', 'reports']],
+        'supervisor' => ['label' => 'مشرفة', 'permissions' => ['sell', 'discount', 'refund', 'packaging', 'inventory', 'reports', 'approve']],
     ];
 
     public const COLORS = ['#FF7900', '#1D7A45', '#5B3FD1', '#0E7C86', '#D6457A', '#C99A2E', '#3B5BDB', '#8C5A3C'];
@@ -177,6 +178,7 @@ class CashierStaffService
                 'permissions' => $this->cleanPermissions($data['permissions'] ?? self::ROLES[$data['role']]['permissions']),
                 'max_discount_percent' => (int) ($data['max_discount_percent'] ?? 0),
                 'pin_hash' => Hash::make($data['pin']),
+                ...(array_key_exists('approval_required', $data) ? ['approval_required' => (bool) $data['approval_required']] : []),
                 'color' => self::COLORS[$this->employeeCount($store) % count(self::COLORS)],
                 'active' => true,
             ]);
@@ -187,7 +189,7 @@ class CashierStaffService
 
     public function update(CashierStaff $staff, array $data): CashierStaff
     {
-        $fill = array_intersect_key($data, array_flip(['name', 'active', 'max_discount_percent', 'rating', 'rating_note']));
+        $fill = array_intersect_key($data, array_flip(['name', 'active', 'max_discount_percent', 'rating', 'rating_note', 'approval_required']));
         if (! $staff->isOwner() && isset($data['role'])) {
             $fill['role'] = $data['role'];
         }
@@ -518,6 +520,7 @@ class CashierStaffService
             'last_seen_at' => $s->last_seen_at?->toISOString(),
             'rating' => $s->rating ?? null,
             'rating_note' => $s->rating_note ?? null,
+            'approval_required' => (bool) ($s->approval_required ?? false),
             'invite' => $invite ? ['code' => $invite->code, 'expires_at' => $invite->expires_at->toISOString()] : null,
         ];
     }

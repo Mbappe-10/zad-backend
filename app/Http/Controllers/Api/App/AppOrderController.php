@@ -181,9 +181,10 @@ class AppOrderController extends Controller
         foreach ($data['items'] as $item) {
             $wanted[(int) $item['product_id']] = ($wanted[(int) $item['product_id']] ?? 0) + (int) $item['quantity'];
         }
+        $stockLive = app(\App\Services\App\CashierInventoryService::class)->active(\App\Models\Store::query()->find($products->first()?->store_id));
         foreach ($wanted as $productId => $quantity) {
             $stocked = $products[$productId] ?? null;
-            if ($stocked && $stocked->track_stock && $quantity > (int) $stocked->stock_quantity) {
+            if ($stockLive && $stocked && $stocked->track_stock && $quantity > (int) $stocked->stock_quantity) {
                 throw ValidationException::withMessages([
                     'items' => [(int) $stocked->stock_quantity > 0
                         ? 'باقي '.(int) $stocked->stock_quantity.' فقط من '.$stocked->name_ar.'.'

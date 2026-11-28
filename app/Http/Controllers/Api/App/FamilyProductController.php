@@ -85,7 +85,7 @@ class FamilyProductController extends Controller
         $cashierOnly = $request->boolean('cashier_only') && Product::hasCashierColumns();
         if ($cashierOnly) {
             $features = app(\App\Services\App\CashierZadService::class)->entitlement($store->productiveFamily)['features'];
-            abort_unless(! empty($features['inventory']), 403, 'منتجات الكاشير فقط متاحة مع كاشير زاد.');
+            abort_unless(! empty($features['quick_sale']), 403, 'منتجات الكاشير فقط متاحة مع كاشير زاد.');
         }
 
         $product = DB::transaction(

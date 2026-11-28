@@ -115,10 +115,11 @@ class FamilyCashierController extends Controller
             abort_unless($this->cashier->entitlement($store->productiveFamily)['tier'] === 'pro', 422,
                 'أضيفي المنتج في متجرك على زاد سينك عشان يطلع لك هنا.');
         }
+        $stockLive = app(\App\Services\App\CashierInventoryService::class)->active($store);
         foreach (collect($data['items'])->groupBy('product_id') as $productId => $lines) {
             $product = $productId ? $products->get((int) $productId) : null;
             $wanted = (int) $lines->sum('quantity');
-            if ($product && $product->track_stock && $wanted > (int) $product->stock_quantity) {
+            if ($stockLive && $product && $product->track_stock && $wanted > (int) $product->stock_quantity) {
                 abort(422, (int) $product->stock_quantity > 0
                     ? 'باقي '.(int) $product->stock_quantity.' فقط من '.$product->name_ar.'.'
                     : 'نفذت كمية '.$product->name_ar.'.');
@@ -237,7 +238,8 @@ class FamilyCashierController extends Controller
     public function updateStock(Request $request, Product $product): JsonResponse
     {
         $store = $this->store($request);
-        $this->requireFeature($store, 'inventory');
+        // Quantities are Pro; keeping a product in the cashier only is not.
+        $this->requireFeature($store, $request->hasAny(['track_stock', 'stock_quantity']) ? 'inventory' : 'quick_sale');
         abort_unless($product->store_id === $store->id, 404);
         $data = $request->validate([
             'track_stock' => ['sometimes', 'boolean'],

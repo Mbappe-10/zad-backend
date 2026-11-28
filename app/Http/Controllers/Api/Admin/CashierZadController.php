@@ -46,6 +46,7 @@ class CashierZadController extends Controller
             'trial_days' => ['sometimes', 'integer', 'between:0,60'],
             'compare_at_price' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100000'],
             'screens_limit' => ['sometimes', 'integer', 'between:0,50'],
+            'media_retention_days' => ['sometimes', 'integer', 'between:1,365'],
             'basic_for' => ['sometimes', 'array'],
             'basic_for.*' => ['in:free,silver,gold'],
             'features' => ['sometimes', 'array'],
@@ -72,7 +73,7 @@ class CashierZadController extends Controller
             if (array_key_exists('cashier_only_limit', $data)) {
                 $caps['cashier_only_limit'] = $data['cashier_only_limit'];
             }
-            foreach (['staff_limit', 'screens_limit', 'trial_enabled', 'trial_days', 'compare_at_price'] as $key) {
+            foreach (['staff_limit', 'screens_limit', 'trial_enabled', 'trial_days', 'compare_at_price', 'media_retention_days'] as $key) {
                 if (array_key_exists($key, $data)) {
                     $caps[$key] = $data[$key];
                 }
@@ -183,6 +184,16 @@ class CashierZadController extends Controller
         $grant->update(['revoked_at' => now(), 'revoked_by' => $request->user()->id, 'revocation_reason' => $data['reason']]);
 
         return response()->json(['message' => 'تم سحب كاشير زاد برو.']);
+    }
+
+    /** Deletes packaging photos older than N months for every store (records are kept). */
+    public function purgeMedia(Request $request): JsonResponse
+    {
+        $this->owner($request);
+        $data = $request->validate(['older_than_months' => ['required', 'integer', 'between:0,36']]);
+        $count = app(\App\Services\App\CashierBatchService::class)->purgePhotos((int) $data['older_than_months'] * 30);
+
+        return response()->json(['message' => "انحذفت {$count} صورة.", 'data' => ['deleted' => $count]]);
     }
 
     private function owner(Request $request): void

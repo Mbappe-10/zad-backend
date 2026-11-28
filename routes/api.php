@@ -240,6 +240,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/admin/sale-receipts/{receipt}/pdf', [\App\Http\Controllers\Api\Receipts\AdminSaleReceiptController::class, 'pdf'])->whereNumber('receipt')->middleware('permission:orders.view');
     Route::get('/admin/cashier-zad/settings', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'settings']);
     Route::patch('/admin/cashier-zad/settings', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'updateSettings']);
+    Route::post('/admin/cashier-zad/purge-media', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'purgeMedia'])->middleware('throttle:10,1');
     Route::get('/admin/cashier-zad/subscribers', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'subscribers']);
     Route::post('/admin/cashier-zad/grants', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'grant'])->middleware('throttle:20,1');
     Route::post('/admin/cashier-zad/grants/{grant}/revoke', [\App\Http\Controllers\Api\Admin\CashierZadController::class, 'revoke'])->whereNumber('grant')->middleware('throttle:20,1');
@@ -412,6 +413,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/cashier/shift/close', [\App\Http\Controllers\Api\App\CashierStaffController::class, 'closeShift'])->middleware('throttle:20,1');
         Route::get('/cashier', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'status']);
         Route::post('/cashier/launch-offer', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'claimLaunchOffer'])->middleware('throttle:5,1');
+        Route::get('/cashier/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'index']);
+        Route::post('/cashier/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'store'])->middleware('throttle:60,1');
+        Route::get('/cashier/batches/live', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'live'])->middleware('throttle:240,1');
+        Route::post('/cashier/batches/{batch}/approve', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'approve'])->whereNumber('batch');
+        Route::post('/cashier/batches/{batch}/reject', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'reject'])->whereNumber('batch');
+        Route::get('/cashier/batches/{batch}/photo', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'photo'])->whereNumber('batch');
+        Route::get('/cashier/operations-settings', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'settings']);
+        Route::put('/cashier/operations-settings', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'saveSettings']);
         Route::post('/cashier/sales', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'sell'])->middleware('throttle:120,1');
         Route::get('/cashier/display', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'display'])->middleware('throttle:90,1');
         Route::get('/cashier/day', [\App\Http\Controllers\Api\App\FamilyCashierController::class, 'day']);
@@ -1548,6 +1557,14 @@ $zadCashierShared = function (): void {
     $c = \App\Http\Controllers\Api\App\FamilyCashierController::class;
     Route::get('/', [$c, 'status']);
     Route::get('/products', [$c, 'products']);
+    Route::get('/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'index']);
+    Route::post('/batches', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'store'])->middleware('throttle:60,1');
+    Route::get('/batches/live', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'live'])->middleware('throttle:240,1');
+    Route::post('/batches/{batch}/approve', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'approve'])->whereNumber('batch');
+    Route::post('/batches/{batch}/reject', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'reject'])->whereNumber('batch');
+    Route::get('/batches/{batch}/photo', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'photo'])->whereNumber('batch');
+    Route::get('/operations-settings', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'settings']);
+    Route::put('/operations-settings', [\App\Http\Controllers\Api\App\CashierBatchController::class, 'saveSettings']);
     Route::post('/sales', [$c, 'sell'])->middleware('throttle:120,1');
     Route::get('/display', [$c, 'display'])->middleware('throttle:90,1');
     Route::get('/day', [$c, 'day']);
